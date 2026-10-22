@@ -1,0 +1,24 @@
+{
+  "name": "orelius",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Writing agent for Obsidian.",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && node build.mjs",
+    "check": "node scripts/check.mjs",
+    "check:obsidian": "npm run build && node scripts/check-obsidian.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.17",
+    "esbuild": "0.25.5",
+    "obsidian": "1.14.4",
+    "typescript": "5.9.3"
+  }
+}

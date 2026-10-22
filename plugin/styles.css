@@ -1,0 +1,42 @@
+.orelius-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--size-4-3);
+  gap: var(--size-4-3);
+}
+
+.orelius-chat h4 { margin: 0 0 var(--size-4-2); }
+.orelius-header, .orelius-composer { flex-shrink: 0; }
+.orelius-folder, .orelius-status, .orelius-composer small {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+.orelius-status { padding-block: var(--size-4-2); }
+.orelius-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
+.orelius-messages { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; }
+.orelius-empty { color: var(--text-muted); line-height: var(--line-height-normal); }
+.orelius-message {
+  margin-bottom: var(--size-4-3);
+  padding: var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+}
+.orelius-user { background: var(--background-secondary); }
+.orelius-role { color: var(--text-muted); font-size: var(--font-ui-small); }
+.orelius-message-body { line-height: var(--line-height-normal); user-select: text; }
+.orelius-message-body > :last-child { margin-bottom: 0; }
+.orelius-message-body pre, .orelius-request pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.orelius-activity { border-inline-start: var(--border-width) solid var(--background-modifier-border); }
+.orelius-activity pre { color: var(--text-muted); font-size: var(--font-ui-small); }
+.orelius-file { display: block; max-width: 100%; margin-top: var(--size-4-2); overflow: hidden; text-overflow: ellipsis; }
+.orelius-composer label, .orelius-request label { display: block; }
+.orelius-composer textarea { width: 100%; resize: vertical; min-height: 6em; margin-block: var(--size-4-2); }
+.orelius-composer small { display: block; margin-top: var(--size-4-2); }
+.orelius-error { color: var(--text-error); white-space: pre-wrap; overflow-wrap: anywhere; }
+.orelius-error:empty { display: none; }
+.orelius-requests { max-height: 40%; overflow-y: auto; flex-shrink: 0; }
+.orelius-requests:empty { display: none; }
+.orelius-request { padding: var(--size-4-3); border: var(--border-width) solid var(--background-modifier-border); border-radius: var(--radius-m); }
+.orelius-request input { display: block; width: 100%; margin-block: var(--size-4-2); }

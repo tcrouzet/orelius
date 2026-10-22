@@ -1,0 +1,10 @@
+{
+  "id": "orelius",
+  "name": "Orelius",
+  "version": "0.1.0",
+  "minAppVersion": "1.6.0",
+  "description": "Discuter avec Codex depuis un panneau latéral dans Obsidian.",
+  "author": "Thierry Crouzet",
+  "authorUrl": "https://tcrouzet.com",
+  "isDesktopOnly": true
+}
