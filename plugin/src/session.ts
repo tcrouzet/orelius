@@ -1,17 +1,24 @@
 import { realpath } from "node:fs/promises";
 import { archiveChanges } from "./archives.ts";
 import { DEFAULT_PROJECT_FOLDERS, type ProjectFolders } from "./settings.ts";
+import { contextRemaining, modelOptions, type ModelOption } from "./models.ts";
+import { ProjectMcp } from "./mcp.ts";
+import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { CodexClient, errorText, findCodex, object, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
+import type { ConversationTurn } from "./conversation.ts";
+import { revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
 
 export interface ChatItem {
   id: string;
   role: "user" | "assistant" | "activity";
   text: string;
   paths: string[];
+  phase?: string;
 }
 
 interface SessionContext extends ProjectFolders {
   agentInstructions?: string;
+  checkEditor?: (path: string, content: string) => void;
 }
 
 export class ChatSession {
@@ -21,34 +28,51 @@ export class ChatSession {
   busy = false;
   connected = false;
   threadId = "";
+  models: ModelOption[] = [];
+  model = "";
+  contextRemaining: number | null = null;
   private turnId = "";
+  private interrupting = false;
   private client: CodexClient | null = null;
+  private files: ProjectMcp | null = null;
   private generation = 0;
   private operation = 0;
-  private patches = new Map<string, unknown>();
+  private recording = Promise.resolve();
+  private closing = Promise.resolve();
+  private revision: RevisionPlan | null = null;
+  private protections: RevisionPlan[] = [];
 
   private readonly changed: () => void;
   private readonly remember: (threadId: string, cwd: string) => Promise<void>;
   private readonly archive: typeof archiveChanges;
   private readonly context: () => SessionContext;
+  private readonly written: (cwd: string, changes: unknown, highlight?: RevisionHighlight) => Promise<void>;
+  private readonly conversation?: (cwd: string, threadId: string, turns: ConversationTurn[]) => Promise<void>;
+
+  get running(): boolean { return this.connected && this.busy && Boolean(this.turnId) && !this.interrupting; }
 
   constructor(changed: () => void, remember: (threadId: string, cwd: string) => Promise<void>,
-    archive: typeof archiveChanges = archiveChanges, context: () => SessionContext = () => DEFAULT_PROJECT_FOLDERS) {
+    archive: typeof archiveChanges = archiveChanges, context: () => SessionContext = () => DEFAULT_PROJECT_FOLDERS,
+    written: (cwd: string, changes: unknown, highlight?: RevisionHighlight) => Promise<void> = async () => {},
+    conversation?: (cwd: string, threadId: string, turns: ConversationTurn[]) => Promise<void>) {
     this.changed = changed;
     this.remember = remember;
     this.archive = archive;
     this.context = context;
+    this.written = written;
+    this.conversation = conversation;
   }
 
-  async connect(executable: string, cwd: string, savedThreadId: string): Promise<void> {
+  async connect(executable: string, cwd: string, savedThreadId: string, model?: string): Promise<void> {
     if (this.busy) throw new Error("Attendez la fin de la tâche ou utilisez Arrêter.");
+    if (model !== undefined && !this.models.some(option => option.model === model)) throw new Error("Choisissez un modèle proposé par Codex.");
     const operation = ++this.operation;
     this.busy = true;
     this.status = "Connexion à Codex…";
     this.changed();
     try {
-      await this.initialize(executable, cwd, savedThreadId);
-      if (operation === this.operation) this.status = "Prêt";
+      await this.initialize(executable, cwd, savedThreadId, false, model);
+      if (operation === this.operation) this.status = "";
     } catch (error) {
       if (operation === this.operation) this.disconnect(errorText(error));
       throw error;
@@ -60,20 +84,27 @@ export class ChatSession {
     }
   }
 
-  async send(text: string, executable: string, cwd: string, savedThreadId: string): Promise<void> {
-    if (this.busy || !text.trim()) return;
+  async send(text: string, executable: string, cwd: string, savedThreadId: string, revision?: RevisionPlan, protections: RevisionPlan[] = []): Promise<void> {
+    if (!text.trim()) return;
+    if (this.busy) {
+      if (revision) throw new Error("Attendez la fin de la tâche avant une révision ciblée.");
+      await this.steer(text);
+      return;
+    }
     const operation = ++this.operation;
     this.busy = true;
     this.status = "Codex travaille…";
     this.changed();
     try {
       if (!this.connected || !this.threadId) await this.initialize(executable, cwd, savedThreadId, true);
+      this.revision = revision ?? null;
+      this.protections = revision ? [revision, ...protections] : protections;
       const client = this.client;
       if (!client) throw new Error("Connexion Codex interrompue.");
       const result = await client.request("turn/start", {
         threadId: this.threadId,
         input: [{ type: "text", text, text_elements: [] }],
-        cwd, approvalPolicy: "on-request", approvalsReviewer: "user",
+        cwd, approvalPolicy: "never", approvalsReviewer: "user",
         sandboxPolicy: { type: "readOnly", networkAccess: false },
       });
       if (operation === this.operation && this.busy) this.turnId = String(object(result.turn).id ?? "");
@@ -84,6 +115,23 @@ export class ChatSession {
     }
   }
 
+  async steer(text: string): Promise<void> {
+    if (!text.trim()) return;
+    const client = this.client;
+    const generation = this.generation;
+    const turnId = this.turnId;
+    if (!client || !this.running) throw new Error("Aucune tâche active ne peut recevoir cette consigne. Votre message est conservé.");
+    const result = await client.request("turn/steer", { threadId: this.threadId, expectedTurnId: turnId,
+      input: [{ type: "text", text, text_elements: [] }] });
+    if (generation !== this.generation) throw new Error("Connexion interrompue pendant l’envoi. Vérifiez l’historique avant de renvoyer la consigne.");
+    if (result.turnId !== turnId) {
+      this.disconnect("Codex n’a pas confirmé la tâche destinataire de la consigne.");
+      throw new Error(this.status);
+    }
+    this.upsert({ id: `steer-${turnId}-${Date.now()}`, role: "activity", text: "Consigne transmise à la tâche en cours", paths: [] });
+    this.changed();
+  }
+
   async interrupt(): Promise<void> {
     if (!this.busy) return;
     const operation = this.operation;
@@ -91,6 +139,7 @@ export class ChatSession {
       this.disconnect("Connexion interrompue. Vous pouvez reprendre la conversation.");
       return;
     }
+    this.interrupting = true;
     this.status = "Interruption…";
     this.changed();
     try {
@@ -110,18 +159,25 @@ export class ChatSession {
     this.changed();
   }
 
-  disconnect(status = "Déconnecté"): void {
+  disconnect(status = "Déconnecté"): Promise<void> {
     this.operation++;
     this.generation++;
-    this.client?.stop();
+    this.closing = Promise.all([this.closing, this.client?.stop(), this.files?.stop(), this.recording.catch(() => {})]).then(() => {});
     this.client = null;
+    this.files = null;
     this.connected = false;
     this.busy = false;
     this.turnId = "";
+    this.interrupting = false;
+    this.revision = null;
+    this.protections = [];
     this.requests = [];
-    this.patches.clear();
+    this.models = [];
+    this.model = "";
+    this.contextRemaining = null;
     this.status = status;
     this.changed();
+    return this.closing;
   }
 
   async newConversation(): Promise<void> {
@@ -130,18 +186,30 @@ export class ChatSession {
     this.changed();
     try { await this.remember("", ""); }
     catch (error) { this.busy = false; this.changed(); throw error; }
+    const model = this.model;
     this.disconnect();
+    this.model = model;
     this.threadId = "";
     this.items = [];
     this.changed();
   }
 
-  private async initialize(executable: string, cwd: string, savedThreadId: string, createThread = false): Promise<void> {
+  private async initialize(executable: string, cwd: string, savedThreadId: string, createThread = false, selectedModel?: string): Promise<void> {
     const generation = ++this.generation;
-    this.client?.stop();
+    const requestedModel = selectedModel ?? (!savedThreadId ? this.model || undefined : undefined);
+    let pendingUsage: unknown = null;
+    await Promise.all([this.client?.stop(), this.files?.stop(), this.closing, this.recording.catch(() => {})]);
+    if (generation !== this.generation) throw new Error("Connexion interrompue.");
+    this.files = null;
+    this.recording = Promise.resolve();
     const client = new CodexClient({
       notification: (method, params) => {
-        if (generation === this.generation) this.notification(method, params);
+        if (generation === this.generation && method === "thread/tokenUsage/updated" && params.threadId === savedThreadId && savedThreadId) {
+          pendingUsage = params.tokenUsage;
+        }
+        if (generation === this.generation) void this.notification(method, params, cwd).catch(error => {
+          if (generation === this.generation) this.disconnect(errorText(error));
+        });
       },
       request: request => {
         if (generation !== this.generation) return;
@@ -149,42 +217,17 @@ export class ChatSession {
           client.rejectRequest(request.id);
           return;
         }
-        if (request.method === "item/fileChange/requestApproval") {
-          const changes = this.patches.get(String(request.params.itemId));
-          void (async () => {
-            let decision = "decline";
-            try {
-              if (!this.busy || !this.turnId || request.params.turnId !== this.turnId || request.params.grantRoot != null) {
-                throw new Error("Demande d’écriture hors de la tâche active ou d’extension des permissions refusée.");
-              }
-              this.status = "Archivage des originaux…";
-              this.changed();
-              const paths = await this.archive(cwd, changes, undefined, this.context().archiveFolder);
-              if (generation !== this.generation || request.params.turnId !== this.turnId) return;
-              if (this.patches.get(String(request.params.itemId)) !== changes) {
-                throw new Error("Le patch a changé pendant l’archivage. Écriture refusée.");
-              }
-              if (paths.length) this.upsert({ id: `archive-${request.params.itemId}`, role: "activity",
-                text: "Originaux archivés avant modification", paths });
-              decision = "accept";
-              this.status = "Codex travaille…";
-            } catch (error) {
-              if (generation !== this.generation) return;
-              this.status = `Écriture refusée : ${errorText(error)}`;
-              this.upsert({ id: `archive-${request.params.itemId}`, role: "activity", text: this.status, paths: [] });
-            }
-            if (generation === this.generation) {
-              client.respond(request.id, { decision });
-              this.patches.delete(String(request.params.itemId));
-              this.changed();
-            }
-          })().catch(error => {
-            if (generation === this.generation) this.disconnect(errorText(error));
-          });
+        if (["item/fileChange/requestApproval", "item/commandExecution/requestApproval"].includes(request.method)) {
+          client.respond(request.id, { decision: "decline" });
+          this.upsert({ id: `refused-${request.id}`, role: "activity", text: "Accès direct refusé. Les écritures passent par l’outil Orelius ecrire_fichier.", paths: [] });
+          this.changed();
           return;
         }
-        const supported = ["item/commandExecution/requestApproval",
-          "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request"];
+        if (request.method === "item/permissions/requestApproval") {
+          client.respond(request.id, { permissions: {}, scope: "turn" });
+          return;
+        }
+        const supported = ["item/tool/requestUserInput", "mcpServer/elicitation/request"];
         if (!supported.includes(request.method)) {
           client.rejectRequest(request.id);
           this.status = `Demande non prise en charge : ${request.method}`;
@@ -204,9 +247,70 @@ export class ChatSession {
     };
     const binary = await findCodex(executable);
     ensureCurrent();
-    await client.connect(binary, cwd);
+    const files = new ProjectMcp((path, content) => {
+      const turnId = this.turnId;
+      let original: string | null = null;
+      const ensureActive = () => {
+        ensureCurrent();
+        if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Écriture refusée hors de la tâche Codex active.");
+        if (original !== null) this.context().checkEditor?.(path, original);
+      };
+      const write = this.recording.then(async () => {
+        ensureActive();
+        this.status = "Archivage et écriture…";
+        this.changed();
+        const revision = this.revision;
+        if (revision) path = revisionPath(revision, cwd, this.context().bibleFolder, path);
+        const protection = revisionFor(this.protections, cwd, path);
+        if (protection) path = protection.path;
+        const previous = await readProjectFile(cwd, path);
+        original = previous?.text ?? "";
+        const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection);
+        const changes = [{ path, kind: { type: previous ? "update" : "add" } }];
+        try { await this.written(cwd, changes, protection ? { before: protection.source, after: content } : undefined); }
+        catch (error) { throw new Error(`Le fichier ${path} a été écrit, mais sa référence de suivi n’a pas pu être enregistrée : ${errorText(error)}`); }
+        if (protection) protection.expected = content;
+        if (revisionKey(cwd, path) === revisionKey(cwd, `${this.context().bibleFolder}/Suivi/Connaissances.md`)) {
+          for (const plan of this.protections) plan.intentRecorded = true;
+        }
+        if (generation === this.generation) {
+          this.upsert({ id: `write-${turnId}-${path}`, role: "activity", text: "Fichier écrit et version générée archivée par Orelius", paths: [path, ...archives] });
+          this.status = "Codex travaille…";
+          this.changed();
+        }
+        return JSON.stringify({ fichier: path, archives, resultat: "Fichier écrit et version générée archivée." });
+      });
+      this.recording = write.then(() => {}, () => {});
+      return write.catch(error => {
+        if (generation === this.generation) {
+          this.status = errorText(error);
+          this.upsert({ id: `write-error-${turnId}-${path}`, role: "activity", text: `Erreur d’écriture : ${errorText(error)}`, paths: [] });
+          this.changed();
+        }
+        throw error;
+      });
+    });
+    this.files = files;
+    const url = await files.start();
     ensureCurrent();
+    await client.connect(binary, cwd, { url, token: files.token });
+    ensureCurrent();
+    const models: ModelOption[] = [];
+    let modelCursor: string | null = null;
+    do {
+      const page = await client.request("model/list", { limit: 100, includeHidden: false, cursor: modelCursor });
+      ensureCurrent();
+      models.push(...modelOptions(page.data));
+      modelCursor = typeof page.nextCursor === "string" ? page.nextCursor : null;
+    } while (modelCursor);
+    this.models = models;
+    if (selectedModel !== undefined && !models.some(option => option.model === selectedModel)) throw new Error("Ce modèle n’est plus proposé par Codex.");
     if (!savedThreadId && !createThread) {
+      const { config } = await client.request("config/read", { cwd, includeLayers: false });
+      ensureCurrent();
+      const configured = object(config).model;
+      this.model = requestedModel ?? (typeof configured === "string" && configured ? configured : models.find(option => option.isDefault)?.model ?? "");
+      this.contextRemaining = null;
       this.threadId = "";
       this.items = [];
       this.connected = true;
@@ -215,16 +319,17 @@ export class ChatSession {
     const context = this.context();
     const result = await client.request(savedThreadId ? "thread/resume" : "thread/start", {
       ...(savedThreadId ? { threadId: savedThreadId, excludeTurns: true } : { ephemeral: false }),
-      cwd, sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user",
+      cwd, sandbox: "read-only", approvalPolicy: "never", approvalsReviewer: "user",
+      ...(requestedModel ? { model: requestedModel } : {}),
       developerInstructions: [context.agentInstructions,
-        "Use apply_patch for requested file edits. Orelius must archive originals before approving each patch. Shell writes, permission extensions, deletions and renames are forbidden. Do not change archive directories, .obsidian or .git. If an edit is declined, report it and do not retry through another tool."].filter(Boolean).join("\n\n"),
+        "Create or modify files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, .obsidian or .git. If an edit fails, report it and do not retry through another tool."].filter(Boolean).join("\n\n"),
     });
     ensureCurrent();
     const thread = object(result.thread);
     if (typeof thread.id !== "string" || !thread.id || (savedThreadId && thread.id !== savedThreadId)) {
       throw new Error("Codex n’a pas renvoyé la conversation attendue. Aucune conversation de remplacement n’a été créée.");
     }
-    if (object(result.sandbox).type !== "readOnly" || result.approvalPolicy !== "on-request"
+    if (object(result.sandbox).type !== "readOnly" || result.approvalPolicy !== "never"
       || result.approvalsReviewer !== "user" || await realpath(String(result.cwd)) !== await realpath(cwd)) {
       throw new Error("Codex n’a pas appliqué le dossier ou les permissions demandés. Connexion arrêtée.");
     }
@@ -233,21 +338,14 @@ export class ChatSession {
     }
     ensureCurrent();
     this.threadId = thread.id;
-    const items: ChatItem[] = [];
+    this.model = typeof result.model === "string" ? result.model : "";
+    this.contextRemaining = contextRemaining(pendingUsage);
+    let items: ChatItem[] = [];
     if (savedThreadId) {
-      let cursor: string | null = null;
-      do {
-        const page = await client.request("thread/items/list", {
-          threadId: thread.id, limit: 100, sortDirection: "asc", cursor,
-        });
-        ensureCurrent();
-        if (!Array.isArray(page.data)) throw new Error("Impossible de lire l’historique Codex.");
-        for (const entry of page.data) {
-          const item = toChatItem(object(object(entry).item));
-          if (item) items.push(item);
-        }
-        cursor = typeof page.nextCursor === "string" ? page.nextCursor : null;
-      } while (cursor);
+      const turns = await readConversation(client, thread.id, ensureCurrent);
+      items = turns.flatMap(turn => turn.messages);
+      await this.conversation?.(cwd, thread.id, turns);
+      ensureCurrent();
     }
     await this.remember(thread.id, cwd);
     ensureCurrent();
@@ -255,35 +353,46 @@ export class ChatSession {
     this.connected = true;
   }
 
-  private notification(method: string, params: RpcObject): void {
+  private async notification(method: string, params: RpcObject, cwd: string): Promise<void> {
     if (params.threadId !== this.threadId) return;
+    const generation = this.generation;
     if (method === "turn/started") {
       this.turnId = String(object(params.turn).id ?? "");
+      this.interrupting = false;
       this.busy = true;
       this.status = "Codex travaille…";
+    } else if (method === "thread/tokenUsage/updated") {
+      this.contextRemaining = contextRemaining(params.tokenUsage);
     } else if (method === "turn/completed") {
+      this.turnId = "";
+      this.interrupting = false;
+      this.status = "Enregistrement du suivi…";
+      this.changed();
+      await this.recording;
+      if (generation !== this.generation || params.threadId !== this.threadId) return;
+      if (this.conversation && this.client) {
+        const ensureCurrent = () => {
+          if (generation !== this.generation || params.threadId !== this.threadId) throw new Error("Conversation interrompue pendant l’enregistrement du journal.");
+        };
+        const turns = await readConversation(this.client, this.threadId, ensureCurrent);
+        await this.conversation(cwd, this.threadId, turns);
+        ensureCurrent();
+      }
       const turn = object(params.turn);
       this.busy = false;
       this.turnId = "";
       this.requests = [];
-      this.patches.clear();
       this.status = turn.status === "failed" ? String(object(turn.error).message ?? "La tâche Codex a échoué.")
-        : turn.status === "interrupted" ? "Tâche interrompue · prêt" : "Prêt";
+        : turn.status === "interrupted" ? "Tâche interrompue" : "";
     } else if (method === "item/started" || method === "item/completed") {
-      const raw = object(params.item);
-      if (method === "item/started" && raw.type === "fileChange" && typeof raw.id === "string") {
-        this.patches.set(raw.id, raw.changes);
-      }
       const item = toChatItem(object(params.item));
       if (item && !(method === "item/started" && this.items.some(previous => previous.id === item.id))) this.upsert(item);
-    } else if (method === "item/fileChange/patchUpdated" && typeof params.itemId === "string") {
-      this.patches.set(params.itemId, params.changes);
     } else if (method === "item/agentMessage/delta" && typeof params.delta === "string" && typeof params.itemId === "string") {
       const previous = this.items.find(item => item.id === params.itemId);
       this.upsert({ id: params.itemId, role: "assistant", text: (previous?.text ?? "") + params.delta, paths: [] });
     } else if (method === "serverRequest/resolved") {
       this.requests = this.requests.filter(request => request.id !== params.requestId);
-      this.status = this.requests.length ? "En attente de votre réponse" : this.busy ? "Codex travaille…" : "Prêt";
+      this.status = this.requests.length ? "En attente de votre réponse" : this.busy ? "Codex travaille…" : "";
     } else if (method === "error") {
       this.status = String(object(params.error).message ?? "Erreur Codex.");
     }
@@ -304,7 +413,8 @@ export function toChatItem(item: RpcObject): ChatItem | null {
     return { ...base, role: "user", text: item.content.map(object).filter(part => part.type === "text")
       .map(part => String(part.text ?? "")).join("\n") };
   }
-  if (item.type === "agentMessage") return { ...base, role: "assistant", text: String(item.text ?? "") };
+  if (item.type === "agentMessage") return { ...base, role: "assistant", text: String(item.text ?? ""),
+    ...(typeof item.phase === "string" ? { phase: item.phase } : {}) };
   if (item.type === "commandExecution") {
     const actions = Array.isArray(item.commandActions) ? item.commandActions.map(object) : [];
     return { ...base, role: "activity", text: `Commande · ${item.status ?? "en cours"}\n${item.command ?? ""}`,
@@ -316,4 +426,25 @@ export function toChatItem(item: RpcObject): ChatItem | null {
   }
   if (item.type === "mcpToolCall") return { ...base, role: "activity", text: `Outil · ${item.server}/${item.tool} · ${item.status}` };
   return null;
+}
+
+export async function readConversation(client: CodexClient, threadId: string, ensureCurrent: () => void): Promise<ConversationTurn[]> {
+  const turns: ConversationTurn[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = await client.request("thread/turns/list", { threadId, limit: 100, sortDirection: "asc", itemsView: "full", cursor });
+    ensureCurrent();
+    if (!Array.isArray(page.data)) throw new Error("Impossible de lire l’historique Codex.");
+    for (const entry of page.data) {
+      const turn = object(entry);
+      if (typeof turn.id !== "string" || !Array.isArray(turn.items)) throw new Error("Échange Codex invalide dans l’historique.");
+      if (turn.status === "inProgress") continue;
+      const timestamp = typeof turn.startedAt === "number" ? turn.startedAt : turn.completedAt;
+      const date = typeof timestamp === "number" && Number.isFinite(timestamp) ? new Date(timestamp * 1000) : null;
+      turns.push({ id: turn.id, date, completed: turn.status === "completed",
+        messages: turn.items.map(value => toChatItem(object(value))).filter((item): item is ChatItem => item !== null) });
+    }
+    cursor = typeof page.nextCursor === "string" ? page.nextCursor : null;
+  } while (cursor);
+  return turns;
 }

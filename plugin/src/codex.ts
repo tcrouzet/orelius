@@ -28,6 +28,12 @@ export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function codexVersion(userAgent: unknown): string {
+  return typeof userAgent === "string"
+    ? userAgent.match(/\b\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?\b/)?.[0] ?? "non communiquée"
+    : "non communiquée";
+}
+
 export async function findCodex(configured: string, extended = false): Promise<string> {
   const custom = configured.trim().replace(/^~\//, `${homedir()}/`);
   if (custom && !isAbsolute(custom)) {
@@ -62,8 +68,11 @@ export class CodexClient {
   private buffer = "";
   private nextId = 0;
   private stopping = false;
+  private closed = Promise.resolve();
   private threadConfig: RpcObject = {};
+  private version = "non communiquée";
   private pending = new Map<number, {
+    method: string;
     resolve: (result: RpcObject) => void;
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
@@ -73,14 +82,17 @@ export class CodexClient {
 
   constructor(handlers: ClientHandlers) { this.handlers = handlers; }
 
-  async connect(executable: string, cwd: string): Promise<string> {
+  async connect(executable: string, cwd: string, files?: { url: string; token: string }): Promise<string> {
     if (this.child) throw new Error("Une connexion Codex est déjà ouverte.");
     this.stopping = false;
     this.buffer = "";
-    // External tools and child agents could write without our patch approval.
+    this.version = "non communiquée";
+    this.threadConfig = {};
+    // Only Orelius may write project files, after archiving their originals.
     const child = spawn(executable, ["app-server", "--listen", "stdio://",
       "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent", "--disable", "multi_agent_v2"], {
       cwd, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32",
+      env: files ? { ...process.env, ORELIUS_MCP_TOKEN: files.token } : process.env,
     });
     this.child = child;
     let stderr = "";
@@ -100,21 +112,28 @@ export class CodexClient {
         clientInfo: { name: "orelius", title: "Orelius", version: "0.1.0" },
         capabilities: { experimentalApi: false },
       });
-      const version = String(result.userAgent ?? "").match(/\b0\.163\.\d+\b/)?.[0];
-      if (!version) {
-        throw new Error("Version Codex incompatible avec ce socle. Version prise en charge : 0.163.x (testée : 0.163.0).");
-      }
+      if (typeof result.userAgent !== "string" || !result.userAgent.trim()) throw new Error("Réponse d’initialisation Codex invalide : identification du serveur absente.");
+      this.version = codexVersion(result.userAgent);
       this.write({ method: "initialized" });
       const account = await this.request("account/read", { refreshToken: false });
       if (account.requiresOpenaiAuth === true && !account.account) {
         throw new Error("Codex n’est pas connecté. Lancez « codex login » dans le terminal, puis réessayez.");
       }
       const { config } = await this.request("config/read", { cwd, includeLayers: false });
+      if (config === null || typeof config !== "object" || Array.isArray(config)) {
+        throw new Error(`Codex ${this.version} : configuration du serveur invalide. Mettez à jour Codex et Orelius.`);
+      }
       this.threadConfig = { mcp_servers: Object.fromEntries(Object.keys(object(object(config).mcp_servers))
         .map(name => [name, { enabled: false }])) };
-      return version;
+      if (files) this.threadConfig = { mcp_servers: { ...object(this.threadConfig.mcp_servers), orelius: {
+        url: files.url, bearer_token_env_var: "ORELIUS_MCP_TOKEN", enabled: true, required: true,
+        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier"],
+      } } };
+      const models = await this.request("model/list", { limit: 1 });
+      if (!Array.isArray(models.data)) throw new Error(`Codex ${this.version} : catalogue des modèles invalide. Mettez à jour Codex et Orelius.`);
+      return this.version;
     } catch (error) {
-      this.stop();
+      await this.stop();
       throw error;
     }
   }
@@ -127,11 +146,11 @@ export class CodexClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        const error = new Error(`Codex ne répond pas à ${method}. Vérifiez sa disponibilité, puis reconnectez-vous.`);
+        const error = new Error(`Codex ${this.version} ne répond pas à ${method}. Vérifiez sa disponibilité, puis reconnectez-vous.`);
         reject(error);
         this.fail(error);
       }, 30000);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ id, method, params });
       } catch (error) {
@@ -150,12 +169,14 @@ export class CodexClient {
     this.write({ id, error: { code: -32601, message: "Cette demande n’est pas prise en charge par Orelius." } });
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     this.stopping = true;
     const child = this.child;
     this.child = null;
     this.rejectPending(new Error("Connexion Codex fermée."));
-    if (!child) return;
+    if (!child) return this.closed;
+    this.closed = child.pid && child.exitCode === null && child.signalCode === null
+      ? new Promise<void>(resolve => { child.once("close", () => resolve()); }) : Promise.resolve();
     child.stdin.destroy();
     const signal = (name: NodeJS.Signals) => {
       try {
@@ -168,6 +189,7 @@ export class CodexClient {
     signal("SIGTERM");
     // Children can outlive app-server; terminate only its private process group.
     setTimeout(() => signal("SIGKILL"), 1500).unref();
+    return this.closed;
   }
 
   private write(message: RpcObject): void {
@@ -200,8 +222,14 @@ export class CodexClient {
           if (!pending) continue;
           clearTimeout(pending.timer);
           this.pending.delete(message.id);
-          if (message.error) pending.reject(new Error(String(object(message.error).message ?? "Erreur Codex.")));
-          else pending.resolve(object(message.result));
+          if (message.error) {
+            const error = object(message.error);
+            const detail = error.code === -32600 || error.code === -32601
+              ? "Fonction indisponible." : String(error.message ?? "Erreur Codex.");
+            const advice = typeof error.code === "number" && [-32600, -32601, -32602].includes(error.code)
+              ? " Mettez à jour Codex ou Orelius." : "";
+            pending.reject(new Error(`Codex ${this.version} — ${pending.method} : ${detail}${advice}`));
+          } else pending.resolve(object(message.result));
         }
       } catch (error) {
         this.fail(new Error(`Échange Codex invalide : ${errorText(error)}`));
@@ -221,6 +249,7 @@ export class CodexClient {
 
   private fail(error: Error): void {
     if (this.stopping) return;
+    this.rejectPending(error);
     this.stop();
     this.handlers.exit(error.message);
   }

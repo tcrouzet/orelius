@@ -140,7 +140,7 @@ try {
   await evaluate('(async () => { await app.plugins.disablePlugin("orelius"); await app.plugins.enablePlugin("orelius"); await app.plugins.plugins.orelius.openChat(); })()');
   await until(() => evaluate('app.plugins.plugins.orelius.session.connected && !app.plugins.plugins.orelius.session.busy'), 40000);
   assert.equal(await evaluate("app.plugins.plugins.orelius.settings.threadId"), threadId);
-  await until(() => evaluate('document.querySelector(".orelius-assistant")?.textContent.includes("ORELIUS_UI_OK") && document.querySelector(".orelius-status")?.textContent.includes("Prêt")'));
+  await until(() => evaluate('document.querySelector(".orelius-assistant")?.textContent.includes("ORELIUS_UI_OK") && document.querySelector(".orelius-status")?.textContent === "" && !app.plugins.plugins.orelius.session.busy'));
   console.log("OK reprise de la conversation après rechargement du plugin");
   const screenshot = await call("Page.captureScreenshot", { format: "png" });
   await writeFile(`${root}/chat.png`, Buffer.from(screenshot.data, "base64"));

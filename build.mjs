@@ -4,7 +4,7 @@ import { copyFile } from "node:fs/promises";
 await build({
   entryPoints: ["plugin/src/main.ts"],
   bundle: true,
-  external: ["obsidian"],
+  external: ["obsidian", "@codemirror/state", "@codemirror/view"],
   platform: "node",
   format: "cjs",
   target: "es2020",

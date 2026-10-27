@@ -1,14 +1,21 @@
-import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { CodexClient, errorText, findCodex } from "./codex";
 import { ChatSession } from "./session";
-import { archiveChanges, prepareProject } from "./archives";
+import { prepareProject } from "./archives";
+import { prepareBible } from "./bible";
+import { saveConversation } from "./conversation";
+import { archiveWithCorrections, captureCodexVersions, chapterPath, prepareCorrections, refreshCorrections, revisionPrompt } from "./corrections";
 import { applySettings, loadSettings, PROJECT_FOLDER_KEYS, visibleFolder, type ProjectFolders, type SettingsChanges } from "./settings";
 import { OreliusSettingTab } from "./settings-tab";
 import { OreliusView, VIEW_TYPE } from "./chat-view";
+import { ChatNavigation } from "./navigation";
 import { generateAgent, renderAgent } from "../../generate-agent.ts";
 import agentTemplate from "../../prompts/agent.md";
+import { readProjectFile } from "./project-files.ts";
+import { planRevision, type RevisionPlan } from "./revision.ts";
+import { revisionHighlights } from "./revision-highlights";
 
 export default class OreliusPlugin extends Plugin {
   settings = loadSettings(undefined);
@@ -17,36 +24,70 @@ export default class OreliusPlugin extends Plugin {
   private views = new Set<OreliusView>();
   private settingsWrite = Promise.resolve();
   private projectWrite = Promise.resolve();
-  private navigation = Promise.resolve();
+  private correctionWrite = Promise.resolve();
+  private navigation = new ChatNavigation();
   private connecting: Promise<void> | null = null;
   private sending = false;
-  private openedFile: string | null = null;
+  private hidingChat = false;
   private unloaded = false;
   private codexTest: CodexClient | null = null;
+  private highlights = revisionHighlights(() => this.settings.revisionHighlights);
 
   async onload(): Promise<void> {
     this.settings = loadSettings(await this.loadData());
+    this.registerEditorExtension(this.highlights.extension);
     this.session = new ChatSession(() => {
       for (const view of this.views) view.update();
     }, (threadId, cwd) => this.saveSettings({ threadId, threadCwd: cwd }),
-    (cwd, changes) => archiveChanges(cwd, changes, (path, content) => {
-      const vaultPath = this.settings.folder ? `${this.settings.folder}/${path}` : path;
-      this.app.workspace.iterateAllLeaves(leaf => {
-        const view = leaf.view;
-        if (view instanceof MarkdownView && view.file?.path === vaultPath && view.getViewData() !== content) {
-          throw new Error(`La note ${path} a des modifications dans l’éditeur. Attendez leur enregistrement, puis relancez la demande.`);
+    (cwd, changes) => archiveWithCorrections(cwd, this.settings, changes, this.settings.codexVersions[cwd] ?? {},
+      (path, content) => this.checkEditor(path, content)),
+    () => ({ ...this.settings, agentInstructions: renderAgent(agentTemplate, this.settings),
+      checkEditor: (path, content) => this.checkEditor(path, content) }),
+    async (cwd, changes, highlight) => {
+      const folders = this.settings;
+      const versions = await captureCodexVersions(cwd, folders, changes);
+      if (Object.keys(versions).length) {
+        const revisionHighlights = { ...this.settings.revisionHighlights };
+        for (const path of Object.keys(versions)) {
+          const key = `${folders.folder ? `${folders.folder}/` : ""}${path}`;
+          delete revisionHighlights[key];
+          if (highlight) revisionHighlights[key] = highlight;
         }
+        await this.saveSettings({ codexVersions: { ...this.settings.codexVersions,
+          [cwd]: { ...this.settings.codexVersions[cwd], ...versions } }, revisionHighlights });
+      }
+    }, (cwd, threadId, turns) => {
+      const folders = this.settings;
+      return this.correctionTask(async () => {
+        const path = `${folders.folder ? `${folders.folder}/` : ""}${folders.bibleFolder}/Suivi/Conversation.md`;
+        this.app.workspace.iterateAllLeaves(leaf => {
+          const view = leaf.view;
+          if (view instanceof MarkdownView && view.file?.path === path && view.getViewData() !== view.data) {
+            throw new Error("Le journal de conversation a des modifications dans l’éditeur. Attendez leur enregistrement avant de reprendre la conversation.");
+          }
+        });
+        await saveConversation(cwd, folders, threadId, turns);
       });
-    }, this.settings.archiveFolder), () => ({ ...this.settings, agentInstructions: renderAgent(agentTemplate, this.settings) }));
+    });
     this.registerView(VIEW_TYPE, leaf => new OreliusView(leaf, this));
     this.addSettingTab(new OreliusSettingTab(this));
     this.addCommand({ id: "open-chat", name: "Ouvrir le chat", callback: () => { void this.openChat(); } });
     this.addRibbonIcon("messages-square", "Ouvrir Orelius", () => { void this.openChat(); });
-    this.openedFile = this.app.workspace.getActiveFile()?.path ?? null;
+    this.navigation = new ChatNavigation(this.app.workspace.getActiveFile()?.path ?? null);
     this.registerEvent(this.app.workspace.on("file-open", file => {
-      if (file && file.path !== this.openedFile) {
-        this.openedFile = file.path;
+      const activeFile = this.app.workspace.getActiveViewOfType(FileView)?.file;
+      if (!this.hidingChat && file && activeFile?.path === file.path && file.path !== this.navigation.path) {
         this.navigate(file.path);
+      }
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", leaf => {
+      if (this.hidingChat) return;
+      if (leaf?.getRoot() === this.app.workspace.rootSplit) {
+        const path = leaf.view instanceof FileView ? leaf.view.file?.path ?? null : null;
+        if (path !== this.navigation.path) this.navigate(path);
+      }
+      if (leaf?.view instanceof OreliusView && !this.session.busy && !this.connecting && !this.sending) {
+        void this.refreshCorrections().catch(error => new Notice(errorText(error)));
       }
     }));
     this.registerDomEvent(this.app.workspace.containerEl, "click", event => {
@@ -59,22 +100,33 @@ export default class OreliusPlugin extends Plugin {
     }, { capture: true });
   }
 
-  private navigate(path: string): void {
-    this.navigation = this.navigation.then(async () => {
+  private navigate(path: string | null): void {
+    for (const view of this.views) view.update();
+    const task = this.navigation.run(path, async current => {
       await this.settingsWrite;
-      if (this.unloaded) return;
+      if (this.unloaded || !current()) return;
       const folder = visibleFolder(this.settings, path, Boolean(this.session.busy || this.connecting || this.sending));
       if (folder === undefined) {
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) leaf.detach();
+        this.hideChat();
         return;
       }
       if (folder !== this.settings.folder) await this.saveSettings({ folder });
-      if (this.unloaded) return;
+      if (this.unloaded || !current()) return;
       await this.openChat(false);
-      if (!this.unloaded && this.settings.threadId && !this.session.connected && !this.session.busy) {
-        void this.connect().catch(error => { if (!this.unloaded) new Notice(errorText(error)); });
-      }
-    }).catch(error => { if (!this.unloaded) new Notice(errorText(error)); });
+    });
+    if (visibleFolder(this.settings, path, Boolean(this.session.busy || this.connecting || this.sending)) === undefined) this.hideChat();
+    void task.catch(error => { if (!this.unloaded) new Notice(errorText(error)); });
+  }
+
+  private hideChat(fallbackCollapsed: boolean | null = null): void {
+    this.hidingChat = true;
+    try {
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) leaf.detach();
+      const collapsed = this.navigation.restoreSidebar(fallbackCollapsed);
+      if (collapsed === true) this.app.workspace.rightSplit.collapse();
+      else if (collapsed === false) this.app.workspace.rightSplit.expand();
+    }
+    finally { this.hidingChat = false; }
   }
 
   onunload(): void {
@@ -85,15 +137,27 @@ export default class OreliusPlugin extends Plugin {
   }
 
   async openChat(focus = true): Promise<void> {
+    const current = this.navigation.current();
+    let previousCollapsed: boolean | null = null;
     try {
       await this.settingsWrite;
-      if (this.unloaded) return;
-      await this.prepareProject();
+      if (this.unloaded || !current()) return;
+      await this.refreshCorrections();
+      if (this.unloaded || !current()) return;
+      previousCollapsed = this.navigation.rememberSidebar(this.app.workspace.rightSplit.collapsed);
       const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0] ?? this.app.workspace.getRightLeaf(false);
       if (!leaf) throw new Error("Impossible d’ouvrir un panneau latéral.");
       await leaf.setViewState({ type: VIEW_TYPE, active: focus });
+      if (this.unloaded || !current()) { this.hideChat(previousCollapsed); return; }
       await this.app.workspace.revealLeaf(leaf);
-    } catch (error) { new Notice(errorText(error)); }
+      if (this.unloaded || !current()) { this.hideChat(previousCollapsed); return; }
+      if (!this.unloaded && !this.session.connected && !this.session.busy && !this.connecting && !this.sending) {
+        void this.connect().catch(error => { if (!this.unloaded) new Notice(errorText(error)); });
+      }
+    } catch (error) {
+      if (previousCollapsed !== null) this.hideChat(previousCollapsed);
+      new Notice(errorText(error));
+    }
   }
 
   attach(view: OreliusView): void { this.views.add(view); }
@@ -112,6 +176,8 @@ export default class OreliusPlugin extends Plugin {
       if (changedFolder) await this.prepareProject(next.folder, next);
       await this.saveData(next);
       this.settings = next;
+      if (previous.revisionHighlights !== next.revisionHighlights) this.highlights.refresh();
+      if (previous.showActivity !== next.showActivity) for (const view of this.views) view.update();
       if (changedConnection) {
         if (changedFolder) {
           this.session.items = [];
@@ -159,36 +225,92 @@ export default class OreliusPlugin extends Plugin {
     const preparation = this.projectWrite.then(async () => {
       const cwd = await this.workingDirectory(folder);
       await prepareProject(cwd, folders);
+      await prepareBible(cwd, folders);
       await generateAgent(cwd, { ...folders, folder }, agentTemplate);
+      await this.correctionTask(() => prepareCorrections(cwd, folders));
       return cwd;
     });
     this.projectWrite = preparation.then(() => {}, () => {});
     return preparation;
   }
 
-  async connect(): Promise<void> {
-    if (this.connecting) return this.connecting;
-    if (this.sending) return;
+  private correctionTask(action: () => Promise<void>): Promise<void> {
+    const work = this.correctionWrite.then(action);
+    this.correctionWrite = work.catch(() => {});
+    return work;
+  }
+
+  get revisionChapter(): string | null {
+    const path = this.app.workspace.getActiveFile()?.path;
+    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
+    return path?.startsWith(prefix) ? chapterPath("/", this.settings, path.slice(prefix.length)) : null;
+  }
+
+  async refreshCorrections(chapter?: string): Promise<string> {
+    await this.settingsWrite;
+    const cwd = await this.prepareProject();
+    const folders = this.settings;
+    await this.correctionTask(async () => {
+      if (this.session.busy) return;
+      const versions = folders.codexVersions[cwd] ?? {};
+      const pending = new Map<string, MarkdownView>();
+      this.app.workspace.iterateAllLeaves(leaf => {
+        const view = leaf.view;
+        if (!(view instanceof MarkdownView) || !view.file || view.getViewData() === view.data) return;
+        const prefix = folders.folder ? `${folders.folder}/` : "";
+        if (!view.file.path.startsWith(prefix)) return;
+        const path = view.file.path.slice(prefix.length);
+        if (!Object.prototype.hasOwnProperty.call(versions, path) && path !== chapter && path !== `${folders.bibleFolder}/suivi.md`
+          && path !== `${folders.bibleFolder}/Suivi/Connaissances.md`) return;
+        const other = pending.get(path);
+        if (other && other.getViewData() !== view.getViewData()) throw new Error(`Deux éditeurs ont des corrections différentes pour ${path}. Enregistrez la version souhaitée.`);
+        pending.set(path, view);
+      });
+      for (const view of pending.values()) await view.save();
+      await refreshCorrections(cwd, folders, versions);
+    });
+    return cwd;
+  }
+
+  async connect(model?: string): Promise<void> {
+    if (this.connecting || this.sending) {
+      if (model !== undefined) throw new Error("Attendez la fin de la connexion ou de l’envoi pour changer de modèle.");
+      return this.connecting ?? undefined;
+    }
     this.connecting = (async () => {
       await this.settingsWrite;
       const cwd = await this.prepareProject();
       if (this.unloaded) return;
       this.checkSavedDirectory(cwd);
-      await this.session.connect(this.settings.codexPath, cwd, this.settings.threadId);
+      await this.session.connect(this.settings.codexPath, cwd, this.settings.threadId, model);
     })();
     try { await this.connecting; }
     finally { this.connecting = null; }
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string, chapter?: string): Promise<void> {
     await this.settingsWrite;
-    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche ou utilisez Arrêter.");
+    if (this.sending || this.connecting) throw new Error("Un envoi ou une connexion est déjà en cours. Votre message est conservé.");
+    if (chapter && this.session.busy) throw new Error("Attendez la fin de la tâche pour réviser le chapitre avec ses dernières corrections.");
     this.sending = true;
     try {
-      const cwd = await this.prepareProject();
+      const cwd = this.session.busy ? await this.workingDirectory() : await this.refreshCorrections(chapter);
       this.checkSavedDirectory(cwd);
-      await this.session.send(text, this.settings.codexPath, cwd, this.settings.threadId);
-      this.draft = "";
+      const versions = this.settings.codexVersions[cwd] ?? {};
+      const source = chapter ? await readProjectFile(cwd, chapter) : null;
+      if (chapter && !source) throw new Error(`Chapitre introuvable : ${chapter}.`);
+      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter]) : undefined;
+      const protections: RevisionPlan[] = [];
+      if (!this.session.busy) for (const [path, baseline] of Object.entries(versions)) {
+        if (path === chapter || chapterPath(cwd, this.settings, path) !== path) continue;
+        const current = await readProjectFile(cwd, path);
+        if (current && (current.text !== baseline || /\(\(\([\s\S]*?\)\)\)|~~[\s\S]*?~~/.test(current.text))) {
+          protections.push(planRevision(path, current.text, baseline));
+        }
+      }
+      const message = chapter ? await revisionPrompt(cwd, this.settings, chapter, versions, text, revision) : text;
+      await this.session.send(message, this.settings.codexPath, cwd, this.settings.threadId, revision, protections);
+      if (this.draft === text) this.draft = "";
       for (const view of this.views) view.update();
     } finally { this.sending = false; }
   }
@@ -197,6 +319,16 @@ export default class OreliusPlugin extends Plugin {
     if (this.settings.threadId && this.settings.threadCwd !== cwd) {
       throw new Error("Le dossier de la conversation a changé. Créez une nouvelle conversation pour ce dossier.");
     }
+  }
+
+  private checkEditor(path: string, content: string): void {
+    const vaultPath = this.settings.folder ? `${this.settings.folder}/${path}` : path;
+    this.app.workspace.iterateAllLeaves(leaf => {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file?.path === vaultPath && view.getViewData() !== content) {
+        throw new Error(`La note ${path} a des modifications dans l’éditeur. Attendez leur enregistrement, puis relancez la demande.`);
+      }
+    });
   }
 
   async openFile(path: string): Promise<void> {

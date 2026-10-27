@@ -1,4 +1,5 @@
 import { object } from "./codex.ts";
+import type { RevisionHighlight } from "./revision.ts";
 
 interface FolderSession {
   threadId: string;
@@ -8,12 +9,13 @@ interface FolderSession {
 export interface ProjectFolders {
   archiveFolder: string;
   manuscriptFolder: string;
+  modelFolder: string;
   bibleFolder: string;
 }
 
-export const PROJECT_FOLDER_KEYS = ["archiveFolder", "manuscriptFolder", "bibleFolder"] as const;
+export const PROJECT_FOLDER_KEYS = ["archiveFolder", "manuscriptFolder", "modelFolder", "bibleFolder"] as const;
 export const DEFAULT_PROJECT_FOLDERS: ProjectFolders = {
-  archiveFolder: "Archives", manuscriptFolder: "Manuscript", bibleFolder: "Bible",
+  archiveFolder: "Archives", manuscriptFolder: "Manuscript", modelFolder: "Model", bibleFolder: "Bible",
 };
 
 export function validateFolderName(name: string): void {
@@ -36,18 +38,21 @@ export function validateProjectFolders(folders: ProjectFolders): void {
 
 export function projectPaths(folders: ProjectFolders): string[] {
   validateProjectFolders(folders);
-  const content = [folders.manuscriptFolder,
-    ...["Chapitres", "Personnages", "Plan", "Resume"].map(name => `${folders.manuscriptFolder}/${name}`),
-    folders.bibleFolder];
+  const content = [...[folders.manuscriptFolder, folders.modelFolder].flatMap(folder => [folder,
+    ...["Chapitres", "Personnages", "Plan", "Resume"].map(name => `${folder}/${name}`)]),
+    folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Personnages`];
   return [folders.archiveFolder, ...content, ...content.map(path => `${folders.archiveFolder}/${path}`)];
 }
 
 export interface OreliusSettings extends ProjectFolders {
+  showActivity: boolean;
   codexPath: string;
   folder: string;
   threadId: string;
   threadCwd: string;
   sessions: Record<string, FolderSession>;
+  codexVersions: Record<string, Record<string, string>>;
+  revisionHighlights: Record<string, RevisionHighlight>;
 }
 
 export type SettingsChanges = Partial<Omit<OreliusSettings, "sessions">>;
@@ -58,7 +63,8 @@ export function associatedFolder(settings: OreliusSettings, path: string): strin
     .sort((a, b) => b.length - a.length)[0];
 }
 
-export function visibleFolder(settings: OreliusSettings, path: string, busy: boolean): string | undefined {
+export function visibleFolder(settings: OreliusSettings, path: string | null, busy: boolean): string | undefined {
+  if (path === null) return undefined;
   const folder = associatedFolder(settings, path);
   return busy && folder !== settings.folder ? undefined : folder;
 }
@@ -71,7 +77,8 @@ function folderSession(settings: OreliusSettings): FolderSession | undefined {
 export function loadSettings(value: unknown): OreliusSettings {
   const saved = object(value);
   const settings: OreliusSettings = {
-    ...DEFAULT_PROJECT_FOLDERS, codexPath: "", folder: "", threadId: "", threadCwd: "", sessions: {},
+    ...DEFAULT_PROJECT_FOLDERS, showActivity: saved.showActivity === true,
+    codexPath: "", folder: "", threadId: "", threadCwd: "", sessions: {}, codexVersions: {}, revisionHighlights: {},
   };
   for (const key of ["codexPath", "folder", "threadId", "threadCwd"] as const) {
     if (typeof saved[key] === "string") settings[key] = saved[key];
@@ -90,6 +97,22 @@ export function loadSettings(value: unknown): OreliusSettings {
       throw new Error(`Association Codex invalide pour le dossier « ${folder || "Racine du coffre"} ».`);
     }
     return [folder, { threadId: session.threadId, cwd: session.cwd }];
+  }));
+  if (saved.codexVersions !== undefined && (saved.codexVersions === null || typeof saved.codexVersions !== "object" || Array.isArray(saved.codexVersions))) {
+    throw new Error("Les références de correction sont invalides.");
+  }
+  settings.codexVersions = Object.fromEntries(Object.entries(object(saved.codexVersions)).map(([cwd, versions]) => {
+    if (versions === null || typeof versions !== "object" || Array.isArray(versions)
+      || Object.values(versions).some(text => typeof text !== "string")) throw new Error("Les références de correction sont invalides.");
+    return [cwd, Object.fromEntries(Object.entries(versions)) as Record<string, string>];
+  }));
+  if (saved.revisionHighlights !== undefined && (saved.revisionHighlights === null || typeof saved.revisionHighlights !== "object" || Array.isArray(saved.revisionHighlights))) {
+    throw new Error("Les références de surlignage sont invalides.");
+  }
+  settings.revisionHighlights = Object.fromEntries(Object.entries(object(saved.revisionHighlights)).map(([path, value]) => {
+    const snapshot = object(value);
+    if (typeof snapshot.before !== "string" || typeof snapshot.after !== "string") throw new Error("Les références de surlignage sont invalides.");
+    return [path, { before: snapshot.before, after: snapshot.after }];
   }));
   if (settings.threadId && !folderSession(settings)) {
     settings.sessions = { ...settings.sessions,

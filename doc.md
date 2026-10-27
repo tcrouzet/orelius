@@ -1,3 +1,7 @@
+  codex resume 01a16240-d769-78e2-a62b-989c1e584fdc
+
+
+
 Orelius — Cahier des charges initial
 1. Objectif
 Créer un plugin Obsidian sur mesure nommé Orelius, développé en TypeScript. Il permettra de travailler avec Codex sur un manuscrit depuis un panneau latéral, tout en écrivant normalement dans Obsidian.

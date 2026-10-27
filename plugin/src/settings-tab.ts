@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, PluginSettingTab, Setting, TFolder, type ButtonComponent } from "obsidian";
+import { FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, type ButtonComponent } from "obsidian";
 import type OreliusPlugin from "./main";
 import { errorText, findCodex } from "./codex";
 import { DEFAULT_PROJECT_FOLDERS, PROJECT_FOLDER_KEYS } from "./settings";
@@ -90,6 +90,13 @@ export class OreliusSettingTab extends PluginSettingTab {
     };
     void findCodex(this.plugin.settings.codexPath).then(path => showCodex(path)).catch(() => showCodex(null));
 
+    new Setting(containerEl).setName("Afficher les messages d’activité")
+      .setDesc("Afficher les commandes, appels d’outils et confirmations techniques dans le chat. Désactivé par défaut.")
+      .addToggle(toggle => toggle.setValue(this.plugin.settings.showActivity).onChange(async value => {
+        try { await this.plugin.saveSettings({ showActivity: value }); }
+        catch (error) { toggle.setValue(this.plugin.settings.showActivity); new Notice(errorText(error)); }
+      }));
+
     new Setting(containerEl).setName("Dossier de travail").setHeading();
     let selectedFolder!: HTMLInputElement;
     const folderSetting = new Setting(containerEl).setName("Dossier sélectionné")
@@ -121,7 +128,7 @@ export class OreliusSettingTab extends PluginSettingTab {
     const folderStatus = containerEl.createEl("p", { attr: { role: "status" } });
 
     new Setting(containerEl).setName("Organisation du projet").setHeading();
-    const labels = { archiveFolder: "Dossier des archives", manuscriptFolder: "Dossier du manuscrit", bibleFolder: "Dossier de la bible" };
+    const labels = { archiveFolder: "Dossier des archives", manuscriptFolder: "Dossier du manuscrit", modelFolder: "Dossier des textes modèles", bibleFolder: "Dossier de la bible" };
     const layoutStatus = containerEl.createEl("p", { attr: { role: "status" } });
     for (const key of PROJECT_FOLDER_KEYS) {
       new Setting(containerEl).setName(labels[key]).setDesc(`Par défaut : ${DEFAULT_PROJECT_FOLDERS[key]}.`)
@@ -142,6 +149,6 @@ export class OreliusSettingTab extends PluginSettingTab {
         });
     }
     containerEl.createEl("p", { cls: "setting-item-description",
-      text: "Le manuscrit contient Chapitres, Personnages, Plan et Resume. Les archives reproduisent les chemins du manuscrit et de la bible. Les dossiers existants sont conservés." });
+      text: "Le manuscrit et les textes modèles contiennent Chapitres, Personnages, Plan et Resume. Les textes modèles correspondent à une version antérieure ou à un texte à adapter. Les archives reproduisent les chemins des documents du projet. Les dossiers existants sont conservés." });
   }
 }
