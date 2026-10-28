@@ -6,11 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { CodexClient, codexVersion, findCodex, object } from "../plugin/src/codex.ts";
-import { ChatSession } from "../plugin/src/session.ts";
+import { ChatSession, codexFailure } from "../plugin/src/session.ts";
 import { applySettings, associatedFolder, DEFAULT_PROJECT_FOLDERS, loadSettings, projectPaths, visibleFolder } from "../plugin/src/settings.ts";
 import { archiveChanges, prepareProject } from "../plugin/src/archives.ts";
 import { generateAgent, renderAgent } from "../generate-agent.ts";
-import { archiveWithCorrections, captureCodexVersions, correctionReport, prepareCorrections, refreshCorrections, revisionPrompt } from "../plugin/src/corrections.ts";
+import { archiveWithCorrections, captureCodexVersions, correctionReport, prepareCorrections, refreshCorrections, revisionPrompt, revisionRequest } from "../plugin/src/corrections.ts";
 import { readProjectFile, writeProjectFile } from "../plugin/src/project-files.ts";
 import { contextRemaining, modelOptions } from "../plugin/src/models.ts";
 import { ChatNavigation } from "../plugin/src/navigation.ts";
@@ -19,6 +19,9 @@ import { renderConversation, saveConversation } from "../plugin/src/conversation
 import { FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
 import { diffToGroups } from "../plugin/src/diff.ts";
 import { checkRevision, planRevision, revisionMarks, revisionPath, revisionFor } from "../plugin/src/revision.ts";
+import { Compartment, EditorState, Facet } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { editorLock } from "../plugin/src/editor-lock.ts";
 
 const agentTemplate = await readFile(new URL("../prompts/agent.md", import.meta.url), "utf8");
 let passed = 0;
@@ -36,6 +39,145 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("Saturation : message explicite et relance réservée aux erreurs de capacité", async () => {
+    for (const code of ["serverOverloaded", "server_overloaded", "server_is_overloaded"]) {
+      const failure = codexFailure("Service indisponible", code);
+      assert.equal(failure.retryable, true);
+      assert.match(failure.message, /temporairement saturé côté OpenAI/);
+      assert.match(failure.message, /quota.*n’est pas épuisé/);
+    }
+    assert.equal(codexFailure("Selected model is at capacity. Please try a different model.").retryable, true);
+    for (const message of ["Quota épuisé", "Connexion interrompue", "Écriture refusée"]) {
+      assert.deepEqual(codexFailure(message), { message, retryable: false });
+    }
+  });
+
+  await check("Relance : même dossier, même conversation, corrections récentes préservées", async () => {
+    const project = join(directory, "retry");
+    const path = "chapitre.md";
+    const original = "Original.\n";
+    const plan = planRevision(path, original, original, "Recommence.");
+    const session = new ChatSession(() => {}, async () => {});
+    await mkdir(project);
+    try {
+      await writeFile(join(project, path), original);
+      session.threadId = "conversation";
+      session.lastRequest = { text: "Recommence.", cwd: project, threadId: session.threadId, revision: plan, protections: [] };
+      session.fail(new Error("Selected model is at capacity. Please try a different model."));
+      assert.equal(session.canRetry, true);
+      session.busy = true;
+      assert.equal(session.canRetry, false);
+      await assert.rejects(session.retry("", project, session.threadId), /Aucune demande.*relancer/);
+      session.busy = false;
+      await assert.rejects(session.retry("", join(project, "autre"), session.threadId), /dossier.*conversation/);
+      await assert.rejects(session.retry("", project, "autre"), /dossier.*conversation/);
+      await writeFile(join(project, path), "Correction après l’échec.\n");
+      await assert.rejects(session.retry("", project, session.threadId), /a changé.*Réviser/);
+      assert.equal(await readFile(join(project, path), "utf8"), "Correction après l’échec.\n");
+      assert.equal(session.canRetry, true);
+      assert.equal(session.lastRequest.revision, plan);
+      assert.equal(plan.expected, original);
+      await session.newConversation();
+      assert.equal(session.canRetry, false);
+      assert.equal(session.failure, null);
+    } finally { await session.disconnect(); await rm(project, { recursive: true }); }
+  });
+
+  await check("Relance après réouverture : erreur retrouvée, demande et zones protégées récupérées", async () => {
+    const project = join(directory, "restored-retry");
+    const path = "Manuscript/Chapitres/Été.md";
+    const baseline = "Début intact.\n\nUne voix.\n\nFin intacte.\n";
+    const human = baseline.replace("Une voix.", "Une voix. (((Sa réplique.)))");
+    const versions = { [path]: baseline };
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, codexVersions: { [project]: versions } }));
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await writeFile(join(project, path), human);
+      const details = "Donne-lui une voix.\n\n## Précisions supplémentaires de l’auteur\n\nGarde cette précision aussi.";
+      const text = await revisionPrompt(project, folders, path, versions, details);
+      assert.deepEqual(revisionRequest(text), { path, details });
+      assert.equal(revisionRequest("Parlons du chapitre, sans le modifier."), null);
+      session.threadId = "conversation";
+      const failed = { id: "échec", completed: false, date: null, failure: codexFailure("Selected model is at capacity. Please try a different model."),
+        messages: [{ id: "prompt", role: "user", text, paths: [] }, { id: "consigne", role: "user", text: "Conserve la dernière phrase.", paths: [] }] };
+      session.restoreFailure(project, session.threadId, [failed]);
+      assert.equal(session.canRetry, true);
+      session.status = "";
+      assert.match(session.failure.message, /temporairement saturé/);
+      const request = await session.prepareRetry(project, session.threadId);
+      assert.equal(request.text, `${text}\n\nConserve la dernière phrase.`);
+      assert.equal(request.revision.path, path);
+      assert.equal(request.revision.wholeChapter, false);
+      request.revision.intentRecorded = true;
+      assert.throws(() => checkRevision(request.revision, human, human.replace("Fin intacte", "Fin changée")), /hors des paragraphes/);
+      assert.equal(await readFile(join(project, path), "utf8"), human);
+      assert.deepEqual((await readdir(join(project, "Archives"), { recursive: true })).filter(path => path.endsWith(".md")), []);
+      session.restoreFailure(project, session.threadId, [{ ...failed, id: "échec suivant" }]);
+      await writeFile(join(project, path), baseline);
+      await assert.rejects(session.prepareRetry(project, session.threadId), /Le chapitre ou les consignes ont changé depuis l’échec\. Utilisez Réviser/);
+      session.restoreFailure(project, session.threadId, [{ ...failed, id: "ancien format", messages: [{ id: "prompt", role: "user", text: 'Révise le chapitre "Manuscript/Chapitres/Été.md" avec un ancien format.', paths: [] }] }]);
+      await assert.rejects(session.prepareRetry(project, session.threadId), /ancienne demande de révision.*Réviser/);
+      session.restoreFailure(project, session.threadId, [{ ...failed, completed: true, failure: undefined }]);
+      assert.equal(session.failure, null);
+      assert.equal(session.canRetry, false);
+    } finally { await session.disconnect(); await rm(project, { recursive: true }); }
+  });
+
+  await check("Verrou éditeur : saisie, collage et annulation bloqués ; mises à jour Codex et sélection conservées", async () => {
+    const locks = new Set(["chapitre.md"]);
+    const extension = editorLock(() => "chapitre.md", path => locks.has(path));
+    let state = EditorState.create({ doc: "Original", extensions: [extension] });
+    assert.equal(state.readOnly, true);
+    assert.equal(state.facet(EditorView.editable), false);
+    for (const userEvent of ["input.type", "input.paste", "input.drop", "input.finition-correction", "delete.backward", "move.drop", "undo", "redo"]) {
+      const attempted = state.update({ changes: { from: 0, to: state.doc.length, insert: "Écriture humaine" }, userEvent });
+      assert.equal(attempted.newDoc.toString(), "Original", userEvent);
+    }
+    state = state.update({ selection: { anchor: 3 } }).state;
+    assert.equal(state.selection.main.head, 3);
+    state = state.update({ changes: { from: 0, to: state.doc.length, insert: "Version Codex" } }).state;
+    assert.equal(state.doc.toString(), "Version Codex");
+    assert.equal(state.readOnly, true);
+    locks.clear();
+    state = state.update({}).state;
+    assert.equal(state.readOnly, false);
+    assert.equal(state.facet(EditorView.editable), true);
+    state = state.update({ changes: { from: state.doc.length, insert: " corrigée" }, userEvent: "input.type" }).state;
+    assert.equal(state.doc.toString(), "Version Codex corrigée");
+  });
+
+  await check("Verrou éditeur : note ciblée uniquement, navigation, état antérieur et retrait du plugin", async () => {
+    const path = Facet.define({ combine: values => values[0] });
+    const note = new Compartment();
+    const lock = new Compartment();
+    const locks = new Set(["A.md"]);
+    const extension = editorLock(state => state.facet(path), value => locks.has(value));
+    let state = EditorState.create({ doc: "Texte", extensions: [note.of(path.of("A.md")), lock.of(extension)] });
+    assert.equal(state.readOnly, true);
+    const other = EditorState.create({ doc: "Autre note", extensions: [path.of("B.md"), extension] });
+    assert.equal(other.readOnly, false);
+    state = state.update({ effects: note.reconfigure(path.of("B.md")) }).state;
+    assert.equal(state.readOnly, false);
+    state = state.update({ effects: note.reconfigure(path.of("A.md")) }).state;
+    assert.equal(state.readOnly, true);
+    state = state.update({ effects: lock.reconfigure([]) }).state;
+    assert.equal(state.readOnly, false);
+    assert.equal(state.facet(EditorView.editable), true);
+    locks.clear();
+    const alreadyReadOnly = EditorState.create({ extensions: [path.of("A.md"), EditorState.readOnly.of(true), EditorView.editable.of(false), extension] });
+    assert.equal(alreadyReadOnly.readOnly, true);
+    assert.equal(alreadyReadOnly.facet(EditorView.editable), false);
+    let currentPath = "B.md";
+    locks.add("A.md");
+    const beforeNavigation = EditorState.create({ doc: "Intact", extensions: [editorLock(() => currentPath, value => locks.has(value))] });
+    currentPath = "A.md";
+    const firstInput = beforeNavigation.update({ changes: { from: 0, insert: "À bloquer" }, userEvent: "input.type" });
+    assert.equal(firstInput.newDoc.toString(), "Intact");
+    assert.equal(firstInput.state.readOnly, true);
+  });
+
   await check("Diff : reconstruction exacte, Unicode, passages séparés et grands textes", async () => {
     let seed = 727;
     const alphabet = ["a", "b", "é", "e\u0301", "🖋", "\n", "\r\n", " ", "(((", ")))", "==", "’"];
@@ -100,6 +242,54 @@ try {
     plan.intentRecorded = true;
     assert.doesNotThrow(() => checkRevision(plan, human, human));
     assert.throws(() => checkRevision(plan, human, baseline), /hors des paragraphes/);
+  });
+
+  await check("Réviser par le chat : texte intact, consigne seule et archivage de la reprise", async () => {
+    const project = join(directory, "revision-chat");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const path = "Manuscript/Chapitres/1.md";
+    const text = "# Chapitre\n\nUn homme parle.\n\nUne notification.\n";
+    const details = "Ça ne va pas du tout. Recommence avec des répliques concrètes et les sonorités nouchi.";
+    const proposed = "# Nouveau chapitre\n\n« Djo, viens ici ! »\n\nPseudo77 écrit : « Y’a pas drap. »\n";
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await writeFile(join(project, path), text);
+      for (const baseline of [text, undefined]) {
+        const plan = planRevision(path, text, baseline, details);
+        assert.equal(plan.wholeChapter, true);
+        assert.deepEqual(plan.ranges, [{ from: 0, to: text.length }]);
+        assert.throws(() => checkRevision(plan, text, proposed), /consignez d’abord l’intention/);
+        plan.intentRecorded = true;
+        assert.doesNotThrow(() => checkRevision(plan, text, proposed));
+        assert.throws(() => checkRevision(plan, `${text}Retouche.`, proposed), /a changé depuis/);
+        assert.throws(() => checkRevision(plan, text, `==${proposed}==`), /sans balise/);
+        assert.throws(() => revisionPath(plan, project, folders.bibleFolder, "Manuscript/Chapitres/2.md"), /seulement le chapitre ciblé/);
+        const prompt = await revisionPrompt(project, folders, path, baseline === undefined ? {} : { [path]: baseline }, details);
+        assert.equal(await revisionPrompt(project, folders, path, baseline === undefined ? {} : { [path]: baseline }, details, plan), prompt);
+        assert.ok(prompt.includes("Le chapitre entier est autorisé à la révision"));
+        assert.ok(prompt.includes("sans inventer de corrections humaines"));
+        assert.ok(prompt.endsWith(details));
+        assert.equal(await readFile(join(project, path), "utf8"), text);
+        assert.throws(() => planRevision(path, text, baseline, " \n "), /Aucune référence|intacts sont protégés/);
+      }
+      const annotated = text.replace("Un homme parle.", "Un homme parle. (((Sa réplique.)))");
+      const targeted = planRevision(path, annotated, text, details);
+      assert.equal(targeted.wholeChapter, false);
+      targeted.intentRecorded = true;
+      assert.throws(() => checkRevision(targeted, annotated, proposed), /hors des paragraphes/);
+      const cut = planRevision(path, text.replace("Un homme parle.\n\n", ""), text, details);
+      assert.equal(cut.wholeChapter, false);
+      assert.deepEqual(cut.ranges, []);
+      const plan = planRevision(path, text, text, details);
+      plan.intentRecorded = true;
+      const copies = await writeProjectFile(project, path, proposed, await readProjectFile(project, path), folders.archiveFolder, undefined, undefined, true, plan);
+      assert.equal(copies.length, 2);
+      assert.equal(await readFile(join(project, copies[0]), "utf8"), text);
+      assert.equal(await readFile(join(project, copies[1]), "utf8"), proposed);
+      assert.equal(await readFile(join(project, path), "utf8"), proposed);
+      assert.ok(revisionMarks({ before: text, after: proposed }, proposed).length > 0);
+    } finally { await rm(project, { recursive: true }); }
   });
 
   await check("Surlignage : mots modifiés, suppressions et déplacements après édition, sans balise", async () => {

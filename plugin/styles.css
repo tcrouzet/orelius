@@ -1,3 +1,13 @@
+body:not(.is-mobile) .workspace-split:is(.mod-right-split, .mod-secondary-split):has(.orelius-chat) {
+  display: flex !important;
+  position: relative !important;
+  inset: auto !important;
+  transform: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
 .orelius-chat {
   display: flex;
   flex-direction: column;
@@ -36,6 +46,10 @@
 .orelius-model select { flex: 1; min-width: 0; max-width: 100%; }
 .orelius-context { padding-block: var(--size-4-2); font-variant-numeric: tabular-nums; }
 .orelius-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
+.orelius-chat button.orelius-revise:enabled {
+  background: var(--color-blue);
+  color: var(--text-on-accent);
+}
 .orelius-timeline { flex: 1 1 0; min-height: 0; min-width: 0; overflow-y: auto; overflow-anchor: none; }
 .orelius-messages { overflow-wrap: anywhere; }
 .orelius-empty { color: var(--text-muted); line-height: var(--line-height-normal); }
@@ -58,6 +72,8 @@
 .orelius-composer textarea { width: 100%; resize: vertical; min-height: 6em; max-height: min(12em, 30vh); margin-block: var(--size-4-2); }
 .orelius-composer small { display: block; margin-top: var(--size-4-2); }
 .orelius-error { color: var(--text-error); white-space: pre-wrap; overflow-wrap: anywhere; }
+.orelius-failure { color: var(--text-error); overflow-wrap: anywhere; }
+.orelius-failure[hidden] { display: none; }
 .orelius-error:empty { display: none; }
 .orelius-requests:empty { display: none; }
 .orelius-request { padding: var(--size-4-3); border: var(--border-width) solid var(--background-modifier-border); border-radius: var(--radius-m); }

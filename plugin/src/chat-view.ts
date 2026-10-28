@@ -20,6 +20,9 @@ export class OreliusView extends ItemView {
   private stopButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
   private notice!: HTMLElement;
+  private failureEl!: HTMLElement;
+  private failureMessageEl!: HTMLElement;
+  private retryButton!: HTMLButtonElement;
   private hintEl!: HTMLElement;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private frame: number | null = null;
@@ -69,6 +72,10 @@ export class OreliusView extends ItemView {
     this.requestsEl = this.timelineEl.createDiv({ cls: "orelius-requests" });
     const composer = root.createDiv({ cls: "orelius-composer" });
     this.statusEl = composer.createDiv({ cls: "orelius-status", attr: { role: "status" } });
+    this.failureEl = composer.createDiv({ cls: "orelius-failure", attr: { role: "alert" } });
+    this.failureMessageEl = this.failureEl.createEl("p");
+    this.retryButton = this.failureEl.createEl("button", { text: "Relancer", cls: "mod-cta" });
+    this.retryButton.onclick = () => { void this.retry(); };
     this.notice = composer.createDiv({ cls: "orelius-error", attr: { role: "alert" } });
     const label = composer.createEl("label", { text: "Votre message" });
     this.input = label.createEl("textarea", { attr: { rows: "4", placeholder: "Écrire à Codex…" } });
@@ -83,7 +90,7 @@ export class OreliusView extends ItemView {
     const buttons = composer.createDiv({ cls: "orelius-actions" });
     this.sendButton = buttons.createEl("button", { text: "Envoyer", cls: "mod-cta" });
     this.sendButton.onclick = () => { void this.send(); };
-    this.reviseButton = buttons.createEl("button", { text: "Réviser" });
+    this.reviseButton = buttons.createEl("button", { text: "Réviser", cls: "orelius-revise" });
     this.reviseButton.onclick = () => { void this.send(true); };
     this.stopButton = buttons.createEl("button", { text: "Arrêter" });
     this.stopButton.onclick = () => { void this.run(() => this.plugin.session.interrupt()); };
@@ -126,6 +133,15 @@ export class OreliusView extends ItemView {
     this.update();
   }
 
+  private async retry(): Promise<void> {
+    if (this.submitting || !this.plugin.session.canRetry) return;
+    this.submitting = true;
+    this.followMessages = true;
+    this.update();
+    try { await this.run(() => this.plugin.retry()); }
+    finally { this.submitting = false; this.update(); }
+  }
+
   private async send(revise = false): Promise<void> {
     const text = this.input.value;
     const chapter = revise ? this.plugin.revisionChapter : undefined;
@@ -143,7 +159,11 @@ export class OreliusView extends ItemView {
     this.contentEl.toggleClass("orelius-show-activity", this.plugin.settings.showActivity);
     this.projectTitleEl.setText(this.getDisplayText());
     if (this.input.value !== this.plugin.draft) this.input.value = this.plugin.draft;
-    this.statusEl.setText(session.status || (session.busy ? "Codex travaille…" : ""));
+    this.statusEl.setText(session.failure && !session.busy ? "" : session.status || (session.busy ? "Codex travaille…" : ""));
+    this.failureEl.hidden = !session.failure;
+    this.failureMessageEl.setText(session.failure?.message ?? "");
+    this.retryButton.hidden = !session.canRetry;
+    this.retryButton.disabled = this.submitting || session.busy;
     this.statusEl.toggleClass("is-working", session.busy && !session.requests.length);
     const modelKey = JSON.stringify([session.models, session.model]);
     if (modelKey !== this.modelKey) {
@@ -165,7 +185,7 @@ export class OreliusView extends ItemView {
     this.reviseButton.disabled = this.submitting || session.busy || !chapter;
     this.reviseButton.title = !chapter ? "Ouvrez un chapitre du manuscrit pour le réviser."
       : session.busy ? "Attendez la fin de la tâche pour réviser le chapitre."
-        : `Réviser ${chapter} à partir de vos corrections ; précisions facultatives dans le message.`;
+        : `Réviser ${chapter} à partir de vos corrections ou de votre demande dans le message.`;
     this.stopButton.disabled = !session.busy;
     this.newButton.disabled = session.busy;
     this.input.placeholder = session.running ? "Ajouter une consigne à la tâche en cours…" : "Message ou précisions facultatives pour Réviser…";

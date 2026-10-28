@@ -1,12 +1,13 @@
 import { realpath } from "node:fs/promises";
 import { archiveChanges } from "./archives.ts";
-import { DEFAULT_PROJECT_FOLDERS, type ProjectFolders } from "./settings.ts";
+import { DEFAULT_PROJECT_FOLDERS, type OreliusSettings, type ProjectFolders } from "./settings.ts";
 import { contextRemaining, modelOptions, type ModelOption } from "./models.ts";
 import { ProjectMcp } from "./mcp.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { CodexClient, errorText, findCodex, object, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
 import type { ConversationTurn } from "./conversation.ts";
-import { revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
+import { planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
+import { revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
 
 export interface ChatItem {
   id: string;
@@ -19,6 +20,16 @@ export interface ChatItem {
 interface SessionContext extends ProjectFolders {
   agentInstructions?: string;
   checkEditor?: (path: string, content: string) => void;
+  lockNote?: (path: string) => void;
+  codexVersions?: OreliusSettings["codexVersions"];
+}
+
+export function codexFailure(message: string, code?: unknown): { message: string; retryable: boolean } {
+  const retryable = typeof code === "string" && ["serveroverloaded", "serverisoverloaded"].includes(code.toLowerCase().replace(/_/g, ""))
+    || /selected model is at capacity|model.*temporarily overloaded/i.test(message);
+  return { message: retryable
+    ? "Le modèle est temporairement saturé côté OpenAI. Votre quota d’utilisation n’est pas épuisé. Vous pouvez relancer la demande."
+    : message, retryable };
 }
 
 export class ChatSession {
@@ -31,6 +42,7 @@ export class ChatSession {
   models: ModelOption[] = [];
   model = "";
   contextRemaining: number | null = null;
+  failure: ReturnType<typeof codexFailure> | null = null;
   private turnId = "";
   private interrupting = false;
   private client: CodexClient | null = null;
@@ -41,6 +53,7 @@ export class ChatSession {
   private closing = Promise.resolve();
   private revision: RevisionPlan | null = null;
   private protections: RevisionPlan[] = [];
+  private lastRequest: { text: string; cwd: string; threadId: string; turnId?: string; revision?: RevisionPlan; protections: RevisionPlan[]; restored?: boolean; originalPrompt?: string } | null = null;
 
   private readonly changed: () => void;
   private readonly remember: (threadId: string, cwd: string) => Promise<void>;
@@ -50,6 +63,7 @@ export class ChatSession {
   private readonly conversation?: (cwd: string, threadId: string, turns: ConversationTurn[]) => Promise<void>;
 
   get running(): boolean { return this.connected && this.busy && Boolean(this.turnId) && !this.interrupting; }
+  get canRetry(): boolean { return !this.busy && Boolean(this.failure?.retryable && this.lastRequest?.threadId === this.threadId); }
 
   constructor(changed: () => void, remember: (threadId: string, cwd: string) => Promise<void>,
     archive: typeof archiveChanges = archiveChanges, context: () => SessionContext = () => DEFAULT_PROJECT_FOLDERS,
@@ -74,7 +88,7 @@ export class ChatSession {
       await this.initialize(executable, cwd, savedThreadId, false, model);
       if (operation === this.operation) this.status = "";
     } catch (error) {
-      if (operation === this.operation) this.disconnect(errorText(error));
+      if (operation === this.operation) { this.fail(error); this.disconnect(this.status); }
       throw error;
     } finally {
       if (operation === this.operation) {
@@ -92,13 +106,17 @@ export class ChatSession {
       return;
     }
     const operation = ++this.operation;
+    this.failure = null;
+    this.lastRequest = null;
     this.busy = true;
     this.status = "Codex travaille…";
     this.changed();
     try {
       if (!this.connected || !this.threadId) await this.initialize(executable, cwd, savedThreadId, true);
+      this.failure = null;
       this.revision = revision ?? null;
       this.protections = revision ? [revision, ...protections] : protections;
+      this.lastRequest = { text, cwd, threadId: this.threadId, revision, protections };
       const client = this.client;
       if (!client) throw new Error("Connexion Codex interrompue.");
       const result = await client.request("turn/start", {
@@ -107,12 +125,68 @@ export class ChatSession {
         cwd, approvalPolicy: "never", approvalsReviewer: "user",
         sandboxPolicy: { type: "readOnly", networkAccess: false },
       });
-      if (operation === this.operation && this.busy) this.turnId = String(object(result.turn).id ?? "");
+      if (operation === this.operation && this.busy) {
+        this.turnId = String(object(result.turn).id ?? "");
+        if (this.lastRequest) this.lastRequest.turnId = this.turnId;
+      }
     } catch (error) {
       // A lost start response can hide a running turn; close our process before retrying.
-      if (operation === this.operation) this.disconnect(errorText(error));
+      if (operation === this.operation) { this.fail(error); this.disconnect(this.status); }
       throw error;
     }
+  }
+
+  async retry(executable: string, cwd: string, savedThreadId: string): Promise<void> {
+    const request = await this.prepareRetry(cwd, savedThreadId);
+    if (request.revision) this.context().lockNote?.(request.revision.path);
+    await this.send(request.text, executable, cwd, savedThreadId, request.revision, request.protections);
+  }
+
+  private async prepareRetry(cwd: string, savedThreadId: string) {
+    const request = this.lastRequest;
+    if (!this.canRetry || !request) throw new Error("Aucune demande interrompue à relancer.");
+    if (cwd !== request.cwd || savedThreadId !== request.threadId) throw new Error("Revenez dans le dossier et la conversation de la demande à relancer.");
+    if (request.restored) {
+      const folders = this.context();
+      const versions = folders.codexVersions?.[cwd] ?? {};
+      const originalPrompt = request.originalPrompt ?? request.text;
+      const target = revisionRequest(originalPrompt);
+      if (!target && originalPrompt.startsWith("Révise le chapitre ")) throw new Error("Cette ancienne demande de révision ne peut pas être récupérée. Ouvrez le chapitre puis utilisez Réviser.");
+      if (target) {
+        const source = await readProjectFile(cwd, target.path);
+        if (!source) throw new Error("Chapitre introuvable. Ouvrez le chapitre puis utilisez Réviser.");
+        const revision = planRevision(target.path, source.text, versions[target.path], target.details);
+        if (await revisionPrompt(cwd, folders, target.path, versions, target.details, revision) !== originalPrompt) {
+          throw new Error("Le chapitre ou les consignes ont changé depuis l’échec. Utilisez Réviser pour préparer une nouvelle demande.");
+        }
+        request.revision = revision;
+      }
+      request.protections = await revisionProtections(cwd, folders, versions, request.revision?.path);
+      request.restored = false;
+    }
+    for (const plan of request.revision ? [request.revision, ...request.protections] : request.protections) {
+      const file = await readProjectFile(cwd, plan.path);
+      if (file?.text !== plan.expected) throw new Error("Le chapitre a changé depuis l’échec. Utilisez Réviser pour prendre en compte vos nouvelles corrections.");
+      this.context().checkEditor?.(plan.path, file.text);
+    }
+    return request;
+  }
+
+  private restoreFailure(cwd: string, threadId: string, turns: ConversationTurn[]): void {
+    const last = turns[turns.length - 1];
+    this.failure = last?.failure ?? null;
+    if (last?.failure && this.lastRequest?.turnId !== last.id) {
+      const prompts = last.messages.filter(item => item.role === "user").map(item => item.text);
+      const text = prompts.join("\n\n");
+      this.lastRequest = text ? { text, cwd, threadId, turnId: last.id, protections: [], restored: true, originalPrompt: prompts[0] } : null;
+    }
+    if (!last?.failure) this.lastRequest = null;
+  }
+
+  private fail(error: unknown): void {
+    const value = object(error);
+    this.failure = codexFailure(typeof value.message === "string" ? value.message : errorText(error), value.codexErrorInfo ?? value.codex_error_info);
+    this.status = this.failure.message;
   }
 
   async steer(text: string): Promise<void> {
@@ -128,6 +202,7 @@ export class ChatSession {
       this.disconnect("Codex n’a pas confirmé la tâche destinataire de la consigne.");
       throw new Error(this.status);
     }
+    if (this.lastRequest) this.lastRequest.text += `\n\n${text}`;
     this.upsert({ id: `steer-${turnId}-${Date.now()}`, role: "activity", text: "Consigne transmise à la tâche en cours", paths: [] });
     this.changed();
   }
@@ -191,10 +266,13 @@ export class ChatSession {
     this.model = model;
     this.threadId = "";
     this.items = [];
+    this.failure = null;
+    this.lastRequest = null;
     this.changed();
   }
 
   private async initialize(executable: string, cwd: string, savedThreadId: string, createThread = false, selectedModel?: string): Promise<void> {
+    if (this.lastRequest && savedThreadId !== this.lastRequest.threadId) { this.lastRequest = null; this.failure = null; }
     const generation = ++this.generation;
     const requestedModel = selectedModel ?? (!savedThreadId ? this.model || undefined : undefined);
     let pendingUsage: unknown = null;
@@ -263,6 +341,7 @@ export class ChatSession {
         if (revision) path = revisionPath(revision, cwd, this.context().bibleFolder, path);
         const protection = revisionFor(this.protections, cwd, path);
         if (protection) path = protection.path;
+        this.context().lockNote?.(revisionKey(cwd, path));
         const previous = await readProjectFile(cwd, path);
         original = previous?.text ?? "";
         const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection);
@@ -344,6 +423,7 @@ export class ChatSession {
     if (savedThreadId) {
       const turns = await readConversation(client, thread.id, ensureCurrent);
       items = turns.flatMap(turn => turn.messages);
+      this.restoreFailure(cwd, thread.id, turns);
       await this.conversation?.(cwd, thread.id, turns);
       ensureCurrent();
     }
@@ -360,10 +440,13 @@ export class ChatSession {
       this.turnId = String(object(params.turn).id ?? "");
       this.interrupting = false;
       this.busy = true;
+      this.failure = null;
       this.status = "Codex travaille…";
     } else if (method === "thread/tokenUsage/updated") {
       this.contextRemaining = contextRemaining(params.tokenUsage);
     } else if (method === "turn/completed") {
+      const turn = object(params.turn);
+      if (turn.status === "failed" || turn.error) this.fail(turn.error ?? "La tâche Codex a échoué.");
       this.turnId = "";
       this.interrupting = false;
       this.status = "Enregistrement du suivi…";
@@ -378,12 +461,10 @@ export class ChatSession {
         await this.conversation(cwd, this.threadId, turns);
         ensureCurrent();
       }
-      const turn = object(params.turn);
       this.busy = false;
       this.turnId = "";
       this.requests = [];
-      this.status = turn.status === "failed" ? String(object(turn.error).message ?? "La tâche Codex a échoué.")
-        : turn.status === "interrupted" ? "Tâche interrompue" : "";
+      this.status = this.failure?.message ?? (turn.status === "interrupted" ? "Tâche interrompue" : "");
     } else if (method === "item/started" || method === "item/completed") {
       const item = toChatItem(object(params.item));
       if (item && !(method === "item/started" && this.items.some(previous => previous.id === item.id))) this.upsert(item);
@@ -394,7 +475,8 @@ export class ChatSession {
       this.requests = this.requests.filter(request => request.id !== params.requestId);
       this.status = this.requests.length ? "En attente de votre réponse" : this.busy ? "Codex travaille…" : "";
     } else if (method === "error") {
-      this.status = String(object(params.error).message ?? "Erreur Codex.");
+      if (params.willRetry) this.status = codexFailure(String(object(params.error).message ?? "Erreur Codex."), object(params.error).codexErrorInfo).message;
+      else this.fail(params.error ?? "Erreur Codex.");
     }
     this.changed();
   }
@@ -442,6 +524,7 @@ export async function readConversation(client: CodexClient, threadId: string, en
       const timestamp = typeof turn.startedAt === "number" ? turn.startedAt : turn.completedAt;
       const date = typeof timestamp === "number" && Number.isFinite(timestamp) ? new Date(timestamp * 1000) : null;
       turns.push({ id: turn.id, date, completed: turn.status === "completed",
+        ...(turn.status === "failed" || turn.error ? { failure: codexFailure(String(object(turn.error).message ?? "La tâche Codex a échoué."), object(turn.error).codexErrorInfo) } : {}),
         messages: turn.items.map(value => toChatItem(object(value))).filter((item): item is ChatItem => item !== null) });
     }
     cursor = typeof page.nextCursor === "string" ? page.nextCursor : null;

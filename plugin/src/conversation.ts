@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { checkPath } from "./archives.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { type ProjectFolders, validateProjectFolders } from "./settings.ts";
-import type { ChatItem } from "./session.ts";
+import type { ChatItem, codexFailure } from "./session.ts";
 
 export interface ConversationTurn {
   id: string;
   date: Date | null;
   completed: boolean;
   messages: ChatItem[];
+  failure?: ReturnType<typeof codexFailure>;
 }
 
 export function renderConversation(turns: ConversationTurn[]): string {

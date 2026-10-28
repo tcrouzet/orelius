@@ -1,4 +1,4 @@
-import { FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { CodexClient, errorText, findCodex } from "./codex";
@@ -6,7 +6,7 @@ import { ChatSession } from "./session";
 import { prepareProject } from "./archives";
 import { prepareBible } from "./bible";
 import { saveConversation } from "./conversation";
-import { archiveWithCorrections, captureCodexVersions, chapterPath, prepareCorrections, refreshCorrections, revisionPrompt } from "./corrections";
+import { archiveWithCorrections, captureCodexVersions, chapterPath, prepareCorrections, refreshCorrections, revisionPrompt, revisionProtections } from "./corrections";
 import { applySettings, loadSettings, PROJECT_FOLDER_KEYS, visibleFolder, type ProjectFolders, type SettingsChanges } from "./settings";
 import { OreliusSettingTab } from "./settings-tab";
 import { OreliusView, VIEW_TYPE } from "./chat-view";
@@ -14,8 +14,9 @@ import { ChatNavigation } from "./navigation";
 import { generateAgent, renderAgent } from "../../generate-agent.ts";
 import agentTemplate from "../../prompts/agent.md";
 import { readProjectFile } from "./project-files.ts";
-import { planRevision, type RevisionPlan } from "./revision.ts";
+import { planRevision, revisionKey } from "./revision.ts";
 import { revisionHighlights } from "./revision-highlights";
+import { editorLock } from "./editor-lock";
 
 export default class OreliusPlugin extends Plugin {
   settings = loadSettings(undefined);
@@ -32,17 +33,21 @@ export default class OreliusPlugin extends Plugin {
   private unloaded = false;
   private codexTest: CodexClient | null = null;
   private highlights = revisionHighlights(() => this.settings.revisionHighlights);
+  private lockedNotes = new Set<string>();
 
   async onload(): Promise<void> {
     this.settings = loadSettings(await this.loadData());
     this.registerEditorExtension(this.highlights.extension);
+    this.registerEditorExtension(editorLock(state => state.field(editorInfoField, false)?.file?.path,
+      path => this.lockedNotes.has(path.normalize("NFC").toLowerCase())));
     this.session = new ChatSession(() => {
+      this.releaseNoteLocks();
       for (const view of this.views) view.update();
     }, (threadId, cwd) => this.saveSettings({ threadId, threadCwd: cwd }),
     (cwd, changes) => archiveWithCorrections(cwd, this.settings, changes, this.settings.codexVersions[cwd] ?? {},
       (path, content) => this.checkEditor(path, content)),
     () => ({ ...this.settings, agentInstructions: renderAgent(agentTemplate, this.settings),
-      checkEditor: (path, content) => this.checkEditor(path, content) }),
+      checkEditor: (path, content) => this.checkEditor(path, content), lockNote: path => this.lockNote(path) }),
     async (cwd, changes, highlight) => {
       const folders = this.settings;
       const versions = await captureCodexVersions(cwd, folders, changes);
@@ -75,6 +80,7 @@ export default class OreliusPlugin extends Plugin {
     this.addRibbonIcon("messages-square", "Ouvrir Orelius", () => { void this.openChat(); });
     this.navigation = new ChatNavigation(this.app.workspace.getActiveFile()?.path ?? null);
     this.registerEvent(this.app.workspace.on("file-open", file => {
+      if (this.lockedNotes.size) this.highlights.refresh();
       const activeFile = this.app.workspace.getActiveViewOfType(FileView)?.file;
       if (!this.hidingChat && file && activeFile?.path === file.path && file.path !== this.navigation.path) {
         this.navigate(file.path);
@@ -292,27 +298,53 @@ export default class OreliusPlugin extends Plugin {
     await this.settingsWrite;
     if (this.sending || this.connecting) throw new Error("Un envoi ou une connexion est déjà en cours. Votre message est conservé.");
     if (chapter && this.session.busy) throw new Error("Attendez la fin de la tâche pour réviser le chapitre avec ses dernières corrections.");
+    const activePath = this.app.workspace.getActiveFile()?.path;
     this.sending = true;
     try {
       const cwd = this.session.busy ? await this.workingDirectory() : await this.refreshCorrections(chapter);
       this.checkSavedDirectory(cwd);
+      if (!this.session.busy) {
+        if (chapter) this.lockNote(chapter);
+        else {
+          const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
+          if (activePath?.startsWith(prefix)) this.lockNote(activePath.slice(prefix.length));
+        }
+      }
       const versions = this.settings.codexVersions[cwd] ?? {};
       const source = chapter ? await readProjectFile(cwd, chapter) : null;
       if (chapter && !source) throw new Error(`Chapitre introuvable : ${chapter}.`);
-      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter]) : undefined;
-      const protections: RevisionPlan[] = [];
-      if (!this.session.busy) for (const [path, baseline] of Object.entries(versions)) {
-        if (path === chapter || chapterPath(cwd, this.settings, path) !== path) continue;
-        const current = await readProjectFile(cwd, path);
-        if (current && (current.text !== baseline || /\(\(\([\s\S]*?\)\)\)|~~[\s\S]*?~~/.test(current.text))) {
-          protections.push(planRevision(path, current.text, baseline));
-        }
-      }
+      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text) : undefined;
+      const protections = this.session.busy ? [] : await revisionProtections(cwd, this.settings, versions, chapter);
       const message = chapter ? await revisionPrompt(cwd, this.settings, chapter, versions, text, revision) : text;
       await this.session.send(message, this.settings.codexPath, cwd, this.settings.threadId, revision, protections);
       if (this.draft === text) this.draft = "";
       for (const view of this.views) view.update();
-    } finally { this.sending = false; }
+    } finally { this.sending = false; this.releaseNoteLocks(); }
+  }
+
+  async retry(): Promise<void> {
+    await this.settingsWrite;
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche ou de la connexion avant de relancer.");
+    this.sending = true;
+    try {
+      const cwd = await this.workingDirectory();
+      this.checkSavedDirectory(cwd);
+      await this.session.retry(this.settings.codexPath, cwd, this.settings.threadId);
+    } finally { this.sending = false; this.releaseNoteLocks(); }
+  }
+
+  private lockNote(path: string): void {
+    if (!path || path.split("/").includes("..")) return;
+    const key = `${this.settings.folder ? `${this.settings.folder}/` : ""}${path}`.normalize("NFC").toLowerCase();
+    if (this.lockedNotes.has(key)) return;
+    this.lockedNotes.add(key);
+    this.highlights.refresh();
+  }
+
+  private releaseNoteLocks(): void {
+    if (this.session?.busy || this.sending || !this.lockedNotes.size) return;
+    this.lockedNotes.clear();
+    this.highlights.refresh();
   }
 
   private checkSavedDirectory(cwd: string): void {

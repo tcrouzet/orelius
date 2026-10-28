@@ -9,6 +9,7 @@ export interface RevisionPlan {
   source: string;
   expected: string;
   ranges: TextRange[];
+  wholeChapter: boolean;
   intentRecorded: boolean;
 }
 
@@ -43,7 +44,7 @@ function paragraphs(text: string): TextRange[] {
   return ranges;
 }
 
-export function planRevision(path: string, source: string, baseline?: string): RevisionPlan {
+export function planRevision(path: string, source: string, baseline?: string, details = ""): RevisionPlan {
   const touched: TextRange[] = [];
   let offset = 0;
   if (baseline !== undefined) for (const change of diffToGroups(baseline, source, true)) {
@@ -56,10 +57,12 @@ export function planRevision(path: string, source: string, baseline?: string): R
     touched.push({ from: match.index!, to: match.index! + match[0].length });
   }
   const ranges = paragraphs(source).filter(paragraph => touched.some(range => range.from < paragraph.to && range.to > paragraph.from));
+  const wholeChapter = !ranges.length && (baseline === undefined || baseline === source) && !!details.trim();
+  if (wholeChapter) ranges.push({ from: 0, to: source.length });
   if (!ranges.length && (baseline === undefined || baseline === source)) throw new Error(baseline === undefined
-    ? "Aucune référence Codex ni annotation ne permet de délimiter une révision. Annotez les passages à reprendre."
-    : "Aucun paragraphe corrigé ou annoté à réviser. Les passages intacts sont protégés.");
-  return { path, source, expected: source, ranges, intentRecorded: false };
+    ? "Aucune référence Codex ni annotation ne permet de délimiter une révision. Annotez les passages à reprendre ou indiquez votre demande dans le chat."
+    : "Aucun paragraphe corrigé ou annoté à réviser. Les passages intacts sont protégés ; indiquez votre demande dans le chat pour reprendre le chapitre.");
+  return { path, source, expected: source, ranges, wholeChapter, intentRecorded: false };
 }
 
 export function checkRevision(plan: RevisionPlan, current: string | undefined, proposed: string): void {
