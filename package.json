@@ -1,6 +1,6 @@
 {
   "name": "orelius",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "Writing agent for Obsidian.",
@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && node build.mjs",
     "check": "node scripts/check.mjs",
+    "check:release": "node scripts/check-release.mjs",
     "check:obsidian": "npm run build && node scripts/check-obsidian.mjs"
   },
   "engines": {

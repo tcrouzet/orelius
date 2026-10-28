@@ -82,6 +82,14 @@ Pour tester le panneau et les réglages dans une instance Obsidian isolée, util
 
 Le code est réparti entre [l’intégration Obsidian](plugin/src/main.ts), [les données des réglages](plugin/src/settings.ts), [leur interface](plugin/src/settings-tab.ts), [le panneau de chat](plugin/src/chat-view.ts), [la connexion Codex](plugin/src/codex.ts), [la conversation](plugin/src/session.ts), [le serveur MCP local](plugin/src/mcp.ts) et [l’archivage des originaux](plugin/src/archives.ts). Ce socle ne comprend pas encore les sélecteurs de zones et d’anciennes conversations ni les fonctions littéraires avancées décrites dans le cahier des charges.
 
+## Publication
+
+Le script [release.sh](release.sh) reprend celui de Bookbinder. Lancez `./release.sh` depuis la branche par défaut : il exécute les contrôles et la compilation, commite et pousse les modifications en cours, incrémente la version corrective, synchronise les deux manifestes et le paquet npm, puis crée et pousse le commit de version et son tag. La version de départ est celle de `manifest.json`. GitHub Actions compile depuis ce tag et publie `main.js`, `manifest.json` et `styles.css` comme pièces jointes de la release.
+
+Prérequis locaux : Node.js 24 ou ultérieur, npm, Git, jq, GitHub CLI authentifié et Codex authentifié pour `npm run check`. Les tests de publication utilisent Ruby pour lire le workflow YAML ; aucune requête au modèle n’est envoyée. GitHub Actions vérifie aussi le script avec ShellCheck.
+
+La [soumission initiale à Obsidian](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) se fait après la création de la première release GitHub. Les versions suivantes utilisent le même script.
+
 ## Références techniques
 
 - [Codex Panel](https://github.com/murashit/codex-panel), licence Apache-2.0 : transport local `app-server` et séparation de la connexion et de l’interface.
