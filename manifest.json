@@ -3,8 +3,9 @@
   "name": "Orelius",
   "version": "0.1.1",
   "minAppVersion": "1.6.0",
-  "description": "Discuter avec Codex depuis un panneau latéral dans Obsidian.",
+  "description": "Writing long texts as novels with Codex.",
   "author": "Thierry Crouzet",
   "authorUrl": "https://tcrouzet.com",
+  "fundingUrl": "https://www.paypal.com/donate/?business=MCZTJGYPGXXCW&no_recurring=0&currency_code=EUR",
   "isDesktopOnly": true
 }

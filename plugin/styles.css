@@ -1,11 +1,11 @@
-body:not(.is-mobile) .workspace-split:is(.mod-right-split, .mod-secondary-split):has(.orelius-chat) {
-  display: flex !important;
-  position: relative !important;
-  inset: auto !important;
-  transform: none !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
+body:not(.is-mobile) .workspace.orelius-chat-open .workspace-split:is(.mod-right-split, .mod-secondary-split) {
+  display: flex;
+  position: relative;
+  inset: auto;
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .orelius-chat {

@@ -2832,6 +2832,7 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
   }
   onunload() {
     this.unloaded = true;
+    this.app.workspace.containerEl.removeClass("orelius-chat-open");
     this.codexTest?.stop();
     this.codexTest = null;
     this.session.disconnect();
@@ -2869,9 +2870,11 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
   }
   attach(view) {
     this.views.add(view);
+    this.app.workspace.containerEl.addClass("orelius-chat-open");
   }
   detach(view) {
     this.views.delete(view);
+    this.app.workspace.containerEl.toggleClass("orelius-chat-open", this.views.size > 0);
   }
   saveSettings(changes) {
     const write = this.settingsWrite.then(async () => {

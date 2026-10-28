@@ -139,6 +139,7 @@ export default class OreliusPlugin extends Plugin {
 
   onunload(): void {
     this.unloaded = true;
+    this.app.workspace.containerEl.removeClass("orelius-chat-open");
     this.codexTest?.stop();
     this.codexTest = null;
     this.session.disconnect();
@@ -168,8 +169,15 @@ export default class OreliusPlugin extends Plugin {
     }
   }
 
-  attach(view: OreliusView): void { this.views.add(view); }
-  detach(view: OreliusView): void { this.views.delete(view); }
+  attach(view: OreliusView): void {
+    this.views.add(view);
+    this.app.workspace.containerEl.addClass("orelius-chat-open");
+  }
+
+  detach(view: OreliusView): void {
+    this.views.delete(view);
+    this.app.workspace.containerEl.toggleClass("orelius-chat-open", this.views.size > 0);
+  }
 
   saveSettings(changes: SettingsChanges): Promise<void> {
     const write = this.settingsWrite.then(async () => {
