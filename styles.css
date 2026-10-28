@@ -61,6 +61,9 @@ body:not(.is-mobile) .workspace-split:is(.mod-right-split, .mod-secondary-split)
 }
 .orelius-user { background: var(--background-secondary); }
 .orelius-role { color: var(--text-muted); font-size: var(--font-ui-small); }
+.orelius-reactions { display: flex; gap: var(--size-4-2); margin-top: var(--size-4-2); }
+.orelius-reactions button { min-width: 44px; min-height: 44px; }
+.orelius-reactions button[aria-pressed="true"] { color: var(--interactive-accent); background: var(--background-modifier-hover); }
 .orelius-message-body { line-height: var(--line-height-normal); user-select: text; }
 .orelius-message-body > :last-child { margin-bottom: 0; }
 .orelius-message-body pre, .orelius-request pre { white-space: pre-wrap; overflow-wrap: anywhere; }

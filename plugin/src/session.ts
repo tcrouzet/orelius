@@ -34,6 +34,7 @@ export function codexFailure(message: string, code?: unknown): { message: string
 
 export class ChatSession {
   items: ChatItem[] = [];
+  turns: ConversationTurn[] = [];
   requests: ServerRequest[] = [];
   status = "Déconnecté";
   busy = false;
@@ -266,6 +267,7 @@ export class ChatSession {
     this.model = model;
     this.threadId = "";
     this.items = [];
+    this.turns = [];
     this.failure = null;
     this.lastRequest = null;
     this.changed();
@@ -392,6 +394,7 @@ export class ChatSession {
       this.contextRemaining = null;
       this.threadId = "";
       this.items = [];
+      this.turns = [];
       this.connected = true;
       return;
     }
@@ -420,8 +423,9 @@ export class ChatSession {
     this.model = typeof result.model === "string" ? result.model : "";
     this.contextRemaining = contextRemaining(pendingUsage);
     let items: ChatItem[] = [];
+    let turns: ConversationTurn[] = [];
     if (savedThreadId) {
-      const turns = await readConversation(client, thread.id, ensureCurrent);
+      turns = await readConversation(client, thread.id, ensureCurrent);
       items = turns.flatMap(turn => turn.messages);
       this.restoreFailure(cwd, thread.id, turns);
       await this.conversation?.(cwd, thread.id, turns);
@@ -430,6 +434,7 @@ export class ChatSession {
     await this.remember(thread.id, cwd);
     ensureCurrent();
     this.items = items;
+    this.turns = turns;
     this.connected = true;
   }
 
@@ -453,12 +458,13 @@ export class ChatSession {
       this.changed();
       await this.recording;
       if (generation !== this.generation || params.threadId !== this.threadId) return;
-      if (this.conversation && this.client) {
+      if (this.client) {
         const ensureCurrent = () => {
           if (generation !== this.generation || params.threadId !== this.threadId) throw new Error("Conversation interrompue pendant l’enregistrement du journal.");
         };
         const turns = await readConversation(this.client, this.threadId, ensureCurrent);
-        await this.conversation(cwd, this.threadId, turns);
+        this.turns = turns;
+        await this.conversation?.(cwd, this.threadId, turns);
         ensureCurrent();
       }
       this.busy = false;

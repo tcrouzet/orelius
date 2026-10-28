@@ -14,15 +14,20 @@ export interface ConversationTurn {
   failure?: ReturnType<typeof codexFailure>;
 }
 
+export function finalResponses(turn: ConversationTurn): ChatItem[] {
+  if (!turn.completed) return [];
+  const answers = turn.messages.filter(message => message.role === "assistant" && message.text.trim());
+  const finals = answers.filter(message => message.phase === "final_answer");
+  return finals.length ? finals : answers.filter(message => message.phase === undefined).slice(-1);
+}
+
 export function renderConversation(turns: ConversationTurn[]): string {
   const format = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   let content = "";
   let previousDate = "";
   for (const turn of turns) {
     const prompts = turn.messages.filter(message => message.role === "user" && message.text.trim());
-    const answers = turn.messages.filter(message => message.role === "assistant" && message.text.trim());
-    const finals = answers.filter(message => message.phase === "final_answer");
-    const selected = turn.completed ? (finals.length ? finals : answers.filter(message => message.phase === undefined).slice(-1)) : [];
+    const selected = finalResponses(turn);
     if (!prompts.length && !selected.length) continue;
     const date = turn.date && !Number.isNaN(turn.date.valueOf()) ? format.format(turn.date) : "Date inconnue";
     if (date !== previousDate) {

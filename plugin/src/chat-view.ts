@@ -1,7 +1,8 @@
-import { Component, ItemView, MarkdownRenderer, type WorkspaceLeaf } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
 import type OreliusPlugin from "./main";
 import { errorText, object, type RpcObject, type ServerRequest } from "./codex";
 import type { ChatItem } from "./session";
+import { REACTIONS, reactionExchanges, type Reaction, type ReactionExchange } from "./reactions";
 
 export const VIEW_TYPE = "orelius-chat";
 
@@ -17,6 +18,7 @@ export class OreliusView extends ItemView {
   private input!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
   private reviseButton!: HTMLButtonElement;
+  private acceptButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
   private notice!: HTMLElement;
@@ -33,6 +35,7 @@ export class OreliusView extends ItemView {
   private requestKey = "";
   private active = false;
   private followMessages = true;
+  private exchanges = new Map<string, ReactionExchange>();
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: OreliusPlugin) { super(leaf); }
   getViewType(): string { return VIEW_TYPE; }
@@ -92,6 +95,9 @@ export class OreliusView extends ItemView {
     this.sendButton.onclick = () => { void this.send(); };
     this.reviseButton = buttons.createEl("button", { text: "Réviser", cls: "orelius-revise" });
     this.reviseButton.onclick = () => { void this.send(true); };
+    this.acceptButton = buttons.createEl("button", { text: "Accepter", cls: "mod-cta" });
+    this.acceptButton.title = "Valider la version actuelle, retirer le surlignage et joindre le message éventuel comme retour positif dans le suivi.";
+    this.acceptButton.onclick = () => { void this.accept(); };
     this.stopButton = buttons.createEl("button", { text: "Arrêter" });
     this.stopButton.onclick = () => { void this.run(() => this.plugin.session.interrupt()); };
     this.hintEl = composer.createEl("small");
@@ -142,6 +148,25 @@ export class OreliusView extends ItemView {
     finally { this.submitting = false; this.update(); }
   }
 
+  private async accept(): Promise<void> {
+    const chapter = this.plugin.acceptanceChapter;
+    if (!chapter || this.submitting || this.plugin.session.busy) return;
+    const message = this.input.value;
+    this.submitting = true;
+    this.update();
+    try { await this.run(() => this.plugin.acceptRevision(message, chapter)); }
+    finally { this.submitting = false; this.update(); }
+  }
+
+  private async react(itemId: string, value: Reaction): Promise<void> {
+    if (this.submitting || this.plugin.session.busy) return;
+    const message = this.input.value;
+    this.submitting = true;
+    this.update();
+    try { await this.run(() => this.plugin.react(itemId, value, message)); }
+    finally { this.submitting = false; this.update(); }
+  }
+
   private async send(revise = false): Promise<void> {
     const text = this.input.value;
     const chapter = revise ? this.plugin.revisionChapter : undefined;
@@ -156,6 +181,7 @@ export class OreliusView extends ItemView {
 
   private render(): void {
     const session = this.plugin.session;
+    this.exchanges = reactionExchanges(session.turns);
     this.contentEl.toggleClass("orelius-show-activity", this.plugin.settings.showActivity);
     this.projectTitleEl.setText(this.getDisplayText());
     if (this.input.value !== this.plugin.draft) this.input.value = this.plugin.draft;
@@ -183,12 +209,14 @@ export class OreliusView extends ItemView {
     this.sendButton.setText(this.submitting ? "Envoi…" : session.running ? "Envoyer à la tâche" : "Envoyer");
     const chapter = this.plugin.revisionChapter;
     this.reviseButton.disabled = this.submitting || session.busy || !chapter;
+    this.acceptButton.toggle(Boolean(this.plugin.acceptanceChapter));
+    this.acceptButton.disabled = this.submitting || session.busy;
     this.reviseButton.title = !chapter ? "Ouvrez un chapitre du manuscrit pour le réviser."
       : session.busy ? "Attendez la fin de la tâche pour réviser le chapitre."
         : `Réviser ${chapter} à partir de vos corrections ou de votre demande dans le message.`;
     this.stopButton.disabled = !session.busy;
     this.newButton.disabled = session.busy;
-    this.input.placeholder = session.running ? "Ajouter une consigne à la tâche en cours…" : "Message ou précisions facultatives pour Réviser…";
+    this.input.placeholder = session.running ? "Ajouter une consigne à la tâche en cours…" : "Message, précisions pour Réviser ou commentaire à joindre à votre réaction…";
     this.hintEl.setText(session.running ? "⌘/Ctrl + Entrée pour ajouter une consigne à la tâche en cours"
       : "⌘/Ctrl + Entrée pour envoyer · originaux archivés avant modification");
     if (!session.items.length) {
@@ -234,7 +262,10 @@ export class OreliusView extends ItemView {
   private renderItem(item: ChatItem): void {
     let rendered = this.rendered.get(item.id);
     const paths = JSON.stringify(item.paths);
-    if (rendered?.text === item.text && rendered.paths === paths) return;
+    if (rendered?.text === item.text && rendered.paths === paths) {
+      this.renderReactions(item, rendered.element);
+      return;
+    }
     if (!rendered) {
       const element = this.messagesEl.createEl("article", { cls: `orelius-message orelius-${item.role}` });
       const component = new Component();
@@ -261,6 +292,7 @@ export class OreliusView extends ItemView {
         return;
       }
       this.removeChild(rendered.component);
+      this.renderReactions(item, element);
       rendered.element.replaceWith(element);
       rendered.element = element;
       rendered.component = component;
@@ -273,6 +305,25 @@ export class OreliusView extends ItemView {
         .catch(error => { body.setText(item.text); console.error("Orelius : rendu Markdown", error); })
         .then(display);
     }
+  }
+
+  private renderReactions(item: ChatItem, element: HTMLElement): void {
+    let controls = element.querySelector<HTMLElement>(".orelius-reactions");
+    if (!this.exchanges.has(item.id)) { controls?.remove(); return; }
+    if (!controls) {
+      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": "Noter cet échange avec Codex" } });
+      for (const choice of REACTIONS) {
+        const button = controls.createEl("button", { type: "button", attr: { "aria-label": choice.label, "data-reaction": choice.value } });
+        setIcon(button, choice.icon);
+        button.title = `${choice.label} — le message éventuel dans le chat sera joint à cette réaction.`;
+        button.onclick = () => { void this.react(item.id, choice.value); };
+      }
+    }
+    const selected = this.plugin.reactionFor(item.id);
+    controls.querySelectorAll<HTMLButtonElement>("button").forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.reaction === selected));
+      button.disabled = this.submitting || this.plugin.session.busy;
+    });
   }
 
   private renderRequest(request: ServerRequest): void {

@@ -22,6 +22,8 @@ import { checkRevision, planRevision, revisionMarks, revisionPath, revisionFor }
 import { Compartment, EditorState, Facet } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorLock } from "../plugin/src/editor-lock.ts";
+import { recordAcceptance } from "../plugin/src/acceptance.ts";
+import { reactionExchanges, reactionKey, recordReaction } from "../plugin/src/reactions.ts";
 
 const agentTemplate = await readFile(new URL("../prompts/agent.md", import.meta.url), "utf8");
 let passed = 0;
@@ -39,6 +41,221 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("Réactions : réponses finales terminées, contexte complet et ancien historique", async () => {
+    const message = (id, role, text, phase) => ({ id, role, text, phase, paths: [] });
+    const turn = { id: "tour", date: null, completed: true, messages: [
+      message("demande", "user", "Reprends cette scène."), message("activité", "activity", "Commande"),
+      message("commentaire", "assistant", "Je regarde.", "commentary"), message("précision", "user", "Garde sa voix."),
+      message("finale", "assistant", "La scène est reprise.", "final_answer"),
+    ] };
+    const exchanges = reactionExchanges([turn, { ...turn, id: "ancien", messages: [
+      message("ancien prompt", "user", "Une question."), message("ancien commentaire", "assistant", "Je vérifie."), message("ancienne finale", "assistant", "La réponse.") ] },
+      { ...turn, id: "échec", completed: false, messages: [message("refusée", "assistant", "Réponse interrompue.", "final_answer")] }]);
+    assert.deepEqual([...exchanges.keys()], ["finale", "ancienne finale"]);
+    assert.deepEqual(exchanges.get("finale").prompts, ["Reprends cette scène.", "Garde sa voix."]);
+    assert.equal(exchanges.get("finale").turnId, turn.id);
+    assert.equal(exchanges.get("finale").answer.text, "La scène est reprise.");
+  });
+
+  await check("Réactions : avis et explications exacts, changement de note, historique et manuscrit conservés", async () => {
+    const project = join(directory, "reactions");
+    const folders = { ...DEFAULT_PROJECT_FOLDERS, bibleFolder: "Univers", archiveFolder: "Versions" };
+    const exchange = { turnId: "tour", prompts: ["Donne un exemple concret.", "Conserve cette voix."], answer: { id: "réponse", role: "assistant", text: "Nadia dit : « Assieds-toi. »\n", phase: "final_answer", paths: [] } };
+    const comment = "  Enfin, voilà ce que je voulais.\n\nGarde cette façon de parler.  ";
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      const knowledgePath = "Univers/Suivi/Connaissances.md";
+      const personal = "# Connaissances\n\nMa note personnelle.\n";
+      await writeFile(join(project, knowledgePath), personal);
+      await writeFile(join(project, "Manuscript/Chapitres/1.md"), "Manuscrit à conserver.\n");
+      const heart = await recordReaction(project, folders, "session", exchange, "heart", comment);
+      const report = await readFile(join(project, heart.report), "utf8");
+      assert.ok(report.includes(comment.split("\n").map(line => `    ${line}`).join("\n")));
+      for (const text of [...exchange.prompts, exchange.answer.text.trim(), "J’adore"]) assert.ok(report.includes(text), text);
+      assert.ok((await readFile(join(project, knowledgePath), "utf8")).startsWith(personal));
+      assert.deepEqual(await recordReaction(project, folders, "session", exchange, "heart", comment, heart), heart);
+      const down = await recordReaction(project, folders, "session", exchange, "down", "Trop abstrait : donne les mots exacts.", heart);
+      const negative = await readFile(join(project, knowledgePath), "utf8");
+      assert.ok(negative.includes("À améliorer"));
+      assert.ok(negative.includes(down.report.split("/").pop()));
+      assert.equal(negative.includes(heart.report.split("/").pop()), false);
+      assert.equal(await readFile(join(project, heart.report), "utf8"), report);
+      const back = await recordReaction(project, folders, "session", exchange, "heart", comment, down);
+      assert.notEqual(back.report, heart.report);
+      const current = await readFile(join(project, knowledgePath), "utf8");
+      assert.ok(current.includes(back.report.split("/").pop()));
+      assert.equal(current.includes(down.report.split("/").pop()), false);
+      const index = await readFile(join(project, "Univers/suivi.md"), "utf8");
+      for (const value of [heart, down, back]) assert.ok(index.includes(value.report.split("/").pop()));
+      assert.equal((await readdir(join(project, "Univers/Suivi"))).filter(name => name.includes("-reaction-")).length, 3);
+      assert.equal(await readFile(join(project, "Manuscript/Chapitres/1.md"), "utf8"), "Manuscrit à conserver.\n");
+      const key = reactionKey(project, "session", exchange.answer.id);
+      const snapshot = { before: "Avant", after: "Après" };
+      const settings = applySettings(loadSettings({ revisionHighlights: { "Roman/1.md": snapshot } }), { reactions: { [key]: back } });
+      const restored = loadSettings(JSON.parse(JSON.stringify(settings)));
+      assert.deepEqual(restored.reactions[key], back);
+      assert.deepEqual(restored.revisionHighlights["Roman/1.md"], snapshot);
+      assert.equal(restored.reactions[reactionKey(project, "autre session", exchange.answer.id)], undefined);
+      assert.equal(restored.reactions[reactionKey("/autre projet", "session", exchange.answer.id)], undefined);
+      assert.deepEqual(applySettings(restored, { folder: "Autre" }).reactions, restored.reactions);
+      const agent = renderAgent(agentTemplate, loadSettings(folders));
+      for (const text of ["reproduire ou éviter", "ne devine pas la cause", "sans réentraîner"]) assert.ok(agent.includes(text), text);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Réactions : choix et données persistées invalides refusés", async () => {
+    const exchange = { turnId: "tour", prompts: ["Question"], answer: { id: "réponse", role: "assistant", text: "Réponse", paths: [] } };
+    for (const [thread, value, answer] of [["", "up", exchange.answer], ["session", "inconnue", exchange.answer],
+      ["session", "up", { ...exchange.answer, role: "activity" }], ["session", "down", { ...exchange.answer, text: " " }]]) {
+      await assert.rejects(recordReaction(directory, DEFAULT_PROJECT_FOLDERS, thread, { ...exchange, answer }, value, ""), /réponse finale/);
+    }
+    assert.deepEqual(loadSettings(undefined).reactions, {});
+    for (const reactions of [[], null, { x: { value: "inconnue", message: "", report: "r.md" } },
+      { x: { value: "heart", message: 42, report: "r.md" } }, { x: { value: "up", message: "" } }]) {
+      assert.throws(() => loadSettings({ reactions }), /réaction/);
+    }
+  });
+
+  await check("Réactions : échec d’archive, reprise sans doublon et notes aux repères incomplets préservées", async () => {
+    const project = join(directory, "failed-reaction");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const exchange = { turnId: "tour", prompts: ["Question"], answer: { id: "réponse", role: "assistant", text: "Réponse", paths: [] } };
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      const path = "Bible/Suivi/Connaissances.md";
+      await writeFile(join(project, path), "Mes notes.\n");
+      await writeFile(join(project, "Archives/Bible/Suivi"), "Obstacle.");
+      await assert.rejects(recordReaction(project, folders, "session", exchange, "up", "Utile."));
+      assert.equal(await readFile(join(project, path), "utf8"), "Mes notes.\n");
+      await rm(join(project, "Archives/Bible/Suivi"));
+      const rating = await recordReaction(project, folders, "session", exchange, "up", "Utile.");
+      assert.equal((await readdir(join(project, "Bible/Suivi"))).filter(name => name.includes("-reaction-")).length, 1);
+      const original = await readFile(join(project, path), "utf8");
+      const edited = original.replace("## Réaction de l’auteur", "Ma précision personnelle.\n\n## Réaction de l’auteur");
+      await writeFile(join(project, path), edited);
+      await assert.rejects(recordReaction(project, folders, "session", exchange, "down", "Autre avis.", rating), /modifications personnelles/);
+      assert.equal(await readFile(join(project, path), "utf8"), edited);
+      const broken = original.replace(/<!-- orelius:reaction:[a-f0-9]+:end -->/, "");
+      await writeFile(join(project, path), broken);
+      await assert.rejects(recordReaction(project, folders, "session", exchange, "down", "Autre avis.", rating), /repères de réaction/);
+      assert.equal(await readFile(join(project, path), "utf8"), broken);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Acceptation : retour exact, exemple positif figé, notes préservées et absence de doublon", async () => {
+    const project = join(directory, "acceptance");
+    const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers", archiveFolder: "Versions" };
+    const path = "Roman/Chapitres/Été.md";
+    const snapshot = { before: "Il parle.\n", after: "« Djo, viens ici ! »\n" };
+    const message = "  Enfin, voilà ce que je voulais.\n\nGarde cette voix, surtout le rythme.  ";
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      await writeFile(join(project, path), snapshot.after);
+      const knowledgePath = "Univers/Suivi/Connaissances.md";
+      const personal = "# Connaissances\n\nMes notes personnelles, à conserver.\n";
+      await writeFile(join(project, knowledgePath), personal);
+      const before = await stat(join(project, path));
+      const report = await recordAcceptance(project, folders, path, snapshot, message);
+      assert.match(report, /^Univers\/Suivi\/\d{4}-\d{2}-\d{2}T.+-acceptation-[a-f0-9]{64}\.md$/);
+      const accepted = await readFile(join(project, report), "utf8");
+      const quoted = value => value.split("\n").map(line => `    ${line}`).join("\n");
+      assert.ok(accepted.includes(quoted(message)));
+      assert.ok(accepted.includes(`## Version approuvée\n\n${quoted(snapshot.after)}`));
+      assert.ok(accepted.includes("exemple positif"));
+      assert.ok(accepted.includes("version produite par Codex"));
+      const knowledge = await readFile(join(project, knowledgePath), "utf8");
+      assert.ok(knowledge.startsWith(personal));
+      assert.ok(knowledge.includes(report.split("/").pop()));
+      assert.ok((await readFile(join(project, "Univers/suivi.md"), "utf8")).includes(report.split("/").pop()));
+      const copies = await readdir(join(project, "Versions/Univers/Suivi"));
+      assert.equal(copies.length, 1);
+      assert.equal(await readFile(join(project, "Versions/Univers/Suivi", copies[0]), "utf8"), personal);
+      const again = await recordAcceptance(project, folders, path, snapshot, message);
+      assert.equal(again, report);
+      assert.equal(await readFile(join(project, knowledgePath), "utf8"), knowledge);
+      assert.equal((await readdir(join(project, "Univers/Suivi"))).filter(name => name.includes("-acceptation-")).length, 1);
+      const after = await stat(join(project, path));
+      assert.equal(after.ino, before.ino);
+      assert.equal(after.mtimeMs, before.mtimeMs);
+      assert.equal(await readFile(join(project, path), "utf8"), snapshot.after);
+      const agent = renderAgent(agentTemplate, loadSettings(folders));
+      for (const text of ["exemples positifs", "Enfin, voilà ce que je voulais", "retouches humaines", "Univers/suivi.md"]) assert.ok(agent.includes(text), text);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Acceptation : la version relue avec retouches humaines est celle approuvée", async () => {
+    const project = join(directory, "human-acceptance");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const path = "Manuscript/Chapitres/1.md";
+    const snapshot = { before: "Original.\n", after: "Révision Codex.\n" };
+    const human = "Ma retouche de la révision.\n";
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await writeFile(join(project, path), human);
+      const report = await recordAcceptance(project, folders, path, snapshot, "");
+      const text = await readFile(join(project, report), "utf8");
+      assert.ok(text.includes("retouches de l’auteur"));
+      assert.ok(text.includes("    Ma retouche de la révision."));
+      assert.ok(text.includes("Aucun message supplémentaire."));
+      assert.equal(await readFile(join(project, path), "utf8"), human);
+      await writeFile(join(project, path), "Version suivante.\n");
+      assert.equal(await readFile(join(project, report), "utf8"), text);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Acceptation : échec d’archive ou éditeur modifié, données préservées et reprise sans doublon", async () => {
+    const project = join(directory, "failed-acceptance");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const path = "Manuscript/Chapitres/1.md";
+    const snapshot = { before: "Original.\n", after: "Version à accepter.\n" };
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      await writeFile(join(project, path), snapshot.after);
+      const knowledge = "Bible/Suivi/Connaissances.md";
+      await writeFile(join(project, knowledge), "Notes personnelles.\n");
+      await writeFile(join(project, "Archives/Bible/Suivi"), "Obstacle à l’archive.");
+      await assert.rejects(recordAcceptance(project, folders, path, snapshot, "Enfin !"));
+      assert.equal(await readFile(join(project, knowledge), "utf8"), "Notes personnelles.\n");
+      assert.equal(await readFile(join(project, path), "utf8"), snapshot.after);
+      assert.equal((await readFile(join(project, "Bible/suivi.md"), "utf8")).includes("orelius:acceptance:"), false);
+      await rm(join(project, "Archives/Bible/Suivi"));
+      const report = await recordAcceptance(project, folders, path, snapshot, "Enfin !");
+      assert.ok((await readFile(join(project, knowledge), "utf8")).includes(report.split("/").pop()));
+      assert.equal((await readdir(join(project, "Bible/Suivi"))).filter(name => name.includes("-acceptation-")).length, 1);
+      await assert.rejects(recordAcceptance(project, folders, path, snapshot, "Autre retour", () => { throw new Error("Corrections non enregistrées."); }), /Corrections non enregistrées/);
+      assert.equal((await readdir(join(project, "Bible/Suivi"))).filter(name => name.includes("-acceptation-")).length, 1);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Acceptation : notes hors chapitre, révision vide et liens refusés", async () => {
+    const project = join(directory, "invalid-acceptance");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const snapshot = { before: "Avant", after: "Après" };
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      for (const path of ["Bible/Style/Narration.md", "../1.md", "Model/Chapitres/1.md"]) {
+        await assert.rejects(recordAcceptance(project, folders, path, snapshot, ""), /Ouvrez un chapitre/);
+      }
+      const path = "Manuscript/Chapitres/1.md";
+      await assert.rejects(recordAcceptance(project, folders, path, { before: "Identique", after: "Identique" }, ""), /Aucune modification/);
+      await assert.rejects(recordAcceptance(project, folders, path, snapshot, ""), /Chapitre introuvable/);
+      await writeFile(join(project, "source.md"), snapshot.after);
+      await symlink(join(project, "source.md"), join(project, path));
+      await assert.rejects(recordAcceptance(project, folders, path, snapshot, ""), /symboliques/);
+      assert.equal(await readFile(join(project, "source.md"), "utf8"), snapshot.after);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
   await check("Saturation : message explicite et relance réservée aux erreurs de capacité", async () => {
     for (const code of ["serverOverloaded", "server_overloaded", "server_is_overloaded"]) {
       const failure = codexFailure("Service indisponible", code);

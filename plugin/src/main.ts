@@ -17,6 +17,8 @@ import { readProjectFile } from "./project-files.ts";
 import { planRevision, revisionKey } from "./revision.ts";
 import { revisionHighlights } from "./revision-highlights";
 import { editorLock } from "./editor-lock";
+import { recordAcceptance } from "./acceptance";
+import { reactionExchanges, reactionKey, recordReaction, type Reaction } from "./reactions";
 
 export default class OreliusPlugin extends Plugin {
   settings = loadSettings(undefined);
@@ -187,6 +189,7 @@ export default class OreliusPlugin extends Plugin {
       if (changedConnection) {
         if (changedFolder) {
           this.session.items = [];
+          this.session.turns = [];
           this.session.threadId = "";
         }
         this.session.disconnect();
@@ -250,6 +253,62 @@ export default class OreliusPlugin extends Plugin {
     const path = this.app.workspace.getActiveFile()?.path;
     const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
     return path?.startsWith(prefix) ? chapterPath("/", this.settings, path.slice(prefix.length)) : null;
+  }
+
+  reactionFor(itemId: string): Reaction | undefined {
+    return this.settings.reactions[reactionKey(this.settings.threadCwd, this.session.threadId, itemId)]?.value;
+  }
+
+  async react(itemId: string, value: Reaction, message: string): Promise<void> {
+    await this.settingsWrite;
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche ou de l’envoi avant de noter cet échange.");
+    const threadId = this.session.threadId;
+    const exchange = reactionExchanges(this.session.turns).get(itemId);
+    if (!threadId || !exchange) throw new Error("Cette réponse finale n’est plus disponible dans la conversation active.");
+    this.sending = true;
+    try {
+      const cwd = await this.refreshCorrections();
+      this.checkSavedDirectory(cwd);
+      const folders = this.settings;
+      const key = reactionKey(cwd, threadId, itemId);
+      let rating = folders.reactions[key];
+      await this.correctionTask(async () => {
+        rating = await recordReaction(cwd, folders, threadId, exchange, value, message, rating, (path, content) => this.checkEditor(path, content));
+      });
+      await this.saveSettings({ reactions: { ...this.settings.reactions, [key]: rating } });
+      if (this.draft === message) this.draft = "";
+      for (const view of this.views) view.update();
+      new Notice("Réaction et retour ajoutés au suivi.");
+    } finally { this.sending = false; this.releaseNoteLocks(); }
+  }
+
+  get acceptanceChapter(): string | null {
+    const chapter = this.revisionChapter;
+    const key = `${this.settings.folder ? `${this.settings.folder}/` : ""}${chapter}`;
+    const snapshot = this.settings.revisionHighlights[key];
+    return chapter && snapshot && snapshot.before !== snapshot.after ? chapter : null;
+  }
+
+  async acceptRevision(message: string, chapter: string): Promise<void> {
+    await this.settingsWrite;
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche ou de l’envoi avant d’accepter les modifications.");
+    if (chapter !== this.acceptanceChapter) throw new Error("Aucune modification à accepter dans ce chapitre.");
+    this.sending = true;
+    try {
+      const cwd = await this.refreshCorrections(chapter);
+      const folders = this.settings;
+      const key = `${folders.folder ? `${folders.folder}/` : ""}${chapter}`;
+      const snapshot = folders.revisionHighlights[key];
+      if (!snapshot) throw new Error("Les modifications de ce chapitre ont changé. Relisez-les avant de les accepter.");
+      this.lockNote(chapter);
+      await this.correctionTask(async () => { await recordAcceptance(cwd, folders, chapter, snapshot, message, (path, content) => this.checkEditor(path, content)); });
+      const revisionHighlights = { ...this.settings.revisionHighlights };
+      delete revisionHighlights[key];
+      await this.saveSettings({ revisionHighlights });
+      if (this.draft === message) this.draft = "";
+      for (const view of this.views) view.update();
+      new Notice("Modifications acceptées ; surlignage retiré et retour ajouté au suivi.");
+    } finally { this.sending = false; this.releaseNoteLocks(); }
   }
 
   async refreshCorrections(chapter?: string): Promise<string> {
