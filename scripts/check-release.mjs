@@ -14,12 +14,17 @@ export function checkRelease() {
   const workflow = JSON.parse(parsed.stdout);
   assert.deepEqual((workflow.on ?? workflow.true).push.tags, ["[0-9]*"]);
   assert.deepEqual(workflow.permissions, { contents: "read" });
-  assert.deepEqual(workflow.jobs.release.permissions, { contents: "write" });
+  assert.deepEqual(workflow.jobs.release.permissions, { contents: "write", "id-token": "write", attestations: "write" });
   const steps = workflow.jobs.release.steps;
   for (const step of steps.filter(step => step.uses)) assert.match(step.uses, /^[^@]+@[a-f0-9]{40}$/);
   assert.equal(steps.find(step => step.uses?.startsWith("actions/checkout@"))?.with["persist-credentials"], false);
   assert.equal(steps.find(step => step.uses?.startsWith("actions/setup-node@"))?.with["node-version"], "24");
+  const attestation = steps.find(step => step.uses?.startsWith("actions/attest@"));
+  assert.ok(attestation);
+  assert.deepEqual(attestation.with["subject-path"].trim().split("\n"), ["main.js", "manifest.json", "styles.css"]);
   const publication = steps.find(step => step.name === "Publish plugin");
+  assert.ok(steps.indexOf(attestation) > steps.findIndex(step => step.name === "Validate and build"));
+  assert.ok(steps.indexOf(attestation) < steps.indexOf(publication));
   assert.equal(publication.env.GH_TOKEN, "${{ secrets.GITHUB_TOKEN }}");
   assert.equal(publication.env.RELEASE_TAG, "${{ github.ref_name }}");
   for (const step of steps.filter(step => step.run)) assert.equal(spawnSync("bash", ["-n", "-c", step.run]).status, 0);

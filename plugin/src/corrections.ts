@@ -71,7 +71,8 @@ export function revisionRequest(text: string): { path: string; details: string }
   if (!match) return null;
   const marker = "\n\n## Précisions supplémentaires de l’auteur\n\n";
   const start = text.indexOf(marker);
-  return { path: JSON.parse(match[1]), details: start === -1 ? "" : text.slice(start + marker.length) };
+  const path: unknown = JSON.parse(match[1]);
+  return typeof path === "string" ? { path, details: start === -1 ? "" : text.slice(start + marker.length) } : null;
 }
 
 export async function revisionProtections(cwd: string, folders: ProjectFolders, versions: Record<string, string>, chapter?: string): Promise<RevisionPlan[]> {
@@ -139,7 +140,7 @@ export async function captureCodexVersions(cwd: string, folders: ProjectFolders,
 }
 
 export async function archiveWithCorrections(cwd: string, folders: ProjectFolders, changes: unknown,
-  versions: Record<string, string>, checkEditor: (path: string, content: string) => void): Promise<string[]> {
+  versions: Record<string, string>, checkEditor: (path: string, content: string) => void, configDir?: string): Promise<string[]> {
   if (!Array.isArray(changes) || !changes.length) throw new Error("Liste des modifications absente. Écriture refusée.");
   const archived: string[] = [];
   for (const change of changes) {
@@ -157,7 +158,7 @@ export async function archiveWithCorrections(cwd: string, folders: ProjectFolder
     archived.push(...await archiveChanges(cwd, [change], (changedPath, content) => {
       if (path && file && content !== file.text) throw new Error(`Le chapitre a changé avant l’archivage : ${path}. Relancez la demande.`);
       checkEditor(changedPath, content);
-    }, folders.archiveFolder, human ? "-h" : ""));
+    }, folders.archiveFolder, human ? "-h" : "", configDir));
   }
   return archived;
 }

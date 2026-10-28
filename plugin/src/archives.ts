@@ -5,9 +5,25 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { object } from "./codex.ts";
 import { DEFAULT_PROJECT_FOLDERS, projectPaths, validateFolderName, type ProjectFolders } from "./settings.ts";
 
-export async function checkPath(root: string, path: string): Promise<void> {
+export async function checkPath(root: string, path: string, configDir?: string): Promise<void> {
   const location = relative(root, path);
   if (location === ".." || location.startsWith(`..${sep}`) || isAbsolute(location)) throw new Error("Le fichier doit rester dans le projet.");
+  if (configDir) {
+    const requested = resolve(root, configDir);
+    let ancestor = requested;
+    let configuration: string;
+    while (true) {
+      try { configuration = resolve(await realpath(ancestor), relative(ancestor, requested)); break; }
+      catch (error) {
+        if (object(error).code !== "ENOENT" || dirname(ancestor) === ancestor) throw error;
+        ancestor = dirname(ancestor);
+      }
+    }
+    const configured = relative(configuration.normalize("NFC").toLowerCase(), path.normalize("NFC").toLowerCase());
+    if (!configured || configured !== ".." && !configured.startsWith(`..${sep}`) && !isAbsolute(configured)) {
+      throw new Error("Écriture refusée dans le dossier de configuration Obsidian.");
+    }
+  }
   let current = root;
   for (const part of relative(root, path).split(sep)) {
     current = join(current, part);
@@ -21,12 +37,12 @@ export async function checkPath(root: string, path: string): Promise<void> {
   }
 }
 
-export async function prepareProject(cwd: string, folders: ProjectFolders): Promise<void> {
+export async function prepareProject(cwd: string, folders: ProjectFolders, configDir?: string): Promise<void> {
   const paths = projectPaths(folders);
   const root = await realpath(cwd);
   for (const path of paths) {
     const target = join(root, path);
-    await checkPath(root, target);
+    await checkPath(root, target, configDir);
     try { await mkdir(target); }
     catch (error) { if (object(error).code !== "EEXIST") throw error; }
     if (!(await lstat(target)).isDirectory()) throw new Error(`Un fichier occupe le chemin du dossier ${path}.`);
@@ -41,7 +57,7 @@ function archiveTarget(root: string, suppliedRoot: string, requestedPath: string
   const target = requested.startsWith(`${suppliedRoot}${sep}`) ? resolve(root, relative(suppliedRoot, requested)) : requested;
   const path = relative(root, target);
   if (!path || path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)
-    || [archiveFolder.normalize("NFC").toLowerCase(), "_archives", ".obsidian", ".git"]
+    || [archiveFolder.normalize("NFC").toLowerCase(), "_archives", ".git"]
       .includes(path.split(sep)[0].normalize("NFC").toLowerCase())) {
     throw new Error(`Écriture refusée : le fichier doit appartenir au projet, hors ${archiveFolder}, _Archives et dossiers internes.`);
   }
@@ -49,9 +65,9 @@ function archiveTarget(root: string, suppliedRoot: string, requestedPath: string
 }
 
 async function writeArchive(root: string, path: string, content: Uint8Array, mode: number,
-  archiveFolder: string, suffix: "" | "-h"): Promise<string> {
+  archiveFolder: string, suffix: "" | "-h", configDir?: string): Promise<string> {
   const directory = join(root, archiveFolder, path.toLowerCase() === "agents.md" ? "Agents" : dirname(path));
-  await checkPath(root, directory);
+  await checkPath(root, directory, configDir);
   await mkdir(directory, { recursive: true });
   await checkPath(root, directory);
   const extension = extname(path);
@@ -63,17 +79,17 @@ async function writeArchive(root: string, path: string, content: Uint8Array, mod
   return relative(root, archive).split(sep).join("/");
 }
 
-export async function archiveGenerated(cwd: string, path: string, content: string, archiveFolder: string, mode = 0o600): Promise<string> {
+export async function archiveGenerated(cwd: string, path: string, content: string, archiveFolder: string, mode = 0o600, configDir?: string): Promise<string> {
   validateFolderName(archiveFolder);
   const root = await realpath(cwd);
   const location = archiveTarget(root, resolve(cwd), path, archiveFolder);
-  await checkPath(root, location.target);
-  return writeArchive(root, location.path, Buffer.from(content, "utf8"), mode, archiveFolder, "");
+  await checkPath(root, location.target, configDir);
+  return writeArchive(root, location.path, Buffer.from(content, "utf8"), mode, archiveFolder, "", configDir);
 }
 
 export async function archiveChanges(cwd: string, changes: unknown,
   checkEditor: (path: string, content: string) => void = () => {},
-  archiveFolder: string = DEFAULT_PROJECT_FOLDERS.archiveFolder, suffix: "" | "-h" = ""): Promise<string[]> {
+  archiveFolder: string = DEFAULT_PROJECT_FOLDERS.archiveFolder, suffix: "" | "-h" = "", configDir?: string): Promise<string[]> {
   validateFolderName(archiveFolder);
   if (!Array.isArray(changes) || !changes.length) throw new Error("Liste des modifications absente. Écriture refusée.");
   const root = await realpath(cwd);
@@ -87,7 +103,7 @@ export async function archiveChanges(cwd: string, changes: unknown,
     }
     return { ...archiveTarget(root, suppliedRoot, change.path, archiveFolder), creating: kind.type === "add" };
   });
-  for (const { target } of targets) await checkPath(root, target);
+  for (const { target } of targets) await checkPath(root, target, configDir);
   const archives: string[] = [];
   for (const { target, path, creating } of targets) {
     let source;
@@ -101,7 +117,7 @@ export async function archiveChanges(cwd: string, changes: unknown,
       if (!before.isFile() || before.nlink !== 1) throw new Error(`Fichier ordinaire sans lien requis : ${path}`);
       const original = await source.readFile();
       checkEditor(path.split(sep).join("/"), original.toString("utf8"));
-      const archive = await writeArchive(root, path, original, before.mode, archiveFolder, suffix);
+      const archive = await writeArchive(root, path, original, before.mode, archiveFolder, suffix, configDir);
       const after = await lstat(target);
       if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size
         || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {

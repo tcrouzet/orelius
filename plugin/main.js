@@ -40,6 +40,9 @@ function object(value) {
 function errorText(error) {
   return error instanceof Error ? error.message : String(error);
 }
+function stringValue(value, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
 function codexVersion(userAgent) {
   return typeof userAgent === "string" ? userAgent.match(/\b\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?\b/)?.[0] ?? "non communiqu\xE9e" : "non communiqu\xE9e";
 }
@@ -69,6 +72,7 @@ async function findCodex(configured, extended = false) {
       await (0, import_promises.access)(candidate, import_node_fs.constants.X_OK);
       if ((await (0, import_promises.stat)(candidate)).isFile()) return candidate;
     } catch {
+      continue;
     }
   }
   throw new Error("Codex introuvable. Installez Codex CLI, puis indiquez son chemin dans R\xE9glages \u2192 Orelius.");
@@ -173,7 +177,7 @@ var CodexClient = class {
       } catch (error) {
         (0, import_node_timers.clearTimeout)(timer);
         this.pending.delete(id);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(errorText(error)));
       }
     });
   }
@@ -237,7 +241,7 @@ var CodexClient = class {
           this.pending.delete(message.id);
           if (message.error) {
             const error = object(message.error);
-            const detail = error.code === -32600 || error.code === -32601 ? "Fonction indisponible." : String(error.message ?? "Erreur Codex.");
+            const detail = error.code === -32600 || error.code === -32601 ? "Fonction indisponible." : stringValue(error.message, "Erreur Codex.");
             const advice = typeof error.code === "number" && [-32600, -32601, -32602].includes(error.code) ? " Mettez \xE0 jour Codex ou Orelius." : "";
             pending.reject(new Error(`Codex ${this.version} \u2014 ${pending.method} : ${detail}${advice}`));
           } else pending.resolve(object(message.result));
@@ -259,7 +263,7 @@ var CodexClient = class {
   fail(error) {
     if (this.stopping) return;
     this.rejectPending(error);
-    this.stop();
+    void this.stop();
     this.handlers.exit(error.message);
   }
 };
@@ -282,7 +286,7 @@ var DEFAULT_PROJECT_FOLDERS = {
   bibleFolder: "Bible"
 };
 function validateFolderName(name) {
-  if (typeof name !== "string" || !name || name !== name.trim() || name.startsWith(".") || /[<>:"/\\|?*\u0000-\u001f\u007f]/.test(name) || name.endsWith(".")) {
+  if (typeof name !== "string" || !name || name !== name.trim() || name.startsWith(".") || /[<>:"/\\|?*]/.test(name) || [...name].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) || name.endsWith(".")) {
     throw new Error("Indiquez un nom de dossier simple, sans chemin ni caract\xE8re r\xE9serv\xE9.");
   }
 }
@@ -338,8 +342,9 @@ function loadSettings(value) {
   }
   for (const key of PROJECT_FOLDER_KEYS) {
     if (saved[key] === void 0) continue;
-    if (typeof saved[key] !== "string") throw new Error(`Nom de dossier invalide pour ${DEFAULT_PROJECT_FOLDERS[key]}.`);
-    settings[key] = saved[key];
+    const name = saved[key];
+    if (typeof name !== "string") throw new Error(`Nom de dossier invalide pour ${DEFAULT_PROJECT_FOLDERS[key]}.`);
+    settings[key] = name;
   }
   if (saved.sessions !== void 0 && (saved.sessions === null || typeof saved.sessions !== "object" || Array.isArray(saved.sessions))) {
     throw new Error("Les associations entre dossiers et sessions Codex sont invalides.");
@@ -355,8 +360,11 @@ function loadSettings(value) {
     throw new Error("Les r\xE9f\xE9rences de correction sont invalides.");
   }
   settings.codexVersions = Object.fromEntries(Object.entries(object(saved.codexVersions)).map(([cwd, versions]) => {
-    if (versions === null || typeof versions !== "object" || Array.isArray(versions) || Object.values(versions).some((text) => typeof text !== "string")) throw new Error("Les r\xE9f\xE9rences de correction sont invalides.");
-    return [cwd, Object.fromEntries(Object.entries(versions))];
+    if (versions === null || typeof versions !== "object" || Array.isArray(versions)) throw new Error("Les r\xE9f\xE9rences de correction sont invalides.");
+    return [cwd, Object.fromEntries(Object.entries(object(versions)).map(([path, text]) => {
+      if (typeof text !== "string") throw new Error("Les r\xE9f\xE9rences de correction sont invalides.");
+      return [path, text];
+    }))];
   }));
   if (saved.revisionHighlights !== void 0 && (saved.revisionHighlights === null || typeof saved.revisionHighlights !== "object" || Array.isArray(saved.revisionHighlights))) {
     throw new Error("Les r\xE9f\xE9rences de surlignage sont invalides.");
@@ -398,9 +406,27 @@ function applySettings(previous, changes) {
 }
 
 // plugin/src/archives.ts
-async function checkPath(root, path) {
+async function checkPath(root, path, configDir) {
   const location = (0, import_node_path2.relative)(root, path);
   if (location === ".." || location.startsWith(`..${import_node_path2.sep}`) || (0, import_node_path2.isAbsolute)(location)) throw new Error("Le fichier doit rester dans le projet.");
+  if (configDir) {
+    const requested = (0, import_node_path2.resolve)(root, configDir);
+    let ancestor = requested;
+    let configuration;
+    while (true) {
+      try {
+        configuration = (0, import_node_path2.resolve)(await (0, import_promises2.realpath)(ancestor), (0, import_node_path2.relative)(ancestor, requested));
+        break;
+      } catch (error) {
+        if (object(error).code !== "ENOENT" || (0, import_node_path2.dirname)(ancestor) === ancestor) throw error;
+        ancestor = (0, import_node_path2.dirname)(ancestor);
+      }
+    }
+    const configured = (0, import_node_path2.relative)(configuration.normalize("NFC").toLowerCase(), path.normalize("NFC").toLowerCase());
+    if (!configured || configured !== ".." && !configured.startsWith(`..${import_node_path2.sep}`) && !(0, import_node_path2.isAbsolute)(configured)) {
+      throw new Error("\xC9criture refus\xE9e dans le dossier de configuration Obsidian.");
+    }
+  }
   let current = root;
   for (const part of (0, import_node_path2.relative)(root, path).split(import_node_path2.sep)) {
     current = (0, import_node_path2.join)(current, part);
@@ -414,12 +440,12 @@ async function checkPath(root, path) {
     if (info.isSymbolicLink()) throw new Error("Les liens symboliques ne peuvent pas \xEAtre modifi\xE9s ni servir d\u2019archives.");
   }
 }
-async function prepareProject(cwd, folders) {
+async function prepareProject(cwd, folders, configDir) {
   const paths = projectPaths(folders);
   const root = await (0, import_promises2.realpath)(cwd);
   for (const path of paths) {
     const target = (0, import_node_path2.join)(root, path);
-    await checkPath(root, target);
+    await checkPath(root, target, configDir);
     try {
       await (0, import_promises2.mkdir)(target);
     } catch (error) {
@@ -434,14 +460,14 @@ function archiveTarget(root, suppliedRoot, requestedPath, archiveFolder) {
   const requested = (0, import_node_path2.resolve)(suppliedRoot, requestedPath);
   const target = requested.startsWith(`${suppliedRoot}${import_node_path2.sep}`) ? (0, import_node_path2.resolve)(root, (0, import_node_path2.relative)(suppliedRoot, requested)) : requested;
   const path = (0, import_node_path2.relative)(root, target);
-  if (!path || path === ".." || path.startsWith(`..${import_node_path2.sep}`) || (0, import_node_path2.isAbsolute)(path) || [archiveFolder.normalize("NFC").toLowerCase(), "_archives", ".obsidian", ".git"].includes(path.split(import_node_path2.sep)[0].normalize("NFC").toLowerCase())) {
+  if (!path || path === ".." || path.startsWith(`..${import_node_path2.sep}`) || (0, import_node_path2.isAbsolute)(path) || [archiveFolder.normalize("NFC").toLowerCase(), "_archives", ".git"].includes(path.split(import_node_path2.sep)[0].normalize("NFC").toLowerCase())) {
     throw new Error(`\xC9criture refus\xE9e : le fichier doit appartenir au projet, hors ${archiveFolder}, _Archives et dossiers internes.`);
   }
   return { target, path };
 }
-async function writeArchive(root, path, content, mode, archiveFolder, suffix) {
+async function writeArchive(root, path, content, mode, archiveFolder, suffix, configDir) {
   const directory = (0, import_node_path2.join)(root, archiveFolder, path.toLowerCase() === "agents.md" ? "Agents" : (0, import_node_path2.dirname)(path));
-  await checkPath(root, directory);
+  await checkPath(root, directory, configDir);
   await (0, import_promises2.mkdir)(directory, { recursive: true });
   await checkPath(root, directory);
   const extension = (0, import_node_path2.extname)(path);
@@ -456,15 +482,15 @@ async function writeArchive(root, path, content, mode, archiveFolder, suffix) {
   }
   return (0, import_node_path2.relative)(root, archive).split(import_node_path2.sep).join("/");
 }
-async function archiveGenerated(cwd, path, content, archiveFolder, mode = 384) {
+async function archiveGenerated(cwd, path, content, archiveFolder, mode = 384, configDir) {
   validateFolderName(archiveFolder);
   const root = await (0, import_promises2.realpath)(cwd);
   const location = archiveTarget(root, (0, import_node_path2.resolve)(cwd), path, archiveFolder);
-  await checkPath(root, location.target);
-  return writeArchive(root, location.path, Buffer.from(content, "utf8"), mode, archiveFolder, "");
+  await checkPath(root, location.target, configDir);
+  return writeArchive(root, location.path, Buffer.from(content, "utf8"), mode, archiveFolder, "", configDir);
 }
 async function archiveChanges(cwd, changes, checkEditor = () => {
-}, archiveFolder = DEFAULT_PROJECT_FOLDERS.archiveFolder, suffix = "") {
+}, archiveFolder = DEFAULT_PROJECT_FOLDERS.archiveFolder, suffix = "", configDir) {
   validateFolderName(archiveFolder);
   if (!Array.isArray(changes) || !changes.length) throw new Error("Liste des modifications absente. \xC9criture refus\xE9e.");
   const root = await (0, import_promises2.realpath)(cwd);
@@ -477,7 +503,7 @@ async function archiveChanges(cwd, changes, checkEditor = () => {
     }
     return { ...archiveTarget(root, suppliedRoot, change.path, archiveFolder), creating: kind.type === "add" };
   });
-  for (const { target } of targets) await checkPath(root, target);
+  for (const { target } of targets) await checkPath(root, target, configDir);
   const archives = [];
   for (const { target, path, creating } of targets) {
     let source;
@@ -492,7 +518,7 @@ async function archiveChanges(cwd, changes, checkEditor = () => {
       if (!before.isFile() || before.nlink !== 1) throw new Error(`Fichier ordinaire sans lien requis : ${path}`);
       const original = await source.readFile();
       checkEditor(path.split(import_node_path2.sep).join("/"), original.toString("utf8"));
-      const archive = await writeArchive(root, path, original, before.mode, archiveFolder, suffix);
+      const archive = await writeArchive(root, path, original, before.mode, archiveFolder, suffix, configDir);
       const after = await (0, import_promises2.lstat)(target);
       if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
         throw new Error(`Le fichier a chang\xE9 pendant l\u2019archivage : ${path}. Relancez la demande.`);
@@ -556,12 +582,14 @@ var ProjectMcp = class {
         let size = 0;
         const chunks = [];
         for await (const chunk of request) {
-          size += chunk.length;
+          const data = chunk;
+          if (!Buffer.isBuffer(data)) throw new Error("Corps de requ\xEAte binaire attendu.");
+          size += data.length;
           if (size > 16 * 1024 * 1024) {
             response.writeHead(413).end();
             return;
           }
-          chunks.push(chunk);
+          chunks.push(data);
         }
         let message;
         try {
@@ -920,20 +948,20 @@ async function readProjectFile(cwd, path) {
   }
 }
 async function writeProjectFile(cwd, path, content, previous, archiveFolder, archive = archiveChanges, ensureCurrent = () => {
-}, archiveOutput = false, revision) {
+}, archiveOutput = false, revision, configDir) {
   ensureCurrent();
   if (revision) checkRevision(revision, previous?.text, content);
   if (content === previous?.text) {
     if (!archiveOutput) return [];
-    const archive2 = await archiveGenerated(cwd, path, content, archiveFolder, previous.stat.mode);
+    const archive2 = await archiveGenerated(cwd, path, content, archiveFolder, previous.stat.mode, configDir);
     ensureCurrent();
     return [archive2];
   }
   const root = await (0, import_promises3.realpath)(cwd);
   const target = (0, import_node_path4.resolve)(root, path);
-  await checkPath(root, target);
+  await checkPath(root, target, configDir);
   ensureCurrent();
-  const archives = await archive(root, [{ path, kind: { type: previous ? "update" : "add" } }], void 0, archiveFolder);
+  const archives = await archive(root, [{ path, kind: { type: previous ? "update" : "add" } }], void 0, archiveFolder, "", configDir);
   ensureCurrent();
   await (0, import_promises3.mkdir)((0, import_node_path4.dirname)(target), { recursive: true });
   await checkPath(root, target);
@@ -946,7 +974,7 @@ async function writeProjectFile(cwd, path, content, previous, archiveFolder, arc
     } finally {
       await output.close();
     }
-    if (archiveOutput) archives.push(await archiveGenerated(root, path, content, archiveFolder, previous?.stat.mode));
+    if (archiveOutput) archives.push(await archiveGenerated(root, path, content, archiveFolder, previous?.stat.mode, configDir));
     if (previous) {
       const current = await readProjectFile(root, path);
       if (!current || current.text !== previous.text || current.stat.ino !== previous.stat.ino || current.stat.dev !== previous.stat.dev || current.stat.mtimeMs !== previous.stat.mtimeMs || current.stat.ctimeMs !== previous.stat.ctimeMs) {
@@ -1059,7 +1087,8 @@ function revisionRequest(text) {
   if (!match) return null;
   const marker = "\n\n## Pr\xE9cisions suppl\xE9mentaires de l\u2019auteur\n\n";
   const start = text.indexOf(marker);
-  return { path: JSON.parse(match[1]), details: start === -1 ? "" : text.slice(start + marker.length) };
+  const path = JSON.parse(match[1]);
+  return typeof path === "string" ? { path, details: start === -1 ? "" : text.slice(start + marker.length) } : null;
 }
 async function revisionProtections(cwd, folders, versions, chapter) {
   const protections = [];
@@ -1122,7 +1151,7 @@ async function captureCodexVersions(cwd, folders, changes) {
   }
   return Object.fromEntries(versions);
 }
-async function archiveWithCorrections(cwd, folders, changes, versions, checkEditor) {
+async function archiveWithCorrections(cwd, folders, changes, versions, checkEditor, configDir) {
   if (!Array.isArray(changes) || !changes.length) throw new Error("Liste des modifications absente. \xC9criture refus\xE9e.");
   const archived = [];
   for (const change of changes) {
@@ -1140,7 +1169,7 @@ async function archiveWithCorrections(cwd, folders, changes, versions, checkEdit
     archived.push(...await archiveChanges(cwd, [change], (changedPath, content) => {
       if (path && file && content !== file.text) throw new Error(`Le chapitre a chang\xE9 avant l\u2019archivage : ${path}. Relancez la demande.`);
       checkEditor(changedPath, content);
-    }, folders.archiveFolder, human ? "-h" : ""));
+    }, folders.archiveFolder, human ? "-h" : "", configDir));
   }
   return archived;
 }
@@ -1201,7 +1230,7 @@ var ChatSession = class {
     } catch (error) {
       if (operation === this.operation) {
         this.fail(error);
-        this.disconnect(this.status);
+        await this.disconnect(this.status);
       }
       throw error;
     } finally {
@@ -1241,13 +1270,13 @@ var ChatSession = class {
         sandboxPolicy: { type: "readOnly", networkAccess: false }
       });
       if (operation === this.operation && this.busy) {
-        this.turnId = String(object(result.turn).id ?? "");
+        this.turnId = stringValue(object(result.turn).id);
         if (this.lastRequest) this.lastRequest.turnId = this.turnId;
       }
     } catch (error) {
       if (operation === this.operation) {
         this.fail(error);
-        this.disconnect(this.status);
+        await this.disconnect(this.status);
       }
       throw error;
     }
@@ -1314,7 +1343,7 @@ var ChatSession = class {
     });
     if (generation !== this.generation) throw new Error("Connexion interrompue pendant l\u2019envoi. V\xE9rifiez l\u2019historique avant de renvoyer la consigne.");
     if (result.turnId !== turnId) {
-      this.disconnect("Codex n\u2019a pas confirm\xE9 la t\xE2che destinataire de la consigne.");
+      await this.disconnect("Codex n\u2019a pas confirm\xE9 la t\xE2che destinataire de la consigne.");
       throw new Error(this.status);
     }
     if (this.lastRequest) this.lastRequest.text += `
@@ -1327,7 +1356,7 @@ ${text}`;
     if (!this.busy) return;
     const operation = this.operation;
     if (!this.client || !this.turnId) {
-      this.disconnect("Connexion interrompue. Vous pouvez reprendre la conversation.");
+      await this.disconnect("Connexion interrompue. Vous pouvez reprendre la conversation.");
       return;
     }
     this.interrupting = true;
@@ -1336,7 +1365,7 @@ ${text}`;
     try {
       await this.client.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId });
     } catch (error) {
-      if (operation === this.operation) this.disconnect(errorText(error));
+      if (operation === this.operation) await this.disconnect(errorText(error));
       throw error;
     }
   }
@@ -1382,7 +1411,7 @@ ${text}`;
       throw error;
     }
     const model = this.model;
-    this.disconnect();
+    await this.disconnect();
     this.model = model;
     this.threadId = "";
     this.items = [];
@@ -1410,7 +1439,7 @@ ${text}`;
           pendingUsage = params.tokenUsage;
         }
         if (generation === this.generation) void this.notification(method, params, cwd).catch((error) => {
-          if (generation === this.generation) this.disconnect(errorText(error));
+          if (generation === this.generation) void this.disconnect(errorText(error));
         });
       },
       request: (request) => {
@@ -1440,7 +1469,7 @@ ${text}`;
         this.changed();
       },
       exit: (message) => {
-        if (generation === this.generation) this.disconnect(message);
+        if (generation === this.generation) void this.disconnect(message);
       }
     });
     this.client = client;
@@ -1468,7 +1497,7 @@ ${text}`;
         this.context().lockNote?.(revisionKey(cwd, path));
         const previous = await readProjectFile(cwd, path);
         original = previous?.text ?? "";
-        const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection);
+        const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection, this.context().configDir);
         const changes = [{ path, kind: { type: previous ? "update" : "add" } }];
         try {
           await this.written(cwd, changes, protection ? { before: protection.source, after: content } : void 0);
@@ -1535,7 +1564,7 @@ ${text}`;
       ...requestedModel ? { model: requestedModel } : {},
       developerInstructions: [
         context.agentInstructions,
-        "Create or modify files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, .obsidian or .git. If an edit fails, report it and do not retry through another tool."
+        `Create or modify files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, the Obsidian configuration directory${context.configDir ? ` (${JSON.stringify(context.configDir)})` : ""} or .git. If an edit fails, report it and do not retry through another tool.`
       ].filter(Boolean).join("\n\n")
     });
     ensureCurrent();
@@ -1572,7 +1601,7 @@ ${text}`;
     if (params.threadId !== this.threadId) return;
     const generation = this.generation;
     if (method === "turn/started") {
-      this.turnId = String(object(params.turn).id ?? "");
+      this.turnId = stringValue(object(params.turn).id);
       this.interrupting = false;
       this.busy = true;
       this.failure = null;
@@ -1611,7 +1640,7 @@ ${text}`;
       this.requests = this.requests.filter((request) => request.id !== params.requestId);
       this.status = this.requests.length ? "En attente de votre r\xE9ponse" : this.busy ? "Codex travaille\u2026" : "";
     } else if (method === "error") {
-      if (params.willRetry) this.status = codexFailure(String(object(params.error).message ?? "Erreur Codex."), object(params.error).codexErrorInfo).message;
+      if (params.willRetry) this.status = codexFailure(stringValue(object(params.error).message, "Erreur Codex."), object(params.error).codexErrorInfo).message;
       else this.fail(params.error ?? "Erreur Codex.");
     }
     this.changed();
@@ -1626,12 +1655,12 @@ function toChatItem(item) {
   if (typeof item.id !== "string") return null;
   const base = { id: item.id, paths: [] };
   if (item.type === "userMessage" && Array.isArray(item.content)) {
-    return { ...base, role: "user", text: item.content.map(object).filter((part) => part.type === "text").map((part) => String(part.text ?? "")).join("\n") };
+    return { ...base, role: "user", text: item.content.map(object).filter((part) => part.type === "text").map((part) => stringValue(part.text)).join("\n") };
   }
   if (item.type === "agentMessage") return {
     ...base,
     role: "assistant",
-    text: String(item.text ?? ""),
+    text: stringValue(item.text),
     ...typeof item.phase === "string" ? { phase: item.phase } : {}
   };
   if (item.type === "commandExecution") {
@@ -1639,8 +1668,8 @@ function toChatItem(item) {
     return {
       ...base,
       role: "activity",
-      text: `Commande \xB7 ${item.status ?? "en cours"}
-${item.command ?? ""}`,
+      text: `Commande \xB7 ${stringValue(item.status, "en cours")}
+${stringValue(item.command)}`,
       paths: actions.filter((action) => typeof action.path === "string").map((action) => String(action.path))
     };
   }
@@ -1648,11 +1677,11 @@ ${item.command ?? ""}`,
     return {
       ...base,
       role: "activity",
-      text: item.status === "completed" ? "Fichier enregistr\xE9" : `Modification \xB7 ${item.status ?? "en cours"}`,
+      text: item.status === "completed" ? "Fichier enregistr\xE9" : `Modification \xB7 ${stringValue(item.status, "en cours")}`,
       paths: item.changes.map(object).filter((change) => typeof change.path === "string").map((change) => String(change.path))
     };
   }
-  if (item.type === "mcpToolCall") return { ...base, role: "activity", text: `Outil \xB7 ${item.server}/${item.tool} \xB7 ${item.status}` };
+  if (item.type === "mcpToolCall") return { ...base, role: "activity", text: `Outil \xB7 ${stringValue(item.server)}/${stringValue(item.tool)} \xB7 ${stringValue(item.status)}` };
   return null;
 }
 async function readConversation(client, threadId, ensureCurrent) {
@@ -1672,7 +1701,7 @@ async function readConversation(client, threadId, ensureCurrent) {
         id: turn.id,
         date,
         completed: turn.status === "completed",
-        ...turn.status === "failed" || turn.error ? { failure: codexFailure(String(object(turn.error).message ?? "La t\xE2che Codex a \xE9chou\xE9."), object(turn.error).codexErrorInfo) } : {},
+        ...turn.status === "failed" || turn.error ? { failure: codexFailure(stringValue(object(turn.error).message, "La t\xE2che Codex a \xE9chou\xE9."), object(turn.error).codexErrorInfo) } : {},
         messages: turn.items.map((value) => toChatItem(object(value))).filter((item) => item !== null)
       });
     }
@@ -2052,7 +2081,7 @@ var OreliusView = class extends import_obsidian.ItemView {
   }
   async onClose() {
     this.active = false;
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) this.timer.window.clearTimeout(this.timer.id);
     this.timer = null;
     this.resize?.disconnect();
     this.resize = null;
@@ -2064,10 +2093,13 @@ var OreliusView = class extends import_obsidian.ItemView {
   }
   update() {
     if (!this.active) return;
-    if (!this.timer) this.timer = setTimeout(() => {
-      this.timer = null;
-      this.render();
-    }, 60);
+    if (!this.timer) {
+      const window = this.contentEl.win;
+      this.timer = { window, id: window.setTimeout(() => {
+        this.timer = null;
+        this.render();
+      }, 60) };
+    }
   }
   async run(action) {
     this.notice?.setText("");
@@ -2222,8 +2254,7 @@ var OreliusView = class extends import_obsidian.ItemView {
     rendered.paths = paths;
     const revision = ++rendered.revision;
     this.addChild(component);
-    const element = this.contentEl.ownerDocument.createElement("article");
-    element.className = `orelius-message orelius-${item.role}`;
+    const element = this.contentEl.ownerDocument.adoptNode(createEl("article", { cls: `orelius-message orelius-${item.role}` }));
     element.createEl("strong", { cls: "orelius-role", text: item.role === "user" ? "Vous" : item.role === "assistant" ? "Codex" : "Activit\xE9" });
     const body = element.createDiv({ cls: "orelius-message-body" });
     for (const path of item.paths) {
@@ -2288,15 +2319,15 @@ var OreliusView = class extends import_obsidian.ItemView {
       for (const value of request.params.questions) {
         const question = object(value);
         const field = card.createEl("fieldset");
-        field.createEl("legend", { text: String(question.question ?? "Question de Codex") });
+        field.createEl("legend", { text: stringValue(question.question, "Question de Codex") });
         if (Array.isArray(question.options)) {
           for (const option of question.options.map(object)) {
-            const button = field.createEl("button", { type: "button", text: String(option.label ?? "") });
+            const button = field.createEl("button", { type: "button", text: stringValue(option.label) });
             if (typeof option.description === "string") button.title = option.description;
             button.onclick = () => {
-              const input2 = inputs.get(String(question.id));
+              const input2 = inputs.get(stringValue(question.id));
               if (input2) {
-                input2.value = String(option.label);
+                input2.value = stringValue(option.label);
                 input2.focus();
               }
             };
@@ -2304,10 +2335,10 @@ var OreliusView = class extends import_obsidian.ItemView {
         }
         const input = field.createEl("input", {
           type: question.isSecret === true ? "password" : "text",
-          attr: { "aria-label": String(question.question ?? "Votre r\xE9ponse") }
+          attr: { "aria-label": stringValue(question.question, "Votre r\xE9ponse") }
         });
         input.required = true;
-        inputs.set(String(question.id), input);
+        inputs.set(stringValue(question.id), input);
       }
       card.createEl("button", { type: "submit", text: "R\xE9pondre", cls: "mod-cta" });
       card.onsubmit = (event) => {
@@ -2365,8 +2396,37 @@ var OreliusSettingTab = class extends import_obsidian2.PluginSettingTab {
     super(plugin.app, plugin);
     this.plugin = plugin;
   }
+  getSettingDefinitions() {
+    return [{
+      name: "Codex et projet d\u2019\xE9criture",
+      aliases: [
+        "Installation",
+        "Connexion",
+        "Tester Codex",
+        "Chemin de Codex",
+        "Afficher les messages d\u2019activit\xE9",
+        "Dossier de travail",
+        "Parcourir",
+        "Organisation du projet",
+        "Archives",
+        "Manuscript",
+        "Model",
+        "Bible",
+        "Dossier du manuscrit",
+        "Dossier des textes mod\xE8les",
+        "Dossier des archives",
+        "Dossier de la bible"
+      ],
+      render: (setting) => {
+        setting.settingEl.removeClass("setting-item");
+        this.renderSettings(setting.settingEl);
+      }
+    }];
+  }
   display() {
-    const { containerEl } = this;
+    this.renderSettings(this.containerEl);
+  }
+  renderSettings(containerEl) {
     containerEl.empty();
     new import_obsidian2.Setting(containerEl).setName("Codex").setHeading();
     const installationEl = containerEl.createDiv();
@@ -2592,8 +2652,7 @@ var DeletionMark = class extends import_view.WidgetType {
     return this.text === other.text;
   }
   toDOM(view) {
-    const marker = view.dom.ownerDocument.createElement("span");
-    marker.className = "orelius-revision-deletion";
+    const marker = view.dom.ownerDocument.adoptNode(createSpan({ cls: "orelius-revision-deletion" }));
     marker.textContent = "\u258F";
     marker.title = `Texte supprim\xE9 : ${this.text}`;
     marker.setAttribute("aria-label", marker.title);
@@ -2727,11 +2786,13 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
         this.settings,
         changes,
         this.settings.codexVersions[cwd] ?? {},
-        (path, content) => this.checkEditor(path, content)
+        (path, content) => this.checkEditor(path, content),
+        this.configurationDirectory()
       ),
       () => ({
         ...this.settings,
         agentInstructions: renderAgent(agent_default, this.settings),
+        configDir: this.configurationDirectory(),
         checkEditor: (path, content) => this.checkEditor(path, content),
         lockNote: (path) => this.lockNote(path)
       }),
@@ -2833,9 +2894,9 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
   onunload() {
     this.unloaded = true;
     this.app.workspace.containerEl.removeClass("orelius-chat-open");
-    this.codexTest?.stop();
+    void this.codexTest?.stop();
     this.codexTest = null;
-    this.session.disconnect();
+    void this.session.disconnect();
   }
   async openChat(focus = true) {
     const current = this.navigation.current();
@@ -2897,7 +2958,7 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
           this.session.turns = [];
           this.session.threadId = "";
         }
-        this.session.disconnect();
+        await this.session.disconnect();
       }
     });
     this.settingsWrite = write.catch(() => {
@@ -2921,9 +2982,14 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
       if (this.codexTest !== client) throw new Error("Test de connexion interrompu.");
       return await client.connect(path, cwd);
     } finally {
-      client.stop();
+      await client.stop();
       if (this.codexTest === client) this.codexTest = null;
     }
+  }
+  configurationDirectory() {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof import_obsidian4.FileSystemAdapter)) throw new Error("Orelius n\xE9cessite un coffre local sur Obsidian desktop.");
+    return (0, import_node_path9.resolve)(adapter.getBasePath(), this.app.vault.configDir);
   }
   async workingDirectory(folder = this.settings.folder) {
     const adapter = this.app.vault.adapter;
@@ -2940,7 +3006,7 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
   async prepareProject(folder = this.settings.folder, folders = this.settings) {
     const preparation = this.projectWrite.then(async () => {
       const cwd = await this.workingDirectory(folder);
-      await prepareProject(cwd, folders);
+      await prepareProject(cwd, folders, this.configurationDirectory());
       await prepareBible(cwd, folders);
       await generateAgent(cwd, { ...folders, folder }, agent_default);
       await this.correctionTask(() => prepareCorrections(cwd, folders));

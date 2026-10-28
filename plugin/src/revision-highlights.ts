@@ -9,8 +9,7 @@ class DeletionMark extends WidgetType {
   constructor(private readonly text: string) { super(); }
   eq(other: DeletionMark): boolean { return this.text === other.text; }
   toDOM(view: EditorView): HTMLElement {
-    const marker = view.dom.ownerDocument.createElement("span");
-    marker.className = "orelius-revision-deletion";
+    const marker = view.dom.ownerDocument.adoptNode(createSpan({ cls: "orelius-revision-deletion" }));
     marker.textContent = "▏";
     marker.title = `Texte supprimé : ${this.text}`;
     marker.setAttribute("aria-label", marker.title);

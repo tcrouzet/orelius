@@ -4,7 +4,7 @@ import { DEFAULT_PROJECT_FOLDERS, type OreliusSettings, type ProjectFolders } fr
 import { contextRemaining, modelOptions, type ModelOption } from "./models.ts";
 import { ProjectMcp } from "./mcp.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
-import { CodexClient, errorText, findCodex, object, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
+import { CodexClient, errorText, findCodex, object, stringValue, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
 import type { ConversationTurn } from "./conversation.ts";
 import { planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
 import { revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
@@ -18,6 +18,7 @@ export interface ChatItem {
 }
 
 interface SessionContext extends ProjectFolders {
+  configDir?: string;
   agentInstructions?: string;
   checkEditor?: (path: string, content: string) => void;
   lockNote?: (path: string) => void;
@@ -89,7 +90,7 @@ export class ChatSession {
       await this.initialize(executable, cwd, savedThreadId, false, model);
       if (operation === this.operation) this.status = "";
     } catch (error) {
-      if (operation === this.operation) { this.fail(error); this.disconnect(this.status); }
+      if (operation === this.operation) { this.fail(error); await this.disconnect(this.status); }
       throw error;
     } finally {
       if (operation === this.operation) {
@@ -127,12 +128,12 @@ export class ChatSession {
         sandboxPolicy: { type: "readOnly", networkAccess: false },
       });
       if (operation === this.operation && this.busy) {
-        this.turnId = String(object(result.turn).id ?? "");
+        this.turnId = stringValue(object(result.turn).id);
         if (this.lastRequest) this.lastRequest.turnId = this.turnId;
       }
     } catch (error) {
       // A lost start response can hide a running turn; close our process before retrying.
-      if (operation === this.operation) { this.fail(error); this.disconnect(this.status); }
+      if (operation === this.operation) { this.fail(error); await this.disconnect(this.status); }
       throw error;
     }
   }
@@ -200,7 +201,7 @@ export class ChatSession {
       input: [{ type: "text", text, text_elements: [] }] });
     if (generation !== this.generation) throw new Error("Connexion interrompue pendant l’envoi. Vérifiez l’historique avant de renvoyer la consigne.");
     if (result.turnId !== turnId) {
-      this.disconnect("Codex n’a pas confirmé la tâche destinataire de la consigne.");
+      await this.disconnect("Codex n’a pas confirmé la tâche destinataire de la consigne.");
       throw new Error(this.status);
     }
     if (this.lastRequest) this.lastRequest.text += `\n\n${text}`;
@@ -212,7 +213,7 @@ export class ChatSession {
     if (!this.busy) return;
     const operation = this.operation;
     if (!this.client || !this.turnId) {
-      this.disconnect("Connexion interrompue. Vous pouvez reprendre la conversation.");
+      await this.disconnect("Connexion interrompue. Vous pouvez reprendre la conversation.");
       return;
     }
     this.interrupting = true;
@@ -221,7 +222,7 @@ export class ChatSession {
     try {
       await this.client.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId });
     } catch (error) {
-      if (operation === this.operation) this.disconnect(errorText(error));
+      if (operation === this.operation) await this.disconnect(errorText(error));
       throw error;
     }
   }
@@ -263,7 +264,7 @@ export class ChatSession {
     try { await this.remember("", ""); }
     catch (error) { this.busy = false; this.changed(); throw error; }
     const model = this.model;
-    this.disconnect();
+    await this.disconnect();
     this.model = model;
     this.threadId = "";
     this.items = [];
@@ -288,7 +289,7 @@ export class ChatSession {
           pendingUsage = params.tokenUsage;
         }
         if (generation === this.generation) void this.notification(method, params, cwd).catch(error => {
-          if (generation === this.generation) this.disconnect(errorText(error));
+          if (generation === this.generation) void this.disconnect(errorText(error));
         });
       },
       request: request => {
@@ -318,7 +319,7 @@ export class ChatSession {
         this.changed();
       },
       exit: message => {
-        if (generation === this.generation) this.disconnect(message);
+        if (generation === this.generation) void this.disconnect(message);
       },
     });
     this.client = client;
@@ -346,7 +347,7 @@ export class ChatSession {
         this.context().lockNote?.(revisionKey(cwd, path));
         const previous = await readProjectFile(cwd, path);
         original = previous?.text ?? "";
-        const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection);
+        const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection, this.context().configDir);
         const changes = [{ path, kind: { type: previous ? "update" : "add" } }];
         try { await this.written(cwd, changes, protection ? { before: protection.source, after: content } : undefined); }
         catch (error) { throw new Error(`Le fichier ${path} a été écrit, mais sa référence de suivi n’a pas pu être enregistrée : ${errorText(error)}`); }
@@ -404,7 +405,7 @@ export class ChatSession {
       cwd, sandbox: "read-only", approvalPolicy: "never", approvalsReviewer: "user",
       ...(requestedModel ? { model: requestedModel } : {}),
       developerInstructions: [context.agentInstructions,
-        "Create or modify files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, .obsidian or .git. If an edit fails, report it and do not retry through another tool."].filter(Boolean).join("\n\n"),
+        `Create or modify files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, the Obsidian configuration directory${context.configDir ? ` (${JSON.stringify(context.configDir)})` : ""} or .git. If an edit fails, report it and do not retry through another tool.`].filter(Boolean).join("\n\n"),
     });
     ensureCurrent();
     const thread = object(result.thread);
@@ -442,7 +443,7 @@ export class ChatSession {
     if (params.threadId !== this.threadId) return;
     const generation = this.generation;
     if (method === "turn/started") {
-      this.turnId = String(object(params.turn).id ?? "");
+      this.turnId = stringValue(object(params.turn).id);
       this.interrupting = false;
       this.busy = true;
       this.failure = null;
@@ -481,7 +482,7 @@ export class ChatSession {
       this.requests = this.requests.filter(request => request.id !== params.requestId);
       this.status = this.requests.length ? "En attente de votre réponse" : this.busy ? "Codex travaille…" : "";
     } else if (method === "error") {
-      if (params.willRetry) this.status = codexFailure(String(object(params.error).message ?? "Erreur Codex."), object(params.error).codexErrorInfo).message;
+      if (params.willRetry) this.status = codexFailure(stringValue(object(params.error).message, "Erreur Codex."), object(params.error).codexErrorInfo).message;
       else this.fail(params.error ?? "Erreur Codex.");
     }
     this.changed();
@@ -499,20 +500,20 @@ export function toChatItem(item: RpcObject): ChatItem | null {
   const base = { id: item.id, paths: [] as string[] };
   if (item.type === "userMessage" && Array.isArray(item.content)) {
     return { ...base, role: "user", text: item.content.map(object).filter(part => part.type === "text")
-      .map(part => String(part.text ?? "")).join("\n") };
+      .map(part => stringValue(part.text)).join("\n") };
   }
-  if (item.type === "agentMessage") return { ...base, role: "assistant", text: String(item.text ?? ""),
+  if (item.type === "agentMessage") return { ...base, role: "assistant", text: stringValue(item.text),
     ...(typeof item.phase === "string" ? { phase: item.phase } : {}) };
   if (item.type === "commandExecution") {
     const actions = Array.isArray(item.commandActions) ? item.commandActions.map(object) : [];
-    return { ...base, role: "activity", text: `Commande · ${item.status ?? "en cours"}\n${item.command ?? ""}`,
+    return { ...base, role: "activity", text: `Commande · ${stringValue(item.status, "en cours")}\n${stringValue(item.command)}`,
       paths: actions.filter(action => typeof action.path === "string").map(action => String(action.path)) };
   }
   if (item.type === "fileChange" && Array.isArray(item.changes)) {
-    return { ...base, role: "activity", text: item.status === "completed" ? "Fichier enregistré" : `Modification · ${item.status ?? "en cours"}`,
+    return { ...base, role: "activity", text: item.status === "completed" ? "Fichier enregistré" : `Modification · ${stringValue(item.status, "en cours")}`,
       paths: item.changes.map(object).filter(change => typeof change.path === "string").map(change => String(change.path)) };
   }
-  if (item.type === "mcpToolCall") return { ...base, role: "activity", text: `Outil · ${item.server}/${item.tool} · ${item.status}` };
+  if (item.type === "mcpToolCall") return { ...base, role: "activity", text: `Outil · ${stringValue(item.server)}/${stringValue(item.tool)} · ${stringValue(item.status)}` };
   return null;
 }
 
@@ -530,7 +531,7 @@ export async function readConversation(client: CodexClient, threadId: string, en
       const timestamp = typeof turn.startedAt === "number" ? turn.startedAt : turn.completedAt;
       const date = typeof timestamp === "number" && Number.isFinite(timestamp) ? new Date(timestamp * 1000) : null;
       turns.push({ id: turn.id, date, completed: turn.status === "completed",
-        ...(turn.status === "failed" || turn.error ? { failure: codexFailure(String(object(turn.error).message ?? "La tâche Codex a échoué."), object(turn.error).codexErrorInfo) } : {}),
+        ...(turn.status === "failed" || turn.error ? { failure: codexFailure(stringValue(object(turn.error).message, "La tâche Codex a échoué."), object(turn.error).codexErrorInfo) } : {}),
         messages: turn.items.map(value => toChatItem(object(value))).filter((item): item is ChatItem => item !== null) });
     }
     cursor = typeof page.nextCursor === "string" ? page.nextCursor : null;

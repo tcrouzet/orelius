@@ -36,8 +36,8 @@ function paragraphs(text: string): TextRange[] {
   let current: TextRange | null = null;
   for (const match of text.matchAll(/[^\n]*\n|[^\n]+$/g)) {
     if (match[0].trim()) {
-      if (!current) current = { from: match.index!, to: 0 };
-      current.to = match.index! + match[0].length;
+      if (!current) current = { from: match.index, to: 0 };
+      current.to = match.index + match[0].length;
     } else if (current) { ranges.push(current); current = null; }
   }
   if (current) ranges.push(current);
@@ -54,7 +54,7 @@ export function planRevision(path: string, source: string, baseline?: string, de
     offset += length - (change.delTo - change.delFrom);
   }
   for (const match of source.matchAll(/\(\(\([\s\S]*?\)\)\)|~~[\s\S]*?~~/g)) {
-    touched.push({ from: match.index!, to: match.index! + match[0].length });
+    touched.push({ from: match.index, to: match.index + match[0].length });
   }
   const ranges = paragraphs(source).filter(paragraph => touched.some(range => range.from < paragraph.to && range.to > paragraph.from));
   const wholeChapter = !ranges.length && (baseline === undefined || baseline === source) && !!details.trim();

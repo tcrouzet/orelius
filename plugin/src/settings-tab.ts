@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, type ButtonComponent } from "obsidian";
+import { FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, type ButtonComponent, type SettingDefinitionItem } from "obsidian";
 import type OreliusPlugin from "./main";
 import { errorText, findCodex } from "./codex";
 import { DEFAULT_PROJECT_FOLDERS, PROJECT_FOLDER_KEYS } from "./settings";
@@ -23,8 +23,21 @@ class FolderPicker extends FuzzySuggestModal<string> {
 export class OreliusSettingTab extends PluginSettingTab {
   constructor(private readonly plugin: OreliusPlugin) { super(plugin.app, plugin); }
 
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [{ name: "Codex et projet d’écriture", aliases: ["Installation", "Connexion", "Tester Codex", "Chemin de Codex",
+      "Afficher les messages d’activité", "Dossier de travail", "Parcourir", "Organisation du projet",
+      "Archives", "Manuscript", "Model", "Bible", "Dossier du manuscrit", "Dossier des textes modèles", "Dossier des archives", "Dossier de la bible"],
+    render: setting => {
+      setting.settingEl.removeClass("setting-item");
+      this.renderSettings(setting.settingEl);
+    } }];
+  }
+
   display(): void {
-    const { containerEl } = this;
+    this.renderSettings(this.containerEl);
+  }
+
+  private renderSettings(containerEl: HTMLElement): void {
     containerEl.empty();
     new Setting(containerEl).setName("Codex").setHeading();
     const installationEl = containerEl.createDiv();

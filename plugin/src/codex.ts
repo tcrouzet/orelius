@@ -28,6 +28,10 @@ export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function stringValue(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 export function codexVersion(userAgent: unknown): string {
   return typeof userAgent === "string"
     ? userAgent.match(/\b\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?\b/)?.[0] ?? "non communiquée"
@@ -58,7 +62,7 @@ export async function findCodex(configured: string, extended = false): Promise<s
     try {
       await access(candidate, constants.X_OK);
       if ((await stat(candidate)).isFile()) return candidate;
-    } catch {}
+    } catch { continue; }
   }
   throw new Error("Codex introuvable. Installez Codex CLI, puis indiquez son chemin dans Réglages → Orelius.");
 }
@@ -156,7 +160,7 @@ export class CodexClient {
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(errorText(error)));
       }
     });
   }
@@ -225,7 +229,7 @@ export class CodexClient {
           if (message.error) {
             const error = object(message.error);
             const detail = error.code === -32600 || error.code === -32601
-              ? "Fonction indisponible." : String(error.message ?? "Erreur Codex.");
+              ? "Fonction indisponible." : stringValue(error.message, "Erreur Codex.");
             const advice = typeof error.code === "number" && [-32600, -32601, -32602].includes(error.code)
               ? " Mettez à jour Codex ou Orelius." : "";
             pending.reject(new Error(`Codex ${this.version} — ${pending.method} : ${detail}${advice}`));
@@ -250,7 +254,7 @@ export class CodexClient {
   private fail(error: Error): void {
     if (this.stopping) return;
     this.rejectPending(error);
-    this.stop();
+    void this.stop();
     this.handlers.exit(error.message);
   }
 }

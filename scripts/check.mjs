@@ -8,7 +8,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { CodexClient, codexVersion, findCodex, object } from "../plugin/src/codex.ts";
 import { ChatSession, codexFailure } from "../plugin/src/session.ts";
 import { applySettings, associatedFolder, DEFAULT_PROJECT_FOLDERS, loadSettings, projectPaths, visibleFolder } from "../plugin/src/settings.ts";
-import { archiveChanges, prepareProject } from "../plugin/src/archives.ts";
+import { archiveChanges, archiveGenerated, prepareProject } from "../plugin/src/archives.ts";
 import { generateAgent, renderAgent } from "../generate-agent.ts";
 import { archiveWithCorrections, captureCodexVersions, correctionReport, prepareCorrections, refreshCorrections, revisionPrompt, revisionRequest } from "../plugin/src/corrections.ts";
 import { readProjectFile, writeProjectFile } from "../plugin/src/project-files.ts";
@@ -1426,7 +1426,7 @@ try {
         ...["../externe.md", "../Project2/note.md", "Archives/note.md", "archives/note.md", "_Archives/note.md", "_archives/note.md", ".git/config", ".obsidian/app.json"].map(update),
         [{ path: "note.md", kind: { type: "delete" } }],
         [{ path: "note.md", kind: { type: "update", move_path: "autre.md" } }]]) {
-        await assert.rejects(archiveChanges(project, changes));
+        await assert.rejects(archiveChanges(project, changes, undefined, undefined, "", join(project, ".obsidian")));
       }
       await symlink(join(fixture, "externe.md"), join(project, "lien.md"));
       await assert.rejects(archiveChanges(project, update("lien.md")), /liens symboliques/);
@@ -1441,6 +1441,36 @@ try {
       assert.equal(await readFile(join(fixture, "externe.md"), "utf8"), "Extérieur");
       assert.equal(await readFile(join(project, "note.md"), "utf8"), "Intérieur");
     } finally { await rm(fixture, { recursive: true }); }
+  });
+
+  await check("Configuration Obsidian : dossier personnalisé protégé avant archivage, génération et écriture", async () => {
+    for (const name of [".obsidian", "Réglages", "Config/Obsidian"]) {
+      const project = await mkdtemp(join(directory, "configuration-"));
+      try {
+        const configDir = join(project, name);
+        await mkdir(configDir, { recursive: true });
+        const path = `${name}/settings.json`;
+        await writeFile(join(project, path), "Réglages personnels");
+        const previous = await readProjectFile(project, path);
+        const update = [{ path, kind: { type: "update" } }];
+        await assert.rejects(archiveChanges(project, update, undefined, "Archives", "", configDir), /configuration Obsidian/);
+        await assert.rejects(archiveGenerated(project, path, "Interdit", "Archives", undefined, configDir), /configuration Obsidian/);
+        await assert.rejects(writeProjectFile(project, path, "Interdit", previous, "Archives", undefined, undefined, true, undefined, configDir), /configuration Obsidian/);
+        await assert.rejects(archiveChanges(project, [{ path: `${name.toUpperCase()}/nouveau.md`, kind: { type: "add" } }], undefined, "Archives", "", configDir), /configuration Obsidian/);
+        assert.equal(await readFile(join(project, path), "utf8"), "Réglages personnels");
+        await assert.rejects(access(join(project, "Archives")), { code: "ENOENT" });
+        const allowed = `${name}-exemples/texte.md`;
+        await writeProjectFile(project, allowed, "Autorisé", null, "Archives", undefined, undefined, true, undefined, configDir);
+        assert.equal(await readFile(join(project, allowed), "utf8"), "Autorisé");
+        const nested = join(project, "Roman");
+        await mkdir(nested);
+        await writeProjectFile(nested, "texte.md", "Roman", null, "Archives", undefined, undefined, true, undefined, configDir);
+        assert.equal(await readFile(join(nested, "texte.md"), "utf8"), "Roman");
+        await assert.rejects(prepareProject(project, DEFAULT_PROJECT_FOLDERS, join(project, "Archives")), /configuration Obsidian/);
+        await assert.rejects(writeProjectFile(project, "nouveau.md", "Interdit", null, "Versions", undefined, undefined, true, undefined, join(project, "Versions")), /configuration Obsidian/);
+        await assert.rejects(access(join(project, "nouveau.md")), { code: "ENOENT" });
+      } finally { await rm(project, { recursive: true }); }
+    }
   });
 
   await check("Échec d’archivage : original conservé", async () => {
@@ -1482,7 +1512,7 @@ try {
       const versions = await captureCodexVersions(project, folders, [{ path }]);
       await writeFile(join(project, path), "Version humaine.\n(((À raccourcir.)))\n");
       const original = await readProjectFile(project, path);
-      const archive = (cwd, changes) => archiveWithCorrections(cwd, folders, changes, versions, () => {});
+      const archive = (cwd, changes) => archiveWithCorrections(cwd, folders, changes, versions, () => {}, join(project, ".obsidian"));
       const copies = await writeProjectFile(project, path, "Version révisée.\n", original, folders.archiveFolder, archive);
       assert.equal(copies.length, 1);
       assert.match(copies[0], /^Archives\/Manuscript\/Chapitres\/texte\..+-h\.md$/);

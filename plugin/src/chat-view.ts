@@ -1,6 +1,6 @@
 import { Component, ItemView, MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
 import type OreliusPlugin from "./main";
-import { errorText, object, type RpcObject, type ServerRequest } from "./codex";
+import { errorText, object, stringValue, type RpcObject, type ServerRequest } from "./codex";
 import type { ChatItem } from "./session";
 import { REACTIONS, reactionExchanges, type Reaction, type ReactionExchange } from "./reactions";
 
@@ -26,7 +26,7 @@ export class OreliusView extends ItemView {
   private failureMessageEl!: HTMLElement;
   private retryButton!: HTMLButtonElement;
   private hintEl!: HTMLElement;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: { window: Window; id: number } | null = null;
   private frame: number | null = null;
   private resize: ResizeObserver | null = null;
   private submitting = false;
@@ -116,7 +116,7 @@ export class OreliusView extends ItemView {
 
   async onClose(): Promise<void> {
     this.active = false;
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) this.timer.window.clearTimeout(this.timer.id);
     this.timer = null;
     this.resize?.disconnect();
     this.resize = null;
@@ -129,7 +129,10 @@ export class OreliusView extends ItemView {
 
   update(): void {
     if (!this.active) return;
-    if (!this.timer) this.timer = setTimeout(() => { this.timer = null; this.render(); }, 60);
+    if (!this.timer) {
+      const window = this.contentEl.win;
+      this.timer = { window, id: window.setTimeout(() => { this.timer = null; this.render(); }, 60) };
+    }
   }
 
   private async run(action: () => Promise<void>): Promise<void> {
@@ -278,8 +281,7 @@ export class OreliusView extends ItemView {
     rendered.paths = paths;
     const revision = ++rendered.revision;
     this.addChild(component);
-    const element = this.contentEl.ownerDocument.createElement("article");
-    element.className = `orelius-message orelius-${item.role}`;
+    const element = this.contentEl.ownerDocument.adoptNode(createEl("article", { cls: `orelius-message orelius-${item.role}` }));
     element.createEl("strong", { cls: "orelius-role", text: item.role === "user" ? "Vous" : item.role === "assistant" ? "Codex" : "Activité" });
     const body = element.createDiv({ cls: "orelius-message-body" });
     for (const path of item.paths) {
@@ -334,21 +336,21 @@ export class OreliusView extends ItemView {
       for (const value of request.params.questions) {
         const question = object(value);
         const field = card.createEl("fieldset");
-        field.createEl("legend", { text: String(question.question ?? "Question de Codex") });
+        field.createEl("legend", { text: stringValue(question.question, "Question de Codex") });
         if (Array.isArray(question.options)) {
           for (const option of question.options.map(object)) {
-            const button = field.createEl("button", { type: "button", text: String(option.label ?? "") });
+            const button = field.createEl("button", { type: "button", text: stringValue(option.label) });
             if (typeof option.description === "string") button.title = option.description;
             button.onclick = () => {
-              const input = inputs.get(String(question.id));
-              if (input) { input.value = String(option.label); input.focus(); }
+              const input = inputs.get(stringValue(question.id));
+              if (input) { input.value = stringValue(option.label); input.focus(); }
             };
           }
         }
         const input = field.createEl("input", { type: question.isSecret === true ? "password" : "text",
-          attr: { "aria-label": String(question.question ?? "Votre réponse") } });
+          attr: { "aria-label": stringValue(question.question, "Votre réponse") } });
         input.required = true;
-        inputs.set(String(question.id), input);
+        inputs.set(stringValue(question.id), input);
       }
       card.createEl("button", { type: "submit", text: "Répondre", cls: "mod-cta" });
       card.onsubmit = event => {

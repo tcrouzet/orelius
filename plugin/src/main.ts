@@ -14,7 +14,7 @@ import { ChatNavigation } from "./navigation";
 import { generateAgent, renderAgent } from "../../generate-agent.ts";
 import agentTemplate from "../../prompts/agent.md";
 import { readProjectFile } from "./project-files.ts";
-import { planRevision, revisionKey } from "./revision.ts";
+import { planRevision } from "./revision.ts";
 import { revisionHighlights } from "./revision-highlights";
 import { editorLock } from "./editor-lock";
 import { recordAcceptance } from "./acceptance";
@@ -47,8 +47,9 @@ export default class OreliusPlugin extends Plugin {
       for (const view of this.views) view.update();
     }, (threadId, cwd) => this.saveSettings({ threadId, threadCwd: cwd }),
     (cwd, changes) => archiveWithCorrections(cwd, this.settings, changes, this.settings.codexVersions[cwd] ?? {},
-      (path, content) => this.checkEditor(path, content)),
+      (path, content) => this.checkEditor(path, content), this.configurationDirectory()),
     () => ({ ...this.settings, agentInstructions: renderAgent(agentTemplate, this.settings),
+      configDir: this.configurationDirectory(),
       checkEditor: (path, content) => this.checkEditor(path, content), lockNote: path => this.lockNote(path) }),
     async (cwd, changes, highlight) => {
       const folders = this.settings;
@@ -140,9 +141,9 @@ export default class OreliusPlugin extends Plugin {
   onunload(): void {
     this.unloaded = true;
     this.app.workspace.containerEl.removeClass("orelius-chat-open");
-    this.codexTest?.stop();
+    void this.codexTest?.stop();
     this.codexTest = null;
-    this.session.disconnect();
+    void this.session.disconnect();
   }
 
   async openChat(focus = true): Promise<void> {
@@ -200,7 +201,7 @@ export default class OreliusPlugin extends Plugin {
           this.session.turns = [];
           this.session.threadId = "";
         }
-        this.session.disconnect();
+        await this.session.disconnect();
       }
     });
     this.settingsWrite = write.catch(() => {});
@@ -209,7 +210,7 @@ export default class OreliusPlugin extends Plugin {
 
   async testCodex(): Promise<string> {
     if (this.codexTest) throw new Error("Un test de connexion est déjà en cours.");
-    const client = new CodexClient({
+    const client: CodexClient = new CodexClient({
       notification() {}, request: request => client.rejectRequest(request.id), exit() {},
     });
     this.codexTest = client;
@@ -220,9 +221,15 @@ export default class OreliusPlugin extends Plugin {
       if (this.codexTest !== client) throw new Error("Test de connexion interrompu.");
       return await client.connect(path, cwd);
     } finally {
-      client.stop();
+      await client.stop();
       if (this.codexTest === client) this.codexTest = null;
     }
+  }
+
+  private configurationDirectory(): string {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) throw new Error("Orelius nécessite un coffre local sur Obsidian desktop.");
+    return resolve(adapter.getBasePath(), this.app.vault.configDir);
   }
 
   async workingDirectory(folder = this.settings.folder): Promise<string> {
@@ -241,7 +248,7 @@ export default class OreliusPlugin extends Plugin {
   async prepareProject(folder = this.settings.folder, folders: ProjectFolders = this.settings): Promise<string> {
     const preparation = this.projectWrite.then(async () => {
       const cwd = await this.workingDirectory(folder);
-      await prepareProject(cwd, folders);
+      await prepareProject(cwd, folders, this.configurationDirectory());
       await prepareBible(cwd, folders);
       await generateAgent(cwd, { ...folders, folder }, agentTemplate);
       await this.correctionTask(() => prepareCorrections(cwd, folders));

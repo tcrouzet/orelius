@@ -22,9 +22,11 @@ export class ProjectMcp {
       let size = 0;
       const chunks: Buffer[] = [];
       for await (const chunk of request) {
-        size += chunk.length;
+        const data: unknown = chunk;
+        if (!Buffer.isBuffer(data)) throw new Error("Corps de requête binaire attendu.");
+        size += data.length;
         if (size > 16 * 1024 * 1024) { response.writeHead(413).end(); return; }
-        chunks.push(chunk);
+        chunks.push(data);
       }
       let message: RpcObject;
       try { message = object(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }

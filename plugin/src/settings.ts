@@ -21,7 +21,8 @@ export const DEFAULT_PROJECT_FOLDERS: ProjectFolders = {
 
 export function validateFolderName(name: string): void {
   if (typeof name !== "string" || !name || name !== name.trim() || name.startsWith(".")
-    || /[<>:"/\\|?*\u0000-\u001f\u007f]/.test(name) || name.endsWith(".")) {
+    || /[<>:"/\\|?*]/.test(name) || [...name].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+    || name.endsWith(".")) {
     throw new Error("Indiquez un nom de dossier simple, sans chemin ni caractère réservé.");
   }
 }
@@ -87,8 +88,9 @@ export function loadSettings(value: unknown): OreliusSettings {
   }
   for (const key of PROJECT_FOLDER_KEYS) {
     if (saved[key] === undefined) continue;
-    if (typeof saved[key] !== "string") throw new Error(`Nom de dossier invalide pour ${DEFAULT_PROJECT_FOLDERS[key]}.`);
-    settings[key] = saved[key];
+    const name = saved[key];
+    if (typeof name !== "string") throw new Error(`Nom de dossier invalide pour ${DEFAULT_PROJECT_FOLDERS[key]}.`);
+    settings[key] = name;
   }
   if (saved.sessions !== undefined && (saved.sessions === null || typeof saved.sessions !== "object" || Array.isArray(saved.sessions))) {
     throw new Error("Les associations entre dossiers et sessions Codex sont invalides.");
@@ -104,9 +106,11 @@ export function loadSettings(value: unknown): OreliusSettings {
     throw new Error("Les références de correction sont invalides.");
   }
   settings.codexVersions = Object.fromEntries(Object.entries(object(saved.codexVersions)).map(([cwd, versions]) => {
-    if (versions === null || typeof versions !== "object" || Array.isArray(versions)
-      || Object.values(versions).some(text => typeof text !== "string")) throw new Error("Les références de correction sont invalides.");
-    return [cwd, Object.fromEntries(Object.entries(versions)) as Record<string, string>];
+    if (versions === null || typeof versions !== "object" || Array.isArray(versions)) throw new Error("Les références de correction sont invalides.");
+    return [cwd, Object.fromEntries(Object.entries(object(versions)).map(([path, text]): [string, string] => {
+      if (typeof text !== "string") throw new Error("Les références de correction sont invalides.");
+      return [path, text];
+    }))];
   }));
   if (saved.revisionHighlights !== undefined && (saved.revisionHighlights === null || typeof saved.revisionHighlights !== "object" || Array.isArray(saved.revisionHighlights))) {
     throw new Error("Les références de surlignage sont invalides.");
