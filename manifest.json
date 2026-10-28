@@ -1,7 +1,7 @@
 {
   "id": "orelius",
   "name": "Orelius",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "minAppVersion": "1.6.0",
   "description": "Writing long texts as novels with Codex.",
   "author": "Thierry Crouzet",
