@@ -16,7 +16,8 @@ import { contextRemaining, modelOptions } from "../plugin/src/models.ts";
 import { ChatNavigation } from "../plugin/src/navigation.ts";
 import { prepareBible } from "../plugin/src/bible.ts";
 import { renderConversation, saveConversation } from "../plugin/src/conversation.ts";
-import { FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
+import { CONTEXT_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
+import { readEditorialContext } from "../plugin/src/editorial-context.ts";
 import { diffToGroups } from "../plugin/src/diff.ts";
 import { checkRevision, planRevision, revisionMarks, revisionPath, revisionFor } from "../plugin/src/revision.ts";
 import { Compartment, EditorState, Facet } from "@codemirror/state";
@@ -302,6 +303,49 @@ try {
       assert.equal(session.canRetry, false);
       assert.equal(session.failure, null);
     } finally { await session.disconnect(); await rm(project, { recursive: true }); }
+  });
+
+  await check("Contexte éditorial : corrections du chapitre précédent, avis exacts et sources intégrales paginées", async () => {
+    const project = join(directory, "editorial-sources");
+    const elsewhere = join(directory, "other-editorial-project");
+    const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers" };
+    const path = "Roman/Chapitres/001.md";
+    const baseline = "Une voix sans intention.\n";
+    const human = "Une voix. (((Que dit-elle ? Garde la voix du narrateur au chapitre suivant.)))\n";
+    const knowledge = "# Connaissances\n\n" + "Exemple de l’auteur 🖋.\n".repeat(3000) + "Dernière remarque à conserver.\n";
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      await writeFile(join(project, path), human);
+      await writeFile(join(project, "Univers/Style/Narration.md"), "Première personne, présent, rythme nouchi.\n");
+      await writeFile(join(project, "Univers/Suivi/Connaissances.md"), knowledge);
+      const approved = "Enfin, voilà ce que je voulais.";
+      const accepted = await recordAcceptance(project, folders, path, { before: baseline, after: human }, approved);
+      const feedback = await recordReaction(project, folders, "session", { turnId: "tour", prompts: ["Écris 002."],
+        answer: { id: "réponse", role: "assistant", text: "Voici 002.", paths: [] } }, "down", "La transition ne signifie rien.");
+      const pages = (await readEditorialContext(project, folders, { [path]: baseline, "../externe.md": "Interdit" })).map(JSON.parse);
+      const files = new Map();
+      for (const page of pages) {
+        assert.equal(page.pages, pages.length);
+        assert.ok(page.sources.reduce((size, source) => size + source.content.length, 0) <= 8000);
+        for (const source of page.sources) files.set(source.path, (files.get(source.path) ?? "") + source.content);
+      }
+      assert.ok(pages.length > 1);
+      assert.equal(files.get(path), human);
+      assert.ok(files.get(`${path} — comparaison Codex/auteur`).includes(baseline.trim()));
+      assert.ok(files.get(`${path} — comparaison Codex/auteur`).includes("Que dit-elle ?"));
+      assert.equal(files.get("Univers/Suivi/Connaissances.md"), await readFile(join(project, "Univers/Suivi/Connaissances.md"), "utf8"));
+      assert.ok(files.get(accepted).includes(approved));
+      assert.ok(files.get(feedback.report).includes("La transition ne signifie rien."));
+      assert.ok(!files.has("../externe.md"));
+      assert.equal(await readFile(join(project, path), "utf8"), human);
+      await mkdir(elsewhere);
+      assert.deepEqual(JSON.parse((await readEditorialContext(elsewhere, folders, {}))[0]).sources, []);
+    } finally {
+      await rm(project, { recursive: true });
+      await rm(elsewhere, { recursive: true, force: true });
+    }
   });
 
   await check("Relance après réouverture : erreur retrouvée, demande et zones protégées récupérées", async () => {
@@ -1696,6 +1740,87 @@ try {
       assert.ok(error.message.includes("Mettez à jour"));
       return true;
     });
+  });
+
+  await check("Contexte éditorial : écriture bloquée avant consultation complète, actualisée dans la même session", async () => {
+    const project = join(directory, "editorial-session");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const path = "Manuscript/Chapitres/001.md";
+    const next = "Manuscript/Chapitres/002.md";
+    const baseline = "La voix de référence.\n";
+    const versions = { [path]: baseline };
+    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, codexVersions: { [project]: versions } }));
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      await writeFile(join(project, path), baseline + "(((Même voix au chapitre suivant.)))\n");
+      await writeFile(join(project, "Bible/Style/Narration.md"), "Rythme nouchi.\n");
+      await writeFile(join(project, "Bible/Suivi/Connaissances.md"), "Leçons issues de 001.\n".repeat(600));
+      await session.connect(executable, project, "");
+      const native = session.client.request.bind(session.client);
+      const { thread } = await native("thread/start", { cwd: project, ephemeral: true,
+        sandbox: "read-only", approvalPolicy: "never", approvalsReviewer: "user" });
+      const threadId = thread.id;
+      session.threadId = threadId;
+      const prompts = [];
+      // Only turn/start is simulated: MCP discovery/calls use the installed Codex, without model usage.
+      session.client.request = (method, params) => {
+        if (method !== "turn/start") return native(method, params);
+        prompts.push(params.input);
+        return Promise.resolve({ turn: { id: `tour-${prompts.length}` } });
+      };
+      const call = async (tool, args) => native("mcpServer/tool/call", { threadId, server: "orelius", tool, arguments: args });
+      const write = () => call(FILE_TOOL, { chemin: next, contenu: "Chapitre suivant.\n" });
+      await session.send("Écris le chapitre 002.", executable, project, threadId);
+      for (const target of [next, "manuscript/chapitres/002.MD"]) {
+        const denied = await call(FILE_TOOL, { chemin: target, contenu: "Interdit.\n" });
+        assert.equal(denied.isError, true);
+        assert.match(denied.content[0].text, /consulter_contexte_editorial/);
+      }
+      await assert.rejects(access(join(project, next)), { code: "ENOENT" });
+      for (const page of [-1, 0.5, null, "0"]) assert.equal((await call(CONTEXT_TOOL, { page })).isError, true);
+      let result = await call(CONTEXT_TOOL, {});
+      assert.equal(result.isError, false);
+      const first = JSON.parse(result.content[0].text);
+      assert.ok(first.pages > 1);
+      await call(CONTEXT_TOOL, { page: 0 });
+      assert.equal((await write()).isError, true, "Relire une page ne remplace pas les pages manquantes.");
+      assert.equal((await call(CONTEXT_TOOL, { page: first.pages })).isError, true);
+      const read = [result.content[0].text];
+      for (const response of await Promise.all(Array.from({ length: first.pages - 1 }, (_, index) => call(CONTEXT_TOOL, { page: index + 1 })))) {
+        assert.equal(response.isError, false);
+        read.push(response.content[0].text);
+      }
+      assert.ok(read.join("").includes("Même voix au chapitre suivant."));
+      assert.ok(read.join("").includes("Leçons issues de 001."));
+      assert.equal((await write()).isError, false);
+      assert.equal(await readFile(join(project, next), "utf8"), "Chapitre suivant.\n");
+      const copies = await readdir(join(project, "Archives/Manuscript/Chapitres"));
+      assert.ok(copies.length > 0, "La consultation ne contourne pas l’archivage du texte généré.");
+      // Simulate the end of the external turn, keeping this same connection open.
+      session.busy = false;
+      session.turnId = "";
+      await writeFile(join(project, "Bible/Style/Narration.md"), "Nouvelle consigne narrative.\n");
+      await writeFile(join(project, path), baseline + "(((Cette transition est absurde.)))\n");
+      await session.send("Reprends avec mes nouvelles remarques.", executable, project, threadId);
+      assert.equal(session.threadId, threadId);
+      assert.equal((await write()).isError, true, "La consultation du tour précédent ne suffit pas.");
+      const updated = [];
+      for (let page = 0, pages = 1; page < pages; page++) {
+        const response = await call(CONTEXT_TOOL, { page });
+        assert.equal(response.isError, false);
+        const content = JSON.parse(response.content[0].text);
+        pages = content.pages;
+        updated.push(...content.sources);
+      }
+      assert.ok(updated.some(source => source.content.includes("Nouvelle consigne narrative.")));
+      assert.ok(updated.some(source => source.content.includes("Cette transition est absurde.")));
+      assert.equal(updated.some(source => source.content.includes("Même voix au chapitre suivant.")), false);
+      assert.equal((await write()).isError, false);
+      assert.deepEqual(prompts, ["Écris le chapitre 002.", "Reprends avec mes nouvelles remarques."].map(text => [{ type: "text", text, text_elements: [] }]));
+      assert.equal(await readFile(join(project, path), "utf8"), baseline + "(((Cette transition est absurde.)))\n");
+    } finally { await session.disconnect(); await rm(project, { recursive: true }); }
   });
 
   await check("Catalogue Codex réel et changement de modèle sur la même session temporaire", async () => {

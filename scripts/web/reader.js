@@ -19,7 +19,6 @@ let book = null;
 let rendition = null;
 let generation = 0;
 let fontSize = 100;
-let selectedTitle = null;
 
 function report(message, error = false) {
   status.textContent = message;
@@ -93,23 +92,11 @@ function addChapters(items, list = chapters) {
 }
 
 function returnHome() {
-  generation++;
-  menu.close();
-  book?.destroy();
-  book = rendition = null;
-  viewer.replaceChildren();
-  reader.hidden = true;
-  home.hidden = false;
-  document.body.classList.remove("reading");
-  document.title = "Livres d’exemple — Orelius";
-  viewer.setAttribute("aria-busy", "false");
-  report("");
-  selectedTitle?.focus();
+  window.location.assign(new URL(".", document.baseURI).href);
 }
 
-async function openBook(entry, button) {
+async function openBook(entry) {
   const current = ++generation;
-  selectedTitle = button;
   home.hidden = true;
   reader.hidden = false;
   document.body.classList.add("reading");
@@ -177,20 +164,27 @@ document.addEventListener("keydown", navigateWithKeyboard);
 
 async function loadLibrary() {
   try {
-    const response = await fetch("books.json");
+    const response = await fetch(new URL("books.json", document.baseURI));
     if (!response.ok) throw new Error("Catalogue indisponible.");
     const entries = await response.json();
-    if (!Array.isArray(entries) || entries.some(entry => typeof entry?.title !== "string" || typeof entry?.path !== "string")) throw new Error("Catalogue invalide.");
+    if (!Array.isArray(entries) || entries.some(entry => typeof entry?.title !== "string" || typeof entry?.path !== "string" || typeof entry?.url !== "string")) throw new Error("Catalogue invalide.");
     for (const entry of entries) {
       const item = document.createElement("li");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = entry.title;
-      button.addEventListener("click", () => { void openBook(entry, button); });
-      item.append(button);
+      const link = document.createElement("a");
+      const url = new URL(entry.url, document.baseURI);
+      if (!url.href.startsWith(new URL(".", document.baseURI).href)) throw new Error("Adresse de livre invalide.");
+      link.href = url.href;
+      link.textContent = entry.title;
+      item.append(link);
       library.append(item);
     }
     report(entries.length ? "" : "Les livres d’exemple seront bientôt disponibles.");
+    const selected = document.querySelector('meta[name="orelius-book"]')?.content;
+    if (selected) {
+      const entry = entries.find(entry => entry.path === selected);
+      if (!entry) throw new Error("Livre introuvable dans le catalogue.");
+      await openBook(entry);
+    }
   } catch { report("La bibliothèque n’a pas pu être chargée. Recharge la page pour réessayer.", true); }
 }
 

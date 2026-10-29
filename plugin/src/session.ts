@@ -7,7 +7,8 @@ import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { CodexClient, errorText, findCodex, object, stringValue, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
 import type { ConversationTurn } from "./conversation.ts";
 import { planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
-import { revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
+import { chapterPath, revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
+import { readEditorialContext } from "./editorial-context.ts";
 
 export interface ChatItem {
   id: string;
@@ -55,6 +56,8 @@ export class ChatSession {
   private closing = Promise.resolve();
   private revision: RevisionPlan | null = null;
   private protections: RevisionPlan[] = [];
+  private editorialContext: Promise<string[]> | null = null;
+  private editorialPagesRead = new Set<number>();
   private lastRequest: { text: string; cwd: string; threadId: string; turnId?: string; revision?: RevisionPlan; protections: RevisionPlan[]; restored?: boolean; originalPrompt?: string } | null = null;
 
   private readonly changed: () => void;
@@ -118,6 +121,8 @@ export class ChatSession {
       this.failure = null;
       this.revision = revision ?? null;
       this.protections = revision ? [revision, ...protections] : protections;
+      this.editorialContext = null;
+      this.editorialPagesRead.clear();
       this.lastRequest = { text, cwd, threadId: this.threadId, revision, protections };
       const client = this.client;
       if (!client) throw new Error("Connexion Codex interrompue.");
@@ -248,6 +253,8 @@ export class ChatSession {
     this.interrupting = false;
     this.revision = null;
     this.protections = [];
+    this.editorialContext = null;
+    this.editorialPagesRead.clear();
     this.requests = [];
     this.models = [];
     this.model = "";
@@ -344,6 +351,12 @@ export class ChatSession {
         if (revision) path = revisionPath(revision, cwd, this.context().bibleFolder, path);
         const protection = revisionFor(this.protections, cwd, path);
         if (protection) path = protection.path;
+        if (chapterPath(cwd, this.context(), path)) {
+          const pages = await this.editorialContext;
+          if (!pages || this.editorialPagesRead.size !== pages.length) {
+            throw new Error("Avant d’écrire un chapitre, lisez toutes les pages de consulter_contexte_editorial pour appliquer les consignes et les corrections des chapitres précédents à cette demande.");
+          }
+        }
         this.context().lockNote?.(revisionKey(cwd, path));
         const previous = await readProjectFile(cwd, path);
         original = previous?.text ?? "";
@@ -371,6 +384,18 @@ export class ChatSession {
         }
         throw error;
       });
+    }, async page => {
+      ensureCurrent();
+      const turnId = this.turnId;
+      if (!this.running || !turnId) throw new Error("Consultation éditoriale refusée hors de la tâche Codex active.");
+      const context = this.context();
+      this.editorialContext ??= readEditorialContext(cwd, context, context.codexVersions?.[cwd] ?? {});
+      const pages = await this.editorialContext;
+      ensureCurrent();
+      if (!this.running || turnId !== this.turnId) throw new Error("La tâche a changé pendant la consultation éditoriale.");
+      if (page >= pages.length) throw new Error(`Page introuvable. Consultez les pages 0 à ${pages.length - 1}.`);
+      this.editorialPagesRead.add(page);
+      return pages[page];
     });
     this.files = files;
     const url = await files.start();

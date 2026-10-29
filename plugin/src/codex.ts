@@ -131,7 +131,7 @@ export class CodexClient {
         .map(name => [name, { enabled: false }])) };
       if (files) this.threadConfig = { mcp_servers: { ...object(this.threadConfig.mcp_servers), orelius: {
         url: files.url, bearer_token_env_var: "ORELIUS_MCP_TOKEN", enabled: true, required: true,
-        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier"],
+        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial"],
       } } };
       const models = await this.request("model/list", { limit: 1 });
       if (!Array.isArray(models.data)) throw new Error(`Codex ${this.version} : catalogue des modèles invalide. Mettez à jour Codex et Orelius.`);

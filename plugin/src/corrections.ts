@@ -13,7 +13,8 @@ const INTRO = "# Suivi des corrections\n\nLes relevés horodatés conservent les
 export function chapterPath(cwd: string, folders: ProjectFolders, value: unknown): string | null {
   if (typeof value !== "string" || value.includes("\0")) return null;
   const path = relative(cwd, resolve(cwd, value)).split(sep).join("/");
-  return path.startsWith(`${folders.manuscriptFolder}/Chapitres/`) && path.endsWith(".md") ? path : null;
+  const key = path.normalize("NFC").toLowerCase();
+  return key.startsWith(`${folders.manuscriptFolder}/Chapitres/`.normalize("NFC").toLowerCase()) && key.endsWith(".md") ? path : null;
 }
 
 function annotations(text: string, start: string, end: string): string[] {

@@ -36,8 +36,22 @@ export async function checkWeb() {
     assert.equal(books.length, 2);
     assert.deepEqual(JSON.parse(await readFile(join(output, "books.json"), "utf8")), books);
     assert.equal(books.find(book => book.title === first.slice(0, -5)).path, `samples/${encodeURIComponent(first)}`);
+    const base = new URL("https://example.org/orelius/");
+    for (const book of books) {
+      assert.equal(book.url, `${book.path.slice("samples/".length).replace(/\.epub$/i, "")}/`);
+      const page = await readFile(join(output, decodeURIComponent(book.url), "index.html"), "utf8");
+      const pageUrl = new URL(book.url, base);
+      const pageBase = new URL(page.match(/<base href="([^"]+)">/)?.[1] ?? "", pageUrl);
+      assert.equal(pageBase.href, base.href, "Les ressources doivent rester à la racine du site, même dans un sous-dossier.");
+      assert.equal(page.match(/<meta name="orelius-book" content="([^"]+)">/)?.[1], book.path);
+      for (const asset of ["reader.js", "styles.css", "books.json", book.path]) {
+        const url = new URL(asset, pageBase);
+        assert.ok(url.href.startsWith(base.href));
+        await readFile(join(output, decodeURIComponent(url.pathname.slice(base.pathname.length))));
+      }
+    }
     for (const path of [first, second]) assert.deepEqual(await readFile(join(output, "samples", path)), await readFile(join(samples, path)));
-    assert.deepEqual((await readdir(output)).sort(), ["books.json", "index.html", "reader.js", "samples", "styles.css"]);
+    assert.deepEqual((await readdir(output)).sort(), ["Lecture #1 — été", "Romans", "books.json", "index.html", "reader.js", "samples", "styles.css"].sort());
     assert.deepEqual((await readdir(join(output, "samples"))).sort(), [first, "Romans"].sort());
     const html = await readFile(join(output, "index.html"), "utf8");
     const script = await readFile(join(output, "reader.js"), "utf8");
@@ -48,7 +62,6 @@ export async function checkWeb() {
       assert.match(match[0], /crossorigin="anonymous"/);
     }
     execFileSync(process.execPath, ["--check", join(output, "reader.js")]);
-    const base = new URL("https://example.org/orelius/");
     for (const book of books) assert.ok(new URL(book.path, base).href.startsWith(`${base.href}samples/`));
     const before = await readFile(join(output, "books.json"), "utf8");
     await symlink(join(directory, "data.json"), join(samples, "prive.epub"));
@@ -58,7 +71,8 @@ export async function checkWeb() {
     await rm(join(samples, first));
     await buildWeb(samples, output);
     assert.deepEqual(await readdir(join(output, "samples")), ["Romans"]);
-    console.log("Web : catalogue, chemins GitHub Pages, copie exacte, retrait des livres et fichiers privés exclus : OK.");
+    await assert.rejects(readFile(join(output, first.slice(0, -5), "index.html")), { code: "ENOENT" });
+    console.log("Web : catalogue, URLs directes par livre, ressources GitHub Pages, copie exacte, retrait des livres et fichiers privés exclus : OK.");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
