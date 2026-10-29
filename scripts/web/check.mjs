@@ -28,8 +28,8 @@ export async function checkWeb() {
     const storageArguments = ["--experimental-webstorage", `--localstorage-file=${join(directory, "reader-storage")}`, "--input-type=module", "--eval"];
     const setup = `import assert from "node:assert/strict";
       const { DEFAULT_FONT, readingState } = await import(${JSON.stringify(configModule)});
-      assert.equal(DEFAULT_FONT, "'iA Writer Duo V', monospace");
-      const fonts = [DEFAULT_FONT, "Georgia, serif", ""];
+      assert.equal(DEFAULT_FONT, "");
+      const fonts = [DEFAULT_FONT, "Georgia, serif", "'iA Writer Duo V', monospace"];
       const state = readingState(localStorage, "/orelius/");`;
     execFileSync(process.execPath, [...storageArguments, `${setup}
       assert.deepEqual(state.loadPreferences(fonts), { fontFamily: DEFAULT_FONT, fontSize: 100, format: "paginated" });
@@ -40,6 +40,11 @@ export async function checkWeb() {
     execFileSync(process.execPath, [...storageArguments, `${setup}
       assert.deepEqual(state.loadPreferences(fonts), { fontFamily: "Georgia, serif", fontSize: 130, format: "scrolled" });
       assert.equal(state.position("livre-1"), "epubcfi(/6/2!/4/2/1:42)");
+      localStorage.setItem("orelius:reader:/orelius/:config", JSON.stringify({ fontFamily: "'iA Writer Duo V', monospace", fontSize: 130, format: "scrolled" }));
+      assert.deepEqual(state.loadPreferences(fonts), { fontFamily: "", fontSize: 130, format: "scrolled" });
+      assert.equal(state.position("livre-2"), "epubcfi(/6/4!/4/2/1:15)");
+      state.savePreferences({ fontFamily: "'iA Writer Duo V', monospace", fontSize: 140, format: "paginated" });
+      assert.equal(state.loadPreferences(fonts).fontFamily, "'iA Writer Duo V', monospace");
       assert.equal(state.position("livre-2"), "epubcfi(/6/4!/4/2/1:15)");
       assert.equal(state.position("autre-livre"), undefined);
       assert.equal(readingState(localStorage, "/autre-site/").position("livre-1"), undefined);
@@ -91,6 +96,11 @@ for path, metadata in json.load(sys.stdin):
       const pageBase = new URL(page.match(/<base href="([^"]+)">/)?.[1] ?? "", pageUrl);
       assert.equal(pageBase.href, base.href, "Les ressources doivent rester à la racine du site, même dans un sous-dossier.");
       assert.equal(page.match(/<meta name="orelius-book" content="([^"]+)">/)?.[1], book.path);
+      const download = page.match(/<a\b[^>]*id="download-epub"[^>]*>/)?.[0];
+      assert.ok(download && /\sdownload(?:\s|>)/.test(download) && !/\shidden(?:\s|>)/.test(download));
+      const downloadUrl = new URL(download.match(/href="([^"]+)"/)[1], pageBase);
+      assert.equal(downloadUrl.href, new URL(book.path, base).href);
+      assert.deepEqual(await readFile(join(output, decodeURIComponent(downloadUrl.pathname.slice(base.pathname.length)))), await readFile(join(samples, decodeURIComponent(book.path.slice("samples/".length)))));
       for (const asset of ["reader.js", "reader-config.js", "styles.css", "ia-writer-duo.css", "books.json", book.path]) {
         const url = new URL(asset, pageBase);
         assert.ok(url.href.startsWith(base.href));

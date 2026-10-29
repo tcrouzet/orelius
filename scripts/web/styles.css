@@ -21,8 +21,7 @@ button:not(:disabled):hover { border-color: var(--accent); }
 #books a { display: block; width: 100%; min-height: 44px; text-align: left; border-bottom: 1px solid var(--border); padding: 16px 0; font: 400 24px Georgia, serif; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
 .reader { position: fixed; inset: 0; background: white; }
 #viewer { width: calc(100% - 112px); max-width: 60rem; height: 100dvh; margin: auto; overflow: hidden; }
-.reader[data-format="scrolled"] #viewer { width: 100%; }
-.page-button { position: fixed; top: 50%; transform: translateY(-50%); z-index: 10; width: 44px; height: 44px; padding: 9px; }
+.page-button { position: fixed; top: 50%; transform: translateY(-50%); z-index: 10; width: 44px; height: 44px; padding: 9px; color: var(--accent); border-color: var(--accent); }
 .page-button svg { display: block; }
 .previous-page { inset-inline-start: max(6px, calc((100vw - 60rem) / 2 - 50px)); }
 .next-page { inset-inline-end: max(6px, calc((100vw - 60rem) / 2 - 50px)); }
@@ -43,6 +42,7 @@ button:not(:disabled):hover { border-color: var(--accent); }
 #chapters ol { padding-inline-start: 16px; }
 #chapters a { display: block; padding-block: 12px; min-height: 44px; line-height: 1.5; overflow-wrap: anywhere; }
 #return-home { width: 100%; }
+#download-epub:not([hidden]) { display: block; min-height: 44px; margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; text-align: center; text-decoration: none; }
 #status { max-width: 48rem; margin: 0 auto; padding: 16px 24px; line-height: 1.5; }
 #status:empty { display: none; }
 body.reading #status { position: fixed; top: 12px; left: 12px; right: 72px; z-index: 10; background: white; border-radius: 6px; }

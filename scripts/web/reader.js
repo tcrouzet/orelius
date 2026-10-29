@@ -1,4 +1,4 @@
-import { DEFAULT_FONT, readingState } from "./reader-config.js";
+import { readingState } from "./reader-config.js";
 
 const home = document.getElementById("home");
 const reader = document.getElementById("reader");
@@ -34,9 +34,6 @@ function savePreferences() {
 }
 
 function updatePageControls(location = rendition?.location) {
-  const paginated = format.value === "paginated";
-  reader.dataset.format = format.value;
-  previousPage.hidden = nextPage.hidden = !paginated;
   previousPage.disabled = !rendition || !location || turningPage || Boolean(location.atStart);
   nextPage.disabled = !rendition || !location || turningPage || Boolean(location.atEnd);
 }
@@ -62,7 +59,7 @@ function applyTypography() {
 
 async function turnPage(forward) {
   const current = generation;
-  if (!rendition || turningPage || format.value !== "paginated" || menu.open
+  if (!rendition || turningPage || menu.open
     || (forward ? nextPage.disabled : previousPage.disabled)) return;
   turningPage = true;
   updatePageControls();
@@ -82,7 +79,7 @@ function navigateWithKeyboard(event) {
 }
 
 function navigateAtEdge(event) {
-  if (event.defaultPrevented || event.detail > 1 || event.view?.getSelection()?.isCollapsed === false
+  if (format.value !== "paginated" || event.defaultPrevented || event.detail > 1 || event.view?.getSelection()?.isCollapsed === false
     || event.target?.closest?.("a, button, input, textarea, select, [contenteditable]")) return;
   const frame = event.view?.frameElement;
   if (!frame) return;
@@ -126,7 +123,6 @@ async function openBook(entry) {
   home.hidden = true;
   reader.hidden = false;
   document.body.classList.add("reading");
-  menuButton.focus();
   try {
     book?.destroy();
     book = rendition = null;
@@ -156,7 +152,7 @@ async function openBook(entry) {
     });
     rendition = display;
     display.hooks.content.register(async contents => {
-      if (font.value === DEFAULT_FONT && contents.document.fonts) {
+      if (font.value === "'iA Writer Duo V', monospace" && contents.document.fonts) {
         await contents.document.fonts.load('16px "iA Writer Duo V"');
         contents.resizeCheck();
       }

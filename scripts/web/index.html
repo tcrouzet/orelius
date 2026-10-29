@@ -41,8 +41,8 @@
     </div>
     <label for="font-family">Police</label>
     <select id="font-family" disabled>
-      <option value="'iA Writer Duo V', monospace" selected>iA Writer Duo</option>
-      <option value="">Police du livre</option>
+      <option value="" selected>Police du livre</option>
+      <option value="'iA Writer Duo V', monospace">iA Writer Duo</option>
       <option value="system-ui, sans-serif">Police système</option>
       <option value="Georgia, serif">Georgia</option>
       <option value="'Times New Roman', serif">Times New Roman</option>
@@ -59,6 +59,7 @@
       <summary>Sommaire</summary>
       <nav aria-label="Sommaire du livre"><ol id="chapters"></ol></nav>
     </details>
+    <a id="download-epub" download hidden>Télécharger l’EPUB</a>
     <button id="return-home" type="button">Retour à l’accueil</button>
   </dialog>
   <p id="status" role="status" aria-live="polite">Chargement de la bibliothèque…</p>

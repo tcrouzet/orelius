@@ -1,4 +1,4 @@
-export const DEFAULT_FONT = "'iA Writer Duo V', monospace";
+export const DEFAULT_FONT = "";
 
 export function readingState(storage, scope) {
   const prefix = `orelius:reader:${scope}:`;
@@ -14,13 +14,17 @@ export function readingState(storage, scope) {
   return {
     loadPreferences(fonts) {
       const value = read("config");
+      if (value?.fontFamily === "'iA Writer Duo V', monospace" && value.fontDefaults !== "book") {
+        value.fontFamily = DEFAULT_FONT;
+        write("config", { ...value, fontDefaults: "book" });
+      }
       return {
         fontFamily: fonts.includes(value?.fontFamily) ? value.fontFamily : DEFAULT_FONT,
         fontSize: Number.isInteger(value?.fontSize) && value.fontSize >= 70 && value.fontSize <= 200 ? value.fontSize : 100,
         format: ["paginated", "scrolled"].includes(value?.format) ? value.format : "paginated",
       };
     },
-    savePreferences(value) { write("config", value); },
+    savePreferences(value) { write("config", { ...value, fontDefaults: "book" }); },
     position(book) {
       const value = read(`position:${book}`);
       return validPosition(value) ? value : undefined;

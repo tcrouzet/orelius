@@ -31,7 +31,9 @@ export async function buildWeb(samplesDirectory, outputDirectory) {
       const book = { ...metadata[index], path: `samples/${path.split(sep).map(encodeURIComponent).join("/")}`, url };
       const page = join(stage, route, "index.html");
       await mkdir(dirname(page), { recursive: true });
-      await writeFile(page, html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n  <base href="${"../".repeat(route.split(sep).length)}">\n  <meta name="orelius-book" content="${book.path}">`));
+      await writeFile(page, html
+        .replace('<meta charset="utf-8">', `<meta charset="utf-8">\n  <base href="${"../".repeat(route.split(sep).length)}">\n  <meta name="orelius-book" content="${book.path}">`)
+        .replace('id="download-epub" download hidden', `id="download-epub" href="${book.path}" download`));
       books.push(book);
     }
     books.sort((a, b) => a.title.localeCompare(b.title, "fr") || a.author.localeCompare(b.author, "fr") || a.path.localeCompare(b.path, "fr"));
