@@ -92,9 +92,9 @@ La [soumission initiale à Obsidian](https://docs.obsidian.md/Plugins/Releasing/
 
 ## Livres d’exemple sur le web
 
-Le lecteur statique dans [scripts/web](scripts/web/) utilise [epub.js](https://github.com/futurepress/epub.js). Il propose la liste des livres, le sommaire, les boutons de navigation et les flèches du clavier. Les scripts embarqués dans les EPUB restent désactivés. Les versions d’epub.js et de JSZip chargées depuis le CDN sont figées et vérifiées par une empreinte d’intégrité.
+Le lecteur statique dans [scripts/web](scripts/web/) utilise [epub.js](https://github.com/futurepress/epub.js). L’accueil présente uniquement les titres disponibles. Un clic ouvre le livre en pleine fenêtre, avec un défilement continu. Le seul bouton visible en lecture ouvre un menu hamburger : taille du texte, choix d’une police locale, sommaire et retour à l’accueil. Les scripts embarqués dans les EPUB restent désactivés. Les versions d’epub.js et de JSZip chargées depuis le CDN sont figées et vérifiées par une empreinte d’intégrité.
 
-Déposer les livres à publier dans [samples](samples/), à la racine du dépôt. Les sous-dossiers et les noms avec espaces ou accents sont acceptés. Le catalogue utilise les noms des fichiers ; le titre et l’auteur du livre ouvert proviennent de ses métadonnées EPUB. Le petit `exemple.epub` fourni permet d’essayer le lecteur et peut être remplacé.
+Déposer les livres à publier dans [samples](samples/), à la racine du dépôt. Les sous-dossiers et les noms avec espaces ou accents sont acceptés. Le catalogue utilise les noms des fichiers ; le titre du livre ouvert provient de ses métadonnées EPUB.
 
 ```sh
 npm run check:web
