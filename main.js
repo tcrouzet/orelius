@@ -2382,7 +2382,7 @@ var FolderPicker = class extends import_obsidian2.FuzzySuggestModal {
     this.setPlaceholder("Choisir le dossier de travail\u2026");
   }
   getItems() {
-    return ["", ...this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian2.TFolder && !file.isRoot()).map((folder) => folder.path).sort((a, b) => a.localeCompare(b, "fr"))];
+    return ["", ...this.app.vault.getAllFolders(false).map((folder) => folder.path).sort((a, b) => a.localeCompare(b, "fr"))];
   }
   getItemText(folder) {
     return folder || "Racine du coffre";

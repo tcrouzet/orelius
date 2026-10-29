@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, type ButtonComponent, type SettingDefinitionItem } from "obsidian";
+import { FuzzySuggestModal, Notice, PluginSettingTab, Setting, type ButtonComponent, type SettingDefinitionItem } from "obsidian";
 import type OreliusPlugin from "./main";
 import { errorText, findCodex } from "./codex";
 import { DEFAULT_PROJECT_FOLDERS, PROJECT_FOLDER_KEYS } from "./settings";
@@ -11,8 +11,7 @@ class FolderPicker extends FuzzySuggestModal<string> {
   }
 
   getItems(): string[] {
-    return ["", ...this.app.vault.getAllLoadedFiles()
-      .filter((file): file is TFolder => file instanceof TFolder && !file.isRoot())
+    return ["", ...this.app.vault.getAllFolders(false)
       .map(folder => folder.path).sort((a, b) => a.localeCompare(b, "fr"))];
   }
 
