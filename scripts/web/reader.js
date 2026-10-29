@@ -1,4 +1,4 @@
-"use strict";
+import { DEFAULT_FONT, readingState } from "./reader-config.js";
 
 const home = document.getElementById("home");
 const reader = document.getElementById("reader");
@@ -15,10 +15,31 @@ const format = document.getElementById("reading-format");
 const smaller = document.getElementById("smaller");
 const larger = document.getElementById("larger");
 const sizeLabel = document.getElementById("font-size");
+const previousPage = document.getElementById("previous-page");
+const nextPage = document.getElementById("next-page");
+let storage;
+try { storage = window.localStorage; } catch { /* Browser storage can be unavailable. */ }
+const state = readingState(storage, new URL(".", document.baseURI).pathname);
+const preferences = state.loadPreferences([...font.options].map(option => option.value));
+font.value = preferences.fontFamily;
+format.value = preferences.format;
 let book = null;
 let rendition = null;
 let generation = 0;
-let fontSize = 100;
+let fontSize = preferences.fontSize;
+let turningPage = false;
+
+function savePreferences() {
+  state.savePreferences({ fontFamily: font.value, fontSize, format: format.value });
+}
+
+function updatePageControls(location = rendition?.location) {
+  const paginated = format.value === "paginated";
+  reader.dataset.format = format.value;
+  previousPage.hidden = nextPage.hidden = !paginated;
+  previousPage.disabled = !rendition || !location || turningPage || Boolean(location.atStart);
+  nextPage.disabled = !rendition || !location || turningPage || Boolean(location.atEnd);
+}
 
 function report(message, error = false) {
   status.textContent = message;
@@ -36,19 +57,24 @@ function applyTypography() {
   larger.disabled = !rendition || fontSize >= 200;
   font.disabled = !rendition;
   format.disabled = !rendition;
+  updatePageControls();
 }
 
 async function turnPage(forward) {
   const current = generation;
-  if (!rendition || format.value !== "paginated" || menu.open) return;
+  if (!rendition || turningPage || format.value !== "paginated" || menu.open
+    || (forward ? nextPage.disabled : previousPage.disabled)) return;
+  turningPage = true;
+  updatePageControls();
   try { await rendition[forward ? "next" : "prev"](); }
   catch { if (current === generation) report("Cette page n’a pas pu être affichée. Réessaie.", true); }
+  finally { turningPage = false; if (current === generation) updatePageControls(); }
 }
 
 function navigateWithKeyboard(event) {
   if (reader.hidden || menu.open || format.value !== "paginated" || event.defaultPrevented
     || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-    || event.target !== menuButton && event.target?.closest?.("input, textarea, select, button, a, [contenteditable]")) return;
+    || ![menuButton, previousPage, nextPage].includes(event.target) && event.target?.closest?.("input, textarea, select, button, a, [contenteditable]")) return;
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
   event.preventDefault();
   const rtl = book?.package?.metadata?.direction === "rtl";
@@ -121,19 +147,43 @@ async function openBook(entry) {
     const metadata = await opening.loaded.metadata;
     if (current !== generation) return;
     title.textContent = metadata.title || entry.title;
+    reader.dir = metadata.direction === "rtl" ? "rtl" : "ltr";
     document.title = `${title.textContent} — Orelius`;
     const display = opening.renderTo(viewer, {
       width: "100%", height: "100%", manager: "continuous", flow: format.value,
       spread: format.value === "paginated" ? "auto" : "none", snap: true, allowScriptedContent: false,
+      stylesheet: new URL("ia-writer-duo.css", document.baseURI).href,
     });
     rendition = display;
+    display.hooks.content.register(async contents => {
+      if (font.value === DEFAULT_FONT && contents.document.fonts) {
+        await contents.document.fonts.load('16px "iA Writer Duo V"');
+        contents.resizeCheck();
+      }
+    });
+    const position = state.position(url.href);
+    let restored = false;
+    display.on("relocated", location => {
+      if (current !== generation) return;
+      updatePageControls(location);
+      if (restored) state.savePosition(url.href, location.start?.cfi);
+    });
     display.on("keydown", navigateWithKeyboard);
     display.on("click", navigateAtEdge);
     display.on("displayerror", () => { if (current === generation) report("Ce passage n’a pas pu être affiché. Réessaie.", true); });
     applyTypography();
-    await display.display();
+    let positionLost = false;
+    try { await display.display(position); }
+    catch (error) {
+      if (!position || current !== generation) throw error;
+      await display.display();
+      positionLost = true;
+    }
     if (current !== generation) return;
-    report("");
+    restored = true;
+    state.savePosition(url.href, display.location?.start?.cfi);
+    updatePageControls();
+    report(positionLost ? "La position enregistrée n’est plus disponible. Lecture reprise au début." : "");
     const navigation = await opening.loaded.navigation;
     if (current !== generation) return;
     addChapters(navigation.toc);
@@ -152,13 +202,17 @@ menuButton.addEventListener("click", () => {
 menu.addEventListener("close", () => { menuButton.setAttribute("aria-expanded", "false"); });
 document.getElementById("close-menu").addEventListener("click", () => menu.close());
 document.getElementById("return-home").addEventListener("click", returnHome);
-smaller.addEventListener("click", () => { fontSize = Math.max(70, fontSize - 10); applyTypography(); });
-larger.addEventListener("click", () => { fontSize = Math.min(200, fontSize + 10); applyTypography(); });
-font.addEventListener("change", applyTypography);
+previousPage.addEventListener("click", () => { void turnPage(false); });
+nextPage.addEventListener("click", () => { void turnPage(true); });
+smaller.addEventListener("click", () => { fontSize = Math.max(70, fontSize - 10); applyTypography(); savePreferences(); });
+larger.addEventListener("click", () => { fontSize = Math.min(200, fontSize + 10); applyTypography(); savePreferences(); });
+font.addEventListener("change", () => { applyTypography(); savePreferences(); });
 format.addEventListener("change", () => {
   if (!rendition) return;
   rendition.spread(format.value === "paginated" ? "auto" : "none");
   rendition.flow(format.value);
+  updatePageControls();
+  savePreferences();
 });
 document.addEventListener("keydown", navigateWithKeyboard);
 
@@ -188,4 +242,5 @@ async function loadLibrary() {
   } catch { report("La bibliothèque n’a pas pu être chargée. Recharge la page pour réessayer.", true); }
 }
 
+applyTypography();
 void loadLibrary();

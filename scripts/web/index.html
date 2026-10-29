@@ -6,9 +6,10 @@
   <meta name="description" content="Lire les livres d’exemple d’Orelius, directement dans le navigateur.">
   <title>Livres d’exemple — Orelius</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ia-writer-duo.css">
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js" integrity="sha384-ZqmkDa/1AGF4SKdSmXgEG+3G+Gsb6yNqUSq2Mqp0jDf1GWk+UY5eNbEd7hgwiywI" crossorigin="anonymous"></script>
-  <script defer src="reader.js"></script>
+  <script type="module" src="reader.js"></script>
 </head>
 <body>
   <main id="home" class="library">
@@ -17,6 +18,12 @@
   </main>
   <section id="reader" class="reader" aria-label="Lecture" hidden>
     <div id="viewer" aria-label="Contenu du livre" aria-busy="false"></div>
+    <button id="previous-page" class="page-button previous-page" type="button" aria-label="Page précédente" title="Page précédente" disabled>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
+    <button id="next-page" class="page-button next-page" type="button" aria-label="Page suivante" title="Page suivante" disabled>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    </button>
     <button id="menu-button" class="menu-button" type="button" aria-label="Ouvrir le menu de lecture" aria-haspopup="dialog" aria-controls="reader-menu" aria-expanded="false">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
@@ -34,6 +41,7 @@
     </div>
     <label for="font-family">Police</label>
     <select id="font-family" disabled>
+      <option value="'iA Writer Duo V', monospace" selected>iA Writer Duo</option>
       <option value="">Police du livre</option>
       <option value="system-ui, sans-serif">Police système</option>
       <option value="Georgia, serif">Georgia</option>

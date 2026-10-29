@@ -12,7 +12,7 @@ export async function buildWeb(samplesDirectory, outputDirectory) {
   const stage = await mkdtemp(`${outputDirectory}.`);
   const books = [];
   try {
-    for (const name of ["index.html", "reader.js", "styles.css"]) await cp(join(source, name), join(stage, name));
+    for (const name of ["index.html", "reader.js", "reader-config.js", "styles.css", "ia-writer-duo.css"]) await cp(join(source, name), join(stage, name));
     const html = await readFile(join(stage, "index.html"), "utf8");
     const routes = new Set();
     const epubs = files.filter(file => file.isFile() && extname(file.name).toLowerCase() === ".epub");

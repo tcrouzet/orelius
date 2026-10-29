@@ -24,6 +24,38 @@ export async function checkWeb() {
   const directory = await mkdtemp(join(tmpdir(), "orelius-web-"));
   const samples = join(directory, "samples"), output = join(directory, "site");
   try {
+    const configModule = new URL("./reader-config.js", import.meta.url).href;
+    const storageArguments = ["--experimental-webstorage", `--localstorage-file=${join(directory, "reader-storage")}`, "--input-type=module", "--eval"];
+    const setup = `import assert from "node:assert/strict";
+      const { DEFAULT_FONT, readingState } = await import(${JSON.stringify(configModule)});
+      assert.equal(DEFAULT_FONT, "'iA Writer Duo V', monospace");
+      const fonts = [DEFAULT_FONT, "Georgia, serif", ""];
+      const state = readingState(localStorage, "/orelius/");`;
+    execFileSync(process.execPath, [...storageArguments, `${setup}
+      assert.deepEqual(state.loadPreferences(fonts), { fontFamily: DEFAULT_FONT, fontSize: 100, format: "paginated" });
+      state.savePreferences({ fontFamily: "Georgia, serif", fontSize: 130, format: "scrolled" });
+      state.savePosition("livre-1", "epubcfi(/6/2!/4/2/1:42)");
+      state.savePosition("livre-2", "epubcfi(/6/4!/4/2/1:15)");
+    `], { stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync(process.execPath, [...storageArguments, `${setup}
+      assert.deepEqual(state.loadPreferences(fonts), { fontFamily: "Georgia, serif", fontSize: 130, format: "scrolled" });
+      assert.equal(state.position("livre-1"), "epubcfi(/6/2!/4/2/1:42)");
+      assert.equal(state.position("livre-2"), "epubcfi(/6/4!/4/2/1:15)");
+      assert.equal(state.position("autre-livre"), undefined);
+      assert.equal(readingState(localStorage, "/autre-site/").position("livre-1"), undefined);
+      state.savePosition("livre-1", "https://example.org/");
+      state.savePosition("livre-1", "epubcfi(" + "x".repeat(4096) + ")");
+      assert.equal(state.position("livre-1"), "epubcfi(/6/2!/4/2/1:42)");
+      state.savePreferences({ fontFamily: "police inconnue", fontSize: 900, format: "inconnu" });
+      assert.deepEqual(state.loadPreferences(fonts), { fontFamily: DEFAULT_FONT, fontSize: 100, format: "paginated" });
+      localStorage.setItem("orelius:reader:/orelius/:config", "JSON cassé");
+      assert.deepEqual(state.loadPreferences(fonts), { fontFamily: DEFAULT_FONT, fontSize: 100, format: "paginated" });
+      const unavailable = readingState(undefined, "/orelius/");
+      unavailable.savePreferences({ fontSize: 150 });
+      unavailable.savePosition("livre-1", "epubcfi(/6/2!/4/2/1:0)");
+      assert.equal(unavailable.position("livre-1"), undefined);
+      assert.equal(unavailable.loadPreferences(fonts).fontFamily, DEFAULT_FONT);
+    `], { stdio: ["ignore", "pipe", "pipe"] });
     await mkdir(samples);
     assert.deepEqual(await buildWeb(samples, output), []);
     await mkdir(join(samples, "Romans"));
@@ -59,17 +91,24 @@ for path, metadata in json.load(sys.stdin):
       const pageBase = new URL(page.match(/<base href="([^"]+)">/)?.[1] ?? "", pageUrl);
       assert.equal(pageBase.href, base.href, "Les ressources doivent rester à la racine du site, même dans un sous-dossier.");
       assert.equal(page.match(/<meta name="orelius-book" content="([^"]+)">/)?.[1], book.path);
-      for (const asset of ["reader.js", "styles.css", "books.json", book.path]) {
+      for (const asset of ["reader.js", "reader-config.js", "styles.css", "ia-writer-duo.css", "books.json", book.path]) {
         const url = new URL(asset, pageBase);
         assert.ok(url.href.startsWith(base.href));
         await readFile(join(output, decodeURIComponent(url.pathname.slice(base.pathname.length))));
       }
     }
     for (const path of [first, second]) assert.deepEqual(await readFile(join(output, "samples", path)), await readFile(join(samples, path)));
-    assert.deepEqual((await readdir(output)).sort(), ["Lecture #1 — été", "Romans", "books.json", "index.html", "reader.js", "samples", "styles.css"].sort());
+    assert.deepEqual((await readdir(output)).sort(), ["Lecture #1 — été", "Romans", "books.json", "index.html", "reader.js", "reader-config.js", "samples", "styles.css", "ia-writer-duo.css"].sort());
     assert.deepEqual((await readdir(join(output, "samples"))).sort(), [first, "Romans"].sort());
     const html = await readFile(join(output, "index.html"), "utf8");
     const script = await readFile(join(output, "reader.js"), "utf8");
+    const fontCss = await readFile(join(output, "ia-writer-duo.css"), "utf8");
+    assert.equal(fontCss, await readFile(join(source, "ia-writer-duo.css"), "utf8"));
+    assert.ok(fontCss.includes("SIL OPEN FONT LICENSE Version 1.1"));
+    assert.ok(fontCss.includes('font-family: "iA Writer Duo V"'));
+    const embeddedFonts = [...fontCss.matchAll(/data:font\/ttf;base64,([A-Za-z0-9+/=]+)/g)];
+    assert.equal(embeddedFonts.length, 2);
+    for (const match of embeddedFonts) assert.equal(Buffer.from(match[1], "base64").readUInt32BE(0), 0x00010000);
     for (const match of script.matchAll(/document\.getElementById\("([^"]+)"\)/g)) assert.ok(html.includes(`id="${match[1]}"`), match[1]);
     for (const match of html.matchAll(/<script[^>]+src="https:[^"]+"[^>]*>/g)) {
       assert.match(match[0], /@\d+\.\d+\.\d+\//);
@@ -91,7 +130,7 @@ for path, metadata in json.load(sys.stdin):
     await buildWeb(samples, output);
     assert.deepEqual(await readdir(join(output, "samples")), ["Romans"]);
     await assert.rejects(readFile(join(output, first.slice(0, -5), "index.html")), { code: "ENOENT" });
-    console.log("Web : catalogue, URLs directes par livre, ressources GitHub Pages, copie exacte, retrait des livres et fichiers privés exclus : OK.");
+    console.log("Web : catalogue, URLs directes, réglages et positions persistés entre processus, police intégrée, ressources GitHub Pages et fichiers privés exclus : OK.");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
