@@ -40,6 +40,8 @@ Les messages d’activité sont masqués par défaut. Le réglage **Afficher les
 
 Sous chaque réponse finale de Codex, les boutons cœur, pouce levé et pouce baissé permettent de noter l’échange. Le texte éventuellement saisi dans le chat accompagne la réaction, mot pour mot. Une note reste sélectionnée après réouverture ; la changer remplace l’avis courant dans la base de connaissances et conserve les avis précédents dans les relevés horodatés de `Bible/Suivi/`. Chaque relevé conserve les demandes, la réponse évaluée et les précisions de l’auteur. Codex peut en tirer des consignes et des exemples de ce qu’il faut reproduire ou éviter lors des prochains échanges, sans réentraîner le modèle. Noter ne lance aucune requête au modèle et ne retire pas le surlignage du manuscrit.
 
+Une gomme **Effacer le surlignage** apparaît après ces trois réactions lorsque le chapitre ouvert contient des marques de révision. Elle retire les marques de ce chapitre, y compris après réouverture, sans accepter les modifications ni enregistrer d’avis. Le texte, les références de diff et le message en préparation dans le chat sont conservés.
+
 Les réglages et l’identifiant de la conversation de chaque dossier sont enregistrés dans les données du plugin. Revenir dans un dossier retrouve sa conversation, y compris après un redémarrage d’Obsidian. L’historique reste géré par Codex et est rechargé à la reprise. **Nouvelle conversation** remplace uniquement l’association du dossier actif ; les anciens historiques restent dans Codex. Une conversation enregistrée avec l’ancien format est conservée pour son dossier. Les messages et les documents que Codex consulte peuvent être transmis au fournisseur configuré dans Codex. Orelius ne conserve aucune clé d’API.
 
 ## Agent du projet
@@ -92,7 +94,7 @@ La [soumission initiale à Obsidian](https://docs.obsidian.md/Plugins/Releasing/
 
 ## Livres d’exemple sur le web
 
-Le lecteur statique dans [scripts/web](scripts/web/) utilise [epub.js](https://github.com/futurepress/epub.js). L’accueil présente uniquement les titres disponibles. Un clic ouvre le livre en pleine fenêtre, avec un défilement continu. Le seul bouton visible en lecture ouvre un menu hamburger : taille du texte, choix d’une police locale, sommaire et retour à l’accueil. Les scripts embarqués dans les EPUB restent désactivés. Les versions d’epub.js et de JSZip chargées depuis le CDN sont figées et vérifiées par une empreinte d’intégrité.
+Le lecteur statique dans [scripts/web](scripts/web/) utilise [epub.js](https://github.com/futurepress/epub.js). L’accueil présente uniquement les titres disponibles. Un clic ouvre le livre en pleine fenêtre, au format livre paginé par défaut. Les pages se tournent avec les flèches du clavier, par balayage tactile ou par un clic sur les bords du texte. Le seul bouton visible en lecture ouvre un menu hamburger : taille du texte, choix d’une police locale, format livre ou défilement continu, sommaire et retour à l’accueil. Le changement de format conserve la position de lecture. Les scripts embarqués dans les EPUB restent désactivés. Les versions d’epub.js et de JSZip chargées depuis le CDN sont figées et vérifiées par une empreinte d’intégrité.
 
 Déposer les livres à publier dans [samples](samples/), à la racine du dépôt. Les sous-dossiers et les noms avec espaces ou accents sont acceptés. Le catalogue utilise les noms des fichiers ; le titre du livre ouvert provient de ses métadonnées EPUB.
 

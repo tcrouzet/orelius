@@ -304,6 +304,22 @@ export default class OreliusPlugin extends Plugin {
     return chapter && snapshot && snapshot.before !== snapshot.after ? chapter : null;
   }
 
+  async clearRevisionHighlights(chapter: string): Promise<void> {
+    const folder = this.settings.folder;
+    await this.settingsWrite;
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche ou de l’envoi avant d’effacer le surlignage.");
+    if (folder !== this.settings.folder || chapter !== this.acceptanceChapter) throw new Error("Le chapitre surligné a changé. Revenez au chapitre à relire.");
+    this.sending = true;
+    try {
+      const revisionHighlights = { ...this.settings.revisionHighlights };
+      delete revisionHighlights[`${folder ? `${folder}/` : ""}${chapter}`];
+      await this.saveSettings({ revisionHighlights });
+    } finally {
+      this.sending = false;
+      for (const view of this.views) view.update();
+    }
+  }
+
   async acceptRevision(message: string, chapter: string): Promise<void> {
     await this.settingsWrite;
     if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche ou de l’envoi avant d’accepter les modifications.");

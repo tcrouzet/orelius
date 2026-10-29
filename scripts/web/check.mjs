@@ -12,6 +12,8 @@ export async function checkWeb() {
   const workflow = JSON.parse(execFileSync("ruby", ["-rjson", "-ryaml", "-e", "print JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0))))", join(source, "../../.github/workflows/pages.yml")], { encoding: "utf8" }));
   assert.deepEqual((workflow.on ?? workflow.true).push.branches, ["main"]);
   assert.deepEqual(workflow.permissions, { contents: "read" });
+  assert.equal(workflow.jobs.build["runs-on"], "ubuntu-24.04");
+  assert.equal(workflow.jobs.deploy["runs-on"], "ubuntu-24.04");
   assert.deepEqual(workflow.jobs.build.permissions, { contents: "read", pages: "read" });
   assert.deepEqual(workflow.jobs.deploy.permissions, { pages: "write", "id-token": "write" });
   assert.equal(workflow.jobs.deploy.needs, "build");

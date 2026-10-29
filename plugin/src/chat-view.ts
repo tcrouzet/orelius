@@ -161,6 +161,15 @@ export class OreliusView extends ItemView {
     finally { this.submitting = false; this.update(); }
   }
 
+  private async clearHighlights(): Promise<void> {
+    const chapter = this.plugin.acceptanceChapter;
+    if (!chapter || this.submitting || this.plugin.session.busy) return;
+    this.submitting = true;
+    this.update();
+    try { await this.run(() => this.plugin.clearRevisionHighlights(chapter)); }
+    finally { this.submitting = false; this.update(); }
+  }
+
   private async react(itemId: string, value: Reaction): Promise<void> {
     if (this.submitting || this.plugin.session.busy) return;
     const message = this.input.value;
@@ -313,19 +322,28 @@ export class OreliusView extends ItemView {
     let controls = element.querySelector<HTMLElement>(".orelius-reactions");
     if (!this.exchanges.has(item.id)) { controls?.remove(); return; }
     if (!controls) {
-      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": "Noter cet échange avec Codex" } });
+      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": "Réactions et surlignage" } });
       for (const choice of REACTIONS) {
         const button = controls.createEl("button", { type: "button", attr: { "aria-label": choice.label, "data-reaction": choice.value } });
         setIcon(button, choice.icon);
         button.title = `${choice.label} — le message éventuel dans le chat sera joint à cette réaction.`;
         button.onclick = () => { void this.react(item.id, choice.value); };
       }
+      const clear = controls.createEl("button", { type: "button", attr: { "aria-label": "Effacer le surlignage", "data-action": "clear-highlights" } });
+      setIcon(clear, "eraser");
+      clear.title = "Effacer le surlignage du chapitre ouvert, sans accepter les modifications.";
+      clear.onclick = () => { void this.clearHighlights(); };
     }
     const selected = this.plugin.reactionFor(item.id);
-    controls.querySelectorAll<HTMLButtonElement>("button").forEach(button => {
+    controls.querySelectorAll<HTMLButtonElement>("button[data-reaction]").forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.reaction === selected));
       button.disabled = this.submitting || this.plugin.session.busy;
     });
+    const clear = controls.querySelector<HTMLButtonElement>('[data-action="clear-highlights"]');
+    if (clear) {
+      clear.hidden = !this.plugin.acceptanceChapter;
+      clear.disabled = this.submitting || this.plugin.session.busy;
+    }
   }
 
   private renderRequest(request: ServerRequest): void {

@@ -11,6 +11,7 @@ const menuButton = document.getElementById("menu-button");
 const chapters = document.getElementById("chapters");
 const contents = document.getElementById("contents");
 const font = document.getElementById("font-family");
+const format = document.getElementById("reading-format");
 const smaller = document.getElementById("smaller");
 const larger = document.getElementById("larger");
 const sizeLabel = document.getElementById("font-size");
@@ -35,6 +36,36 @@ function applyTypography() {
   smaller.disabled = !rendition || fontSize <= 70;
   larger.disabled = !rendition || fontSize >= 200;
   font.disabled = !rendition;
+  format.disabled = !rendition;
+}
+
+async function turnPage(forward) {
+  const current = generation;
+  if (!rendition || format.value !== "paginated" || menu.open) return;
+  try { await rendition[forward ? "next" : "prev"](); }
+  catch { if (current === generation) report("Cette page n’a pas pu être affichée. Réessaie.", true); }
+}
+
+function navigateWithKeyboard(event) {
+  if (reader.hidden || menu.open || format.value !== "paginated" || event.defaultPrevented
+    || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+    || event.target !== menuButton && event.target?.closest?.("input, textarea, select, button, a, [contenteditable]")) return;
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const rtl = book?.package?.metadata?.direction === "rtl";
+  void turnPage((event.key === "ArrowRight") !== rtl);
+}
+
+function navigateAtEdge(event) {
+  if (event.defaultPrevented || event.detail > 1 || event.view?.getSelection()?.isCollapsed === false
+    || event.target?.closest?.("a, button, input, textarea, select, [contenteditable]")) return;
+  const frame = event.view?.frameElement;
+  if (!frame) return;
+  const bounds = viewer.getBoundingClientRect();
+  const x = event.clientX + frame.getBoundingClientRect().left;
+  if (x > bounds.left + 48 && x < bounds.right - 48) return;
+  const rtl = book?.package?.metadata?.direction === "rtl";
+  void turnPage((x >= bounds.left + bounds.width / 2) !== rtl);
 }
 
 async function showChapter(href) {
@@ -105,9 +136,13 @@ async function openBook(entry, button) {
     title.textContent = metadata.title || entry.title;
     document.title = `${title.textContent} — Orelius`;
     const display = opening.renderTo(viewer, {
-      width: "100%", height: "100%", manager: "continuous", flow: "scrolled", spread: "none", allowScriptedContent: false,
+      width: "100%", height: "100%", manager: "continuous", flow: format.value,
+      spread: format.value === "paginated" ? "auto" : "none", snap: true, allowScriptedContent: false,
     });
     rendition = display;
+    display.on("keydown", navigateWithKeyboard);
+    display.on("click", navigateAtEdge);
+    display.on("displayerror", () => { if (current === generation) report("Ce passage n’a pas pu être affiché. Réessaie.", true); });
     applyTypography();
     await display.display();
     if (current !== generation) return;
@@ -133,6 +168,12 @@ document.getElementById("return-home").addEventListener("click", returnHome);
 smaller.addEventListener("click", () => { fontSize = Math.max(70, fontSize - 10); applyTypography(); });
 larger.addEventListener("click", () => { fontSize = Math.min(200, fontSize + 10); applyTypography(); });
 font.addEventListener("change", applyTypography);
+format.addEventListener("change", () => {
+  if (!rendition) return;
+  rendition.spread(format.value === "paginated" ? "auto" : "none");
+  rendition.flow(format.value);
+});
+document.addEventListener("keydown", navigateWithKeyboard);
 
 async function loadLibrary() {
   try {

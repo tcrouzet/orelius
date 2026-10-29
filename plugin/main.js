@@ -2135,6 +2135,18 @@ var OreliusView = class extends import_obsidian.ItemView {
       this.update();
     }
   }
+  async clearHighlights() {
+    const chapter = this.plugin.acceptanceChapter;
+    if (!chapter || this.submitting || this.plugin.session.busy) return;
+    this.submitting = true;
+    this.update();
+    try {
+      await this.run(() => this.plugin.clearRevisionHighlights(chapter));
+    } finally {
+      this.submitting = false;
+      this.update();
+    }
+  }
   async react(itemId, value) {
     if (this.submitting || this.plugin.session.busy) return;
     const message = this.input.value;
@@ -2293,7 +2305,7 @@ var OreliusView = class extends import_obsidian.ItemView {
       return;
     }
     if (!controls) {
-      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": "Noter cet \xE9change avec Codex" } });
+      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": "R\xE9actions et surlignage" } });
       for (const choice of REACTIONS) {
         const button = controls.createEl("button", { type: "button", attr: { "aria-label": choice.label, "data-reaction": choice.value } });
         (0, import_obsidian.setIcon)(button, choice.icon);
@@ -2302,12 +2314,23 @@ var OreliusView = class extends import_obsidian.ItemView {
           void this.react(item.id, choice.value);
         };
       }
+      const clear2 = controls.createEl("button", { type: "button", attr: { "aria-label": "Effacer le surlignage", "data-action": "clear-highlights" } });
+      (0, import_obsidian.setIcon)(clear2, "eraser");
+      clear2.title = "Effacer le surlignage du chapitre ouvert, sans accepter les modifications.";
+      clear2.onclick = () => {
+        void this.clearHighlights();
+      };
     }
     const selected = this.plugin.reactionFor(item.id);
-    controls.querySelectorAll("button").forEach((button) => {
+    controls.querySelectorAll("button[data-reaction]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.reaction === selected));
       button.disabled = this.submitting || this.plugin.session.busy;
     });
+    const clear = controls.querySelector('[data-action="clear-highlights"]');
+    if (clear) {
+      clear.hidden = !this.plugin.acceptanceChapter;
+      clear.disabled = this.submitting || this.plugin.session.busy;
+    }
   }
   renderRequest(request) {
     const card = this.requestsEl.createEl("form", { cls: "orelius-request" });
@@ -3061,6 +3084,21 @@ var OreliusPlugin = class extends import_obsidian4.Plugin {
     const key = `${this.settings.folder ? `${this.settings.folder}/` : ""}${chapter}`;
     const snapshot = this.settings.revisionHighlights[key];
     return chapter && snapshot && snapshot.before !== snapshot.after ? chapter : null;
+  }
+  async clearRevisionHighlights(chapter) {
+    const folder = this.settings.folder;
+    await this.settingsWrite;
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la t\xE2che ou de l\u2019envoi avant d\u2019effacer le surlignage.");
+    if (folder !== this.settings.folder || chapter !== this.acceptanceChapter) throw new Error("Le chapitre surlign\xE9 a chang\xE9. Revenez au chapitre \xE0 relire.");
+    this.sending = true;
+    try {
+      const revisionHighlights2 = { ...this.settings.revisionHighlights };
+      delete revisionHighlights2[`${folder ? `${folder}/` : ""}${chapter}`];
+      await this.saveSettings({ revisionHighlights: revisionHighlights2 });
+    } finally {
+      this.sending = false;
+      for (const view of this.views) view.update();
+    }
   }
   async acceptRevision(message, chapter) {
     await this.settingsWrite;

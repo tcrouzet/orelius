@@ -30,7 +30,7 @@ button:not(:disabled):hover { border-color: var(--accent); }
 .font-size-control { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
 .font-size-control span { flex: 1; }
 #font-size { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
-#font-family { display: block; width: 100%; margin: 8px 0 20px; padding: 8px; }
+#font-family, #reading-format { display: block; width: 100%; margin: 8px 0 20px; padding: 8px; }
 #contents { border-block: 1px solid var(--border); padding-block: 8px; margin-bottom: 20px; }
 #contents summary { min-height: 44px; padding-block: 12px; cursor: pointer; }
 #chapters, #chapters ol { list-style: none; padding: 0; margin: 0; }

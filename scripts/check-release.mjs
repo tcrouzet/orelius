@@ -12,6 +12,7 @@ export function checkRelease() {
   assert.ifError(parsed.error);
   assert.equal(parsed.status, 0, parsed.stderr);
   const workflow = JSON.parse(parsed.stdout);
+  assert.equal(workflow.jobs.release["runs-on"], "ubuntu-24.04");
   assert.deepEqual((workflow.on ?? workflow.true).push.tags, ["[0-9]*"]);
   assert.deepEqual(workflow.permissions, { contents: "read" });
   assert.deepEqual(workflow.jobs.release.permissions, { contents: "write", "id-token": "write", attestations: "write" });
