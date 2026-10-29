@@ -28,14 +28,29 @@ export async function checkWeb() {
     assert.deepEqual(await buildWeb(samples, output), []);
     await mkdir(join(samples, "Romans"));
     const first = "Lecture #1 — été.epub", second = "Romans/Autre livre.EPUB";
-    await writeFile(join(samples, first), "Premier livre : octets à conserver.");
-    await writeFile(join(samples, second), "Second livre.");
+    execFileSync("python3", ["-c", `
+import json, sys, zipfile
+for path, metadata in json.load(sys.stdin):
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr("META-INF/container.xml", '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="Contenu/livre.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+        archive.writestr("Contenu/livre.opf", '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:d="http://purl.org/dc/elements/1.1/"><d:identifier id="id">urn:uuid:example</d:identifier><d:language>fr</d:language>' + metadata + '</metadata><manifest><item id="texte" href="texte.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="texte"/></spine></package>')
+        archive.writestr("Contenu/texte.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Exemple</title></head><body><p>Texte.</p></body></html>')
+`], { input: JSON.stringify([
+      [join(samples, first), '<d:title>  Un autre\n titre &amp; récit </d:title><d:title>Sous-titre</d:title><d:creator>Alice &#201;tienne</d:creator><d:creator><![CDATA[Bob & Cie]]></d:creator>'],
+      [join(samples, second), '<d:title> </d:title>'],
+    ]) });
     await writeFile(join(samples, "notes-privees.md"), "Ne pas publier.");
     await writeFile(join(directory, "data.json"), "Ne pas publier.");
     const books = await buildWeb(samples, output);
     assert.equal(books.length, 2);
     assert.deepEqual(JSON.parse(await readFile(join(output, "books.json"), "utf8")), books);
-    assert.equal(books.find(book => book.title === first.slice(0, -5)).path, `samples/${encodeURIComponent(first)}`);
+    const firstBook = books.find(book => book.path === `samples/${encodeURIComponent(first)}`);
+    assert.equal(firstBook.title, "Un autre titre & récit");
+    assert.equal(firstBook.author, "Alice Étienne, Bob & Cie");
+    const secondBook = books.find(book => book.path !== firstBook.path);
+    assert.equal(secondBook.title, "Sans titre");
+    assert.equal(secondBook.author, "Auteur non renseigné");
     const base = new URL("https://example.org/orelius/");
     for (const book of books) {
       assert.equal(book.url, `${book.path.slice("samples/".length).replace(/\.epub$/i, "")}/`);
@@ -64,6 +79,10 @@ export async function checkWeb() {
     execFileSync(process.execPath, ["--check", join(output, "reader.js")]);
     for (const book of books) assert.ok(new URL(book.path, base).href.startsWith(`${base.href}samples/`));
     const before = await readFile(join(output, "books.json"), "utf8");
+    await writeFile(join(samples, "invalide.epub"), "Ceci n’est pas un EPUB.");
+    await assert.rejects(buildWeb(samples, output), /invalide\.epub/);
+    assert.equal(await readFile(join(output, "books.json"), "utf8"), before);
+    await rm(join(samples, "invalide.epub"));
     await symlink(join(directory, "data.json"), join(samples, "prive.epub"));
     await assert.rejects(buildWeb(samples, output), /symboliques/);
     assert.equal(await readFile(join(output, "books.json"), "utf8"), before);

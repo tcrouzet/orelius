@@ -167,14 +167,14 @@ async function loadLibrary() {
     const response = await fetch(new URL("books.json", document.baseURI));
     if (!response.ok) throw new Error("Catalogue indisponible.");
     const entries = await response.json();
-    if (!Array.isArray(entries) || entries.some(entry => typeof entry?.title !== "string" || typeof entry?.path !== "string" || typeof entry?.url !== "string")) throw new Error("Catalogue invalide.");
+    if (!Array.isArray(entries) || entries.some(entry => typeof entry?.title !== "string" || typeof entry?.author !== "string" || typeof entry?.path !== "string" || typeof entry?.url !== "string")) throw new Error("Catalogue invalide.");
     for (const entry of entries) {
       const item = document.createElement("li");
       const link = document.createElement("a");
       const url = new URL(entry.url, document.baseURI);
       if (!url.href.startsWith(new URL(".", document.baseURI).href)) throw new Error("Adresse de livre invalide.");
       link.href = url.href;
-      link.textContent = entry.title;
+      link.textContent = `${entry.title} — ${entry.author}`;
       item.append(link);
       library.append(item);
     }
