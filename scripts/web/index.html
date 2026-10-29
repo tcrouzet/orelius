@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Lire les livres d’exemple d’Orelius, directement dans le navigateur.">
+  <title>Livres d’exemple — Orelius</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js" integrity="sha384-ZqmkDa/1AGF4SKdSmXgEG+3G+Gsb6yNqUSq2Mqp0jDf1GWk+UY5eNbEd7hgwiywI" crossorigin="anonymous"></script>
+  <script defer src="reader.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./">Orelius</a>
+    <a href="https://github.com/tcrouzet/orelius">Le projet sur GitHub</a>
+  </header>
+  <main>
+    <aside class="library">
+      <h1>Livres d’exemple</h1>
+      <p>Ouvrir un livre, prendre le temps de lire.</p>
+      <nav aria-label="Livres disponibles"><ul id="books"></ul></nav>
+    </aside>
+    <section class="reader" aria-labelledby="book-title">
+      <header class="book-header">
+        <h2 id="book-title">Bienvenue</h2>
+        <p id="book-author"></p>
+      </header>
+      <p id="status" role="status" aria-live="polite">Chargement de la bibliothèque…</p>
+      <div id="viewer" aria-label="Contenu du livre" aria-busy="false"></div>
+      <footer class="reader-controls">
+        <button id="previous" type="button" disabled>Précédent</button>
+        <label for="chapters">Sommaire</label>
+        <select id="chapters" disabled><option value="">Choisir un chapitre</option></select>
+        <button id="next" type="button" disabled>Suivant</button>
+      </footer>
+    </section>
+  </main>
+  <noscript>Active JavaScript pour ouvrir les livres dans le lecteur.</noscript>
+</body>
+</html>

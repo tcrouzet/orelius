@@ -25,6 +25,7 @@ import { editorLock } from "../plugin/src/editor-lock.ts";
 import { recordAcceptance } from "../plugin/src/acceptance.ts";
 import { reactionExchanges, reactionKey, recordReaction } from "../plugin/src/reactions.ts";
 import { checkRelease } from "./check-release.mjs";
+import { checkWeb } from "./web/check.mjs";
 
 const agentTemplate = await readFile(new URL("../prompts/agent.md", import.meta.url), "utf8");
 let passed = 0;
@@ -42,6 +43,7 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("Site web : catalogue et publication des livres d’exemple", () => checkWeb());
   await check("Publication : contrôles, commits automatiques, versions et tags", () => checkRelease());
   await check("Réactions : réponses finales terminées, contexte complet et ancien historique", async () => {
     const message = (id, role, text, phase) => ({ id, role, text, phase, paths: [] });

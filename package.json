@@ -11,6 +11,8 @@
     "build": "npm run typecheck && node build.mjs",
     "check": "node scripts/check.mjs",
     "check:release": "node scripts/check-release.mjs",
+    "build:web": "node scripts/web/build.mjs",
+    "check:web": "node scripts/web/check.mjs",
     "check:obsidian": "npm run build && node scripts/check-obsidian.mjs"
   },
   "engines": {

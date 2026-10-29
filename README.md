@@ -90,6 +90,22 @@ Prérequis locaux : Node.js 24 ou ultérieur, npm, Git, jq, GitHub CLI authentif
 
 La [soumission initiale à Obsidian](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) se fait après la création de la première release GitHub. Les versions suivantes utilisent le même script.
 
+## Livres d’exemple sur le web
+
+Le lecteur statique dans [scripts/web](scripts/web/) utilise [epub.js](https://github.com/futurepress/epub.js). Il propose la liste des livres, le sommaire, les boutons de navigation et les flèches du clavier. Les scripts embarqués dans les EPUB restent désactivés. Les versions d’epub.js et de JSZip chargées depuis le CDN sont figées et vérifiées par une empreinte d’intégrité.
+
+Déposer les livres à publier dans [samples](samples/), à la racine du dépôt. Les sous-dossiers et les noms avec espaces ou accents sont acceptés. Le catalogue utilise les noms des fichiers ; le titre et l’auteur du livre ouvert proviennent de ses métadonnées EPUB. Le petit `exemple.epub` fourni permet d’essayer le lecteur et peut être remplacé.
+
+```sh
+npm run check:web
+npm run build:web
+python3 -m http.server 8000 --directory _site
+```
+
+Ouvrir ensuite `http://localhost:8000`. La génération utilise seulement Node.js ; les contrôles utilisent aussi Ruby, comme les tests de publication du plugin. Le dossier `_site/` contient uniquement les fichiers du site, son catalogue et les EPUB de `samples/`. Il est généré et ignoré par Git.
+
+Pour la première publication, sélectionner **Settings → Pages → Build and deployment → Source → GitHub Actions** dans le dépôt GitHub. Le [workflow Pages](.github/workflows/pages.yml) publie ensuite les modifications du lecteur et de `samples/` poussées sur `main`. Il peut aussi être lancé manuellement depuis Actions. L’adresse prévue est [tcrouzet.github.io/orelius](https://tcrouzet.github.io/orelius/).
+
 ## Références techniques
 
 - [Codex Panel](https://github.com/murashit/codex-panel), licence Apache-2.0 : transport local `app-server` et séparation de la connexion et de l’interface.
