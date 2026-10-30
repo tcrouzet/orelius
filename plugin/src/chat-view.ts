@@ -1,3 +1,4 @@
+import { visibleMessages } from "./conversation";
 import { Component, ItemView, MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
 import type OreliusPlugin from "./main";
 import { errorText, object, stringValue, type RpcObject, type ServerRequest } from "./codex";
@@ -198,7 +199,6 @@ export class OreliusView extends ItemView {
   private render(): void {
     const session = this.plugin.session;
     this.exchanges = reactionExchanges(session.turns);
-    this.contentEl.toggleClass("orelius-show-activity", this.plugin.settings.showActivity);
     this.projectTitleEl.setText(this.getDisplayText());
     if (this.input.value !== this.plugin.draft) this.input.value = this.plugin.draft;
     this.statusEl.setText(session.failure && !session.busy ? "" : session.status || (session.busy ? "Codex travaille…" : ""));
@@ -235,13 +235,14 @@ export class OreliusView extends ItemView {
     this.newButton.disabled = session.busy;
     this.input.placeholder = session.running ? "Ajouter une consigne à la tâche en cours…" : "Message, précisions pour Réviser ou commentaire à joindre à votre réaction…";
     this.hintEl.setText(session.running ? "⌘/Ctrl + Entrée pour ajouter une consigne à la tâche en cours"
-      : "⌘/Ctrl + Entrée pour envoyer · originaux archivés avant modification");
-    if (!session.items.length) {
+      : "⌘/Ctrl + Entrée pour envoyer");
+    const messages = visibleMessages(session.items, session.turns);
+    if (!messages.length) {
       this.clearMessages();
       this.messagesEl.createEl("p", { cls: "orelius-empty", text: `Posez une question ou demandez une modification. Les originaux des fichiers modifiés sont conservés dans ${this.plugin.settings.archiveFolder} à la racine du projet.` });
     } else {
       this.messagesEl.querySelector(".orelius-empty")?.remove();
-      const visibleIds = new Set(session.items.map(item => item.id));
+      const visibleIds = new Set(messages.map(item => item.id));
       for (const [id, rendered] of this.rendered) {
         if (!visibleIds.has(id)) {
           this.removeChild(rendered.component);
@@ -249,7 +250,7 @@ export class OreliusView extends ItemView {
           this.rendered.delete(id);
         }
       }
-      for (const item of session.items) this.renderItem(item);
+      for (const item of messages) this.renderItem(item);
     }
     const requestKey = JSON.stringify(session.requests);
     if (requestKey !== this.requestKey) {

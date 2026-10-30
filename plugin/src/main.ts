@@ -430,7 +430,7 @@ export default class OreliusPlugin extends Plugin {
       const versions = this.settings.codexVersions[cwd] ?? {};
       const source = chapter ? await readProjectFile(cwd, chapter) : null;
       if (chapter && !source) throw new Error(`Chapitre introuvable : ${chapter}.`);
-      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text, wholeChapterRequested) : undefined;
+      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text, wholeChapterRequested || Boolean(text.trim())) : undefined;
       const protections = this.session.busy ? [] : await revisionProtections(cwd, this.settings, versions, chapter);
       const message = chapter ? await revisionPrompt(cwd, this.settings, chapter, versions, text, revision) : text;
       await this.session.send(message, this.settings.codexPath, cwd, this.settings.threadId, revision, protections);

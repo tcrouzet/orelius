@@ -1,3 +1,4 @@
+import { revisionRequest } from "./corrections.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +22,17 @@ export function finalResponses(turn: ConversationTurn): ChatItem[] {
   return finals.length ? finals : answers.filter(message => message.phase === undefined).slice(-1);
 }
 
+export function authorPrompt(text: string): string {
+  const revision = revisionRequest(text);
+  return revision ? revision.details || `Réviser ${revision.path}${revision.wholeChapterRequested ? " — chapitre entier" : " — mes annotations"}.` : text;
+}
+
+export function visibleMessages(items: ChatItem[], turns: ConversationTurn[]): ChatItem[] {
+  const finals = new Set(turns.flatMap(finalResponses).map(item => item.id));
+  return items.filter(item => item.role === "user" || item.role === "assistant" && (item.phase === "final_answer" || finals.has(item.id)))
+    .map(item => item.role === "user" ? { ...item, text: authorPrompt(item.text) } : item);
+}
+
 export function renderConversation(turns: ConversationTurn[]): string {
   const format = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   let content = "";
@@ -34,7 +46,7 @@ export function renderConversation(turns: ConversationTurn[]): string {
       content += `# ${date[0].toLocaleUpperCase("fr-FR")}${date.slice(1)}\n\n`;
       previousDate = date;
     }
-    for (const prompt of prompts) content += `## Utilisateur\n\n${prompt.text}\n\n`;
+    for (const prompt of prompts) content += `## Utilisateur\n\n${authorPrompt(prompt.text)}\n\n`;
     if (selected.length) content += `## Codex\n\n${selected.map(message => message.text).join("\n\n")}\n\n`;
   }
   return content.trimEnd();
@@ -65,7 +77,8 @@ export async function saveConversation(cwd: string, folders: ProjectFolders, thr
     if (first === -1 || last < first || first !== original.lastIndexOf(start) || last !== original.lastIndexOf(end)) {
       throw new Error("Les marqueurs du journal de conversation sont incomplets ou dupliqués. Le fichier a été conservé.");
     }
-    content = original.slice(0, first) + block + original.slice(last + end.length);
+    const remaining = original.slice(0, first) + original.slice(last + end.length);
+    content = `${remaining.trimEnd()}${remaining.trim() ? "\n\n" : ""}${block}\n`;
   }
   await writeProjectFile(root, path, content, previous, folders.archiveFolder);
 }

@@ -579,6 +579,7 @@ export class ChatSession {
         };
         const turns = await readConversation(this.client, this.threadId, ensureCurrent);
         this.turns = turns;
+        this.items = turns.flatMap(turn => turn.messages);
         await this.conversation?.(cwd, this.threadId, turns);
         ensureCurrent();
       }
@@ -591,7 +592,7 @@ export class ChatSession {
       if (item && !(method === "item/started" && this.items.some(previous => previous.id === item.id))) this.upsert(item);
     } else if (method === "item/agentMessage/delta" && typeof params.delta === "string" && typeof params.itemId === "string") {
       const previous = this.items.find(item => item.id === params.itemId);
-      this.upsert({ id: params.itemId, role: "assistant", text: (previous?.text ?? "") + params.delta, paths: [] });
+      this.upsert({ id: params.itemId, role: "assistant", text: (previous?.text ?? "") + params.delta, paths: [], ...(previous?.phase ? { phase: previous.phase } : {}) });
     } else if (method === "serverRequest/resolved") {
       this.requests = this.requests.filter(request => request.id !== params.requestId);
       this.status = this.requests.length ? "En attente de votre réponse" : this.busy ? "Codex travaille…" : "";

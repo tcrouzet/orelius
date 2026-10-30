@@ -16,7 +16,7 @@ import { readProjectFile, writeProjectFile } from "../plugin/src/project-files.t
 import { contextRemaining, modelOptions } from "../plugin/src/models.ts";
 import { ChatNavigation } from "../plugin/src/navigation.ts";
 import { EDITORIAL_PRIORITIES, prepareBible } from "../plugin/src/bible.ts";
-import { renderConversation, saveConversation } from "../plugin/src/conversation.ts";
+import { authorPrompt, visibleMessages, renderConversation, saveConversation } from "../plugin/src/conversation.ts";
 import { TASK_PROMPT_NAMES, renderTaskPrompts } from "../plugin/src/task-prompts.ts";
 import { buildSceneContext as buildSceneContextRaw, checkSceneContext, saveSceneContext } from "../plugin/src/scene-context.ts";
 import { ChapterReview } from "../plugin/src/chapter-review.ts";
@@ -858,6 +858,25 @@ try {
     } finally { await rm(project, { recursive: true }); }
   });
 
+  await check("Chat lisible : demande originale, réponse finale et raccords demandés", async () => {
+    const project = join(directory, "chat-readable");
+    await mkdir(join(project, "Manuscript/Chapitres"), { recursive: true });
+    const path = "Manuscript/Chapitres/002.md";
+    const source = "Je voudrais lui dire de ne rien envoyer.\n\nPassage (((à revoir))).\n\nLouise efface, exactement ce que je voulais.";
+    const details = "Jonas veut la faire souffrir : dans sa tête il lui ordonne de publier.";
+    try {
+      await writeFile(join(project, path), source);
+      const plan = planRevision(path, source, source, details, true);
+      plan.intentRecorded = true;
+      checkRevision(plan, source, source.replace("ne rien envoyer", "publier").replace("Louise efface, exactement ce que je voulais", "Louise publie, exactement ce que je voulais"));
+      const prompt = await revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, {}, details, plan);
+      assert.equal(authorPrompt(prompt), details);
+      const messages = [{ id: "u", role: "user", text: prompt, paths: [] }, { id: "c", role: "assistant", phase: "commentary", text: "Technique", paths: [] }, { id: "a", role: "activity", text: "Outil", paths: [] }, { id: "f", role: "assistant", phase: "final_answer", text: "Réponse", paths: [] }];
+      assert.deepEqual(visibleMessages(messages, []).map(m => m.text), [details, "Réponse"]);
+      assert.ok(!renderConversation([{ id: "t", date: null, completed: true, messages }]).includes("Zones autorisées"));
+    } finally { await rm(project, { recursive: true }); }
+  });
+
   await check("Conversation : dates françaises, prompts et réponses finales sans traces techniques", async () => {
     const message = (role, text, phase) => ({ id: text, role, text, phase, paths: [] });
     const turns = [
@@ -911,6 +930,9 @@ try {
       assert.equal(content.split("Mon prompt").length, 2);
       assert.ok(content.includes("La suite"));
       assert.ok(content.includes("Une autre session"));
+      await saveConversation(project, folders, "session-a", [first]);
+      const refreshed = await readFile(path, "utf8");
+      assert.ok(refreshed.lastIndexOf("Mon prompt") > refreshed.lastIndexOf("Une autre session"));
       const archives = await readdir(join(project, "Versions", "Univers", "Suivi"));
       const copies = await Promise.all(archives.map(name => readFile(join(project, "Versions", "Univers", "Suivi", name), "utf8")));
       assert.ok(copies.includes(personal + original));

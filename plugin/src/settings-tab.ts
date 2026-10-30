@@ -24,7 +24,7 @@ export class OreliusSettingTab extends PluginSettingTab {
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [{ name: "Codex et projet d’écriture", aliases: ["Installation", "Connexion", "Tester Codex", "Chemin de Codex",
-      "Afficher les messages d’activité", "Dossier de travail", "Parcourir", "Organisation du projet",
+      "Dossier de travail", "Parcourir", "Organisation du projet",
       "Archives", "Manuscript", "Model", "Bible", "Dossier du manuscrit", "Dossier des textes modèles", "Dossier des archives", "Dossier de la bible"],
     render: setting => {
       setting.settingEl.removeClass("setting-item");
@@ -101,13 +101,6 @@ export class OreliusSettingTab extends PluginSettingTab {
         });
     };
     void findCodex(this.plugin.settings.codexPath).then(path => showCodex(path)).catch(() => showCodex(null));
-
-    new Setting(containerEl).setName("Afficher les messages d’activité")
-      .setDesc("Afficher les commandes, appels d’outils et confirmations techniques dans le chat. Désactivé par défaut.")
-      .addToggle(toggle => toggle.setValue(this.plugin.settings.showActivity).onChange(async value => {
-        try { await this.plugin.saveSettings({ showActivity: value }); }
-        catch (error) { toggle.setValue(this.plugin.settings.showActivity); new Notice(errorText(error)); }
-      }));
 
     new Setting(containerEl).setName("Dossier de travail").setHeading();
     let selectedFolder!: HTMLInputElement;

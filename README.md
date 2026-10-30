@@ -36,7 +36,7 @@ Les commandes de Codex restent dans un bac à sable en lecture seule. Les écrit
 
 Messages et questions partagent une zone de défilement ; les commandes et le champ de saisie restent visibles. Le panneau suit les nouvelles réponses tant que vous restez en bas de la conversation ; remonter permet de relire l’historique. Le contenu précédent reste affiché pendant la préparation du nouveau rendu Markdown et le suivi tient compte des changements de taille, notamment au chargement des images. Une question en attente devient visible avec son champ de réponse, ses choix éventuels et le bouton **Répondre**. La touche **Entrée** valide le formulaire de réponse.
 
-Les messages d’activité sont masqués par défaut. Le réglage **Afficher les messages d’activité** permet de les afficher ou de les masquer immédiatement, y compris les activités déjà reçues. Ce choix est enregistré automatiquement ; l’indicateur de travail, les erreurs et les questions de Codex restent visibles.
+Le chat affiche les demandes de l’auteur et les réponses finales. Les prompts techniques ajoutés par Orelius, les outils et les commentaires intermédiaires restent hors du fil ; l’indicateur de travail, les erreurs et les questions de Codex restent visibles. Réviser avec un message autorise les corrections et raccords nécessaires dans le chapitre ; sans message, les zones annotées restent la limite.
 
 Sous chaque réponse finale de Codex, les boutons cœur, pouce levé et pouce baissé permettent de noter l’échange. Le texte éventuellement saisi dans le chat accompagne la réaction, mot pour mot. Une note reste sélectionnée après réouverture ; la changer remplace l’avis courant dans la base de connaissances et conserve les avis précédents dans les relevés horodatés de `Bible/Suivi/`. Chaque relevé conserve les demandes, la réponse évaluée et les précisions de l’auteur. Codex peut en tirer des consignes et des exemples de ce qu’il faut reproduire ou éviter lors des prochains échanges, sans réentraîner le modèle. Noter ne lance aucune requête au modèle et ne retire pas le surlignage du manuscrit.
 
@@ -127,4 +127,4 @@ Pour la première publication, sélectionner **Settings → Pages → Build and 
 
 Ces projets ont été examinés comme références ; aucun de leurs composants n’est requis à l’exécution.
 
-Les mécanismes REA intégrés, leur configuration visible et leurs limites sont décrits dans [le guide du contexte et des méthodes](documentation/mecanismes-rea.md). Les méthodes supplémentaires sont accessibles à Codex par `consulter_methode` ; l’extraction des résumés et progressions passe par `enregistrer_etat_narratif`.
+Les mécanismes REA intégrés, leur configuration visible et leurs limites sont décrits dans [le guide du contexte et des méthodes](doc/REA/mecanismes-rea.md). Les méthodes supplémentaires sont accessibles à Codex par `consulter_methode` ; l’extraction des résumés et progressions passe par `enregistrer_etat_narratif`.
