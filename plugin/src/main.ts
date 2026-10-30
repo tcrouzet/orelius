@@ -1,4 +1,24 @@
-import { editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { ContextModal, type ContextNote } from "./context-modal";
+import { withContext, validateContextChoice, SOURCE_REASONS, type ContextChoice } from "./request-context";
+import { buildSceneContext } from "./scene-context";
+import { readEditorialContext } from "./editorial-context";
+import { projectSources } from "./project-sources";
+import { configPath, parseConfig, readData } from "./narrative-context";
+import { NovelView, NOVEL_VIEW } from "./novel-view";
+import { structurePath, type StructureEdit } from "./story-structure";
+import { randomUUID } from "node:crypto";
+import { recordFeedback } from "./feedback";
+import { diffToGroups } from "./diff";
+import { ComparisonModal } from "./comparison-modal";
+import { comparisonVersions, applyComparison } from "./comparison";
+import { SELECTION_ACTIONS, selectionRequest, selectionPlan, selectionPrompt, type SelectionAction, type SelectionRequest } from "./selection-actions";
+import { SelectionModal } from "./selection-modal";
+import { syncStructure, type StoryStructure, type Decision } from "./story-structure";
+import { POPULATE_PREFIX, collectChanges } from "./workshop";
+import populateTemplate from "../../prompts/peupler.md";
+import { maintenancePrompt, pendingStates } from "./editorial-workflow";
+import { addIcon, type Editor, editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import oreliusIcon from "../icon.svg";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { CodexClient, errorText, findCodex } from "./codex";
@@ -16,6 +36,7 @@ import agentTemplate from "../../prompts/agent.md";
 import prepareScenePrompt from "../../prompts/preparer-scene.md";
 import writePrompt from "../../prompts/rediger.md";
 import revisePrompt from "../../prompts/reviser.md";
+import publicationPrompt from "../../prompts/controler-publication.md";
 import continuityPrompt from "../../prompts/controler-continuite.md";
 import followupPrompt from "../../prompts/actualiser-suivi.md";
 import task0 from "../../prompts/idees.md";
@@ -41,12 +62,14 @@ import { recordAcceptance } from "./acceptance";
 import { reactionExchanges, reactionKey, recordReaction, type Reaction } from "./reactions";
 
 const taskPrompts = { "preparer-scene": prepareScenePrompt, rediger: writePrompt, reviser: revisePrompt,
-  "controler-continuite": continuityPrompt, "actualiser-suivi": followupPrompt, "idees": task0, "synopsis": task1, "planifier": task2, "decomposer-scene": task3, "resumer": task4, "developper": task5, "reformuler": task6, "condenser": task7, "critiquer": task8, "extraire-style": task9, "adapter": task10, "actualiser-bible": task11, "decrire": task12, "continuer": task13 };
+  "controler-continuite": continuityPrompt, "controler-publication": publicationPrompt, "actualiser-suivi": followupPrompt, "idees": task0, "synopsis": task1, "planifier": task2, "decomposer-scene": task3, "resumer": task4, "developper": task5, "reformuler": task6, "condenser": task7, "critiquer": task8, "extraire-style": task9, "adapter": task10, "actualiser-bible": task11, "decrire": task12, "continuer": task13 };
 
 export default class OreliusPlugin extends Plugin {
   settings = loadSettings(undefined);
+  private structure: StoryStructure | null = null;
   session!: ChatSession;
   draft = "";
+  private requestContext: { folder: string; choice: ContextChoice } | null = null;
   private views = new Set<OreliusView>();
   private settingsWrite = Promise.resolve();
   private projectWrite = Promise.resolve();
@@ -61,6 +84,7 @@ export default class OreliusPlugin extends Plugin {
   private lockedNotes = new Set<string>();
 
   async onload(): Promise<void> {
+    addIcon("orelius", oreliusIcon);
     this.settings = loadSettings(await this.loadData());
     this.registerEditorExtension(this.highlights.extension);
     this.registerEditorExtension(editorLock(state => state.field(editorInfoField, false)?.file?.path,
@@ -101,10 +125,51 @@ export default class OreliusPlugin extends Plugin {
         await saveConversation(cwd, folders, threadId, turns);
       });
     });
+    this.registerView(NOVEL_VIEW, leaf => new NovelView(leaf, this));
+    this.addCommand({ id: "novel-outline", name: "Vue d’ensemble du roman", callback: () => { void this.openNovel().catch(error => new Notice(errorText(error))); } });
     this.registerView(VIEW_TYPE, leaf => new OreliusView(leaf, this));
     this.addSettingTab(new OreliusSettingTab(this));
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, info) => {
+      const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
+      const chapter = info.file?.path.startsWith(prefix) ? chapterPath("/", this.settings, info.file.path.slice(prefix.length)) : null;
+      if (chapter) menu.addItem(item => item.setSection("orelius").setTitle("Orelius : Comparer les versions").setIcon("columns-2")
+        .onClick(() => { void this.compareVersions(chapter).catch(error => new Notice(errorText(error))); }));
+      const selection = this.captureSelection(editor, info.file?.path);
+      if (!selection) return;
+      for (const action of SELECTION_ACTIONS) menu.addItem(item => item.setSection("orelius").setTitle(`Orelius : ${action.label}`).setIcon("pencil")
+        .setDisabled(this.session.busy || this.sending || Boolean(this.connecting)).onClick(() => this.openSelectionAction(action.id, selection)));
+    }));
+    for (const action of SELECTION_ACTIONS) this.addCommand({ id: `selection-${action.id}`, name: `${action.label} — sélection`,
+      editorCheckCallback: (checking, editor, info) => {
+        const selection = this.captureSelection(editor, info.file?.path);
+        if (!selection || this.session.busy || this.sending || this.connecting) return false;
+        if (!checking) this.openSelectionAction(action.id, selection);
+        return true;
+      } });
+    this.addCommand({ id: "compare-versions", name: "Comparer les versions", checkCallback: checking => {
+      const chapter = this.revisionChapter;
+      if (!chapter) return false;
+      if (!checking) void this.compareVersions(chapter).catch(error => new Notice(errorText(error)));
+      return true;
+    } });
+    this.addCommand({ id: "refresh-narrative-state", name: "Actualiser les états narratifs", callback: () => {
+      void this.refreshNarrativeState().catch(error => new Notice(errorText(error)));
+    } });
+    this.addCommand({ id: "populate-workshop", name: "Peupler", callback: () => { void this.populateWorkshop().catch(error => new Notice(errorText(error))); } });
     this.addCommand({ id: "open-chat", name: "Ouvrir le chat", callback: () => { void this.openChat(); } });
-    this.addRibbonIcon("messages-square", "Ouvrir Orelius", () => { void this.openChat(); });
+    this.addRibbonIcon("orelius", "Ouvrir Orelius", () => { void this.openChat(); });
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      const folders = { ...this.settings };
+      const prefix = folders.folder ? `${folders.folder}/` : "";
+      if (!oldPath.startsWith(prefix) || !file.path.startsWith(prefix)) return;
+      const from = oldPath.slice(prefix.length), to = file.path.slice(prefix.length);
+      void this.correctionTask(async () => {
+        const cwd = await this.workingDirectory();
+        if (folders.folder !== this.settings.folder) return;
+        this.structure = await syncStructure(cwd, folders, { rename: { from, to } }, this.configurationDirectory());
+        for (const view of this.views) view.update();
+      }).catch(error => new Notice(errorText(error)));
+    }));
     this.navigation = new ChatNavigation(this.app.workspace.getActiveFile()?.path ?? null);
     this.registerEvent(this.app.workspace.on("file-open", file => {
       if (this.lockedNotes.size) this.highlights.refresh();
@@ -116,7 +181,7 @@ export default class OreliusPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", leaf => {
       if (this.hidingChat) return;
       if (leaf?.getRoot() === this.app.workspace.rootSplit) {
-        const path = leaf.view instanceof FileView ? leaf.view.file?.path ?? null : null;
+        const path = leaf.view instanceof NovelView ? leaf.view.projectFolder : leaf.view instanceof FileView ? leaf.view.file?.path ?? null : null;
         if (path !== this.navigation.path) this.navigate(path);
       }
       if (leaf?.view instanceof OreliusView && !this.session.busy && !this.connecting && !this.sending) {
@@ -217,6 +282,7 @@ export default class OreliusPlugin extends Plugin {
       if (changedFolder) await this.prepareProject(next.folder, next);
       await this.saveData(next);
       this.settings = next;
+      if (changedFolder || changedLayout) { this.structure = null; this.requestContext = null; }
       if (previous.revisionHighlights !== next.revisionHighlights) this.highlights.refresh();
       if (previous.showActivity !== next.showActivity) for (const view of this.views) view.update();
       if (changedConnection) {
@@ -282,10 +348,103 @@ export default class OreliusPlugin extends Plugin {
     return preparation;
   }
 
-  private correctionTask(action: () => Promise<void>): Promise<void> {
+  private correctionTask<T>(action: () => Promise<T>): Promise<T> {
     const work = this.correctionWrite.then(action);
-    this.correctionWrite = work.catch(() => {});
+    this.correctionWrite = work.then(() => {}, () => {});
     return work;
+  }
+
+  get activeStoryNode() {
+    const path = this.app.workspace.getActiveFile()?.path;
+    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
+    if (!path?.startsWith(prefix)) return;
+    return this.structure?.nodes.find(node => !node.missing && node.kind !== "chapitre" && node.path === path.slice(prefix.length));
+  }
+
+  get contextChoiceCount(): number { return this.requestContext?.folder === this.settings.folder ? this.requestContext.choice.include.length + this.requestContext.choice.exclude.length : 0; }
+
+  async chooseContext(): Promise<void> {
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche pour choisir le contexte du prochain envoi.");
+    const folder = this.settings.folder, chapter = this.revisionChapter;
+    const draft = this.requestContext?.folder === folder && this.requestContext.choice.chapter === chapter ? this.requestContext.choice : { chapter, include: [], exclude: [] };
+    new ContextModal(this.app, structuredClone(draft), async choice => {
+      if (folder !== this.settings.folder || this.sending || this.connecting || this.session.busy) throw new Error("Le dossier ou la tâche a changé. Rouvrez Contexte.");
+      const cwd = await this.refreshCorrections(chapter ?? undefined);
+      validateContextChoice(choice, this.settings, chapter ?? undefined);
+      const request = withContext(this.draft, choice);
+      const dossier = chapter ? await buildSceneContext(cwd, this.settings, this.settings.codexVersions[cwd] ?? {}, chapter, request, taskPrompts, true) : null;
+      const sources = dossier ? dossier.sources
+        : (await readEditorialContext(cwd, this.settings, this.settings.codexVersions[cwd] ?? {}, undefined, request)).flatMap(page => (JSON.parse(page) as { sources: { path: string; role: string; content: string; reason?: string }[] }).sources);
+      const catalogue = await projectSources(cwd, this.settings);
+      const required = new Set([chapter, structurePath(this.settings), configPath(this.settings)]);
+      const notes = new Map<string, ContextNote>();
+      for (const note of catalogue) notes.set(note.path, { path: note.path, selected: false, characters: 0, reason: required.has(note.path) ? "Configuration indispensable au calcul du contexte" : choice.exclude.includes(note.path) ? "Retirée pour cette demande" : dossier?.omitted?.includes(note.path) ? "Écartée par le budget de références" : "Non retenue automatiquement pour cette demande", required: required.has(note.path) });
+      for (const source of sources) {
+        if (!source.path.endsWith(".md") || ![this.settings.manuscriptFolder, this.settings.bibleFolder, this.settings.modelFolder].some(root => source.path.startsWith(root + "/"))) continue;
+        const note = notes.get(source.path);
+        notes.set(source.path, { path: source.path, selected: true, characters: (note?.characters ?? 0) + source.content.length, reason: source.reason ?? SOURCE_REASONS[source.role] ?? source.role, required: required.has(source.path) });
+      }
+      for (const path of choice.exclude) if (!notes.has(path)) notes.set(path, { path, selected: false, characters: 0, reason: "Retirée pour cette demande", required: false });
+      const configuration = await readProjectFile(cwd, configPath(this.settings));
+      const config = configuration ? parseConfig(readData(configuration.text), this.settings) : null;
+      return { notes: [...notes.values()].sort((a, b) => Number(b.selected) - Number(a.selected) || a.path.localeCompare(b.path, "fr", { numeric: true })), characters: sources.reduce((total, source) => total + source.content.length, 0), budget: chapter ? config?.maxCharacters : undefined, warnings: dossier?.warnings };
+    }, choice => {
+      if (folder !== this.settings.folder || this.session.busy || this.sending) throw new Error("Le dossier ou la tâche a changé. Rouvrez Contexte.");
+      this.requestContext = choice.include.length || choice.exclude.length ? { folder, choice: structuredClone(choice) } : null;
+      for (const view of this.views) view.update();
+    }).open();
+  }
+
+  private contextForRequest(chapter?: string | null): ContextChoice | null {
+    if (!this.requestContext) return null;
+    if (this.requestContext.folder !== this.settings.folder || this.requestContext.choice.chapter !== (chapter ?? null)) throw new Error("Les choix de contexte concernent un autre dossier ou chapitre. Rouvrez Contexte avant l’envoi.");
+    validateContextChoice(this.requestContext.choice, this.settings, chapter ?? undefined);
+    return this.requestContext.choice;
+  }
+
+  async openNovel(): Promise<void> {
+    const leaf = this.app.workspace.getLeavesOfType(NOVEL_VIEW).find(leaf => leaf.view instanceof NovelView && leaf.view.projectFolder === this.settings.folder) ?? this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: NOVEL_VIEW, active: true, state: { folder: this.settings.folder } });
+    await this.app.workspace.revealLeaf(leaf);
+    if (leaf.view instanceof NovelView) await leaf.view.refresh();
+  }
+
+  async loadNovel(folder: string, edit?: StructureEdit["outline"]): Promise<StoryStructure> {
+    await this.settingsWrite;
+    if (folder !== this.settings.folder) throw new Error("Le dossier de travail a changé. Rouvrez la vue du roman.");
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche puis actualisez la vue du roman.");
+    this.sending = true;
+    try {
+      const cwd = await this.refreshCorrections();
+      return await this.correctionTask(async () => {
+        const path = structurePath(this.settings), registry = await readProjectFile(cwd, path);
+        const ensureCurrent = () => {
+          if (folder !== this.settings.folder) throw new Error("Le dossier de travail a changé.");
+          this.checkSavedDirectory(cwd);
+          this.checkEditor(path, registry?.text ?? "");
+        };
+        ensureCurrent();
+        let data = await syncStructure(cwd, this.settings, {}, this.configurationDirectory(), ensureCurrent);
+        if (edit || !data.outline) data = await syncStructure(cwd, this.settings, { outline: edit ?? { expected: JSON.stringify(data), action: { type: "initialize" } } }, this.configurationDirectory(), ensureCurrent);
+        this.structure = data;
+        const delivery = await collectChanges(cwd, this.settings, this.configurationDirectory());
+        this.session.pendingChanges = delivery.pending.map(change => change.path);
+        for (const view of this.views) view.update();
+        return data;
+      });
+    } finally { this.sending = false; }
+  }
+
+  async decideStory(value: Decision): Promise<void> {
+    const node = this.activeStoryNode;
+    if (!node || this.session.busy || this.sending || this.connecting) throw new Error("Ouvrez une fiche et attendez la fin de la tâche avant de choisir.");
+    const cwd = await this.refreshCorrections();
+    await this.correctionTask(async () => {
+      this.structure = await syncStructure(cwd, this.settings, { decision: { path: node.path, value } }, this.configurationDirectory());
+      const delivery = await collectChanges(cwd, this.settings, this.configurationDirectory());
+      this.session.pendingChanges = delivery.pending.map(change => change.path);
+      for (const view of this.views) view.update();
+    });
   }
 
   get revisionChapter(): string | null {
@@ -380,14 +539,17 @@ export default class OreliusPlugin extends Plugin {
         const prefix = folders.folder ? `${folders.folder}/` : "";
         if (!view.file.path.startsWith(prefix)) return;
         const path = view.file.path.slice(prefix.length);
-        if (!Object.prototype.hasOwnProperty.call(versions, path) && path !== chapter && path !== `${folders.bibleFolder}/suivi.md`
-          && path !== `${folders.bibleFolder}/Suivi/Connaissances.md`) return;
+        if (![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder].some(folder => path.startsWith(`${folder}/`))) return;
         const other = pending.get(path);
         if (other && other.getViewData() !== view.getViewData()) throw new Error(`Deux éditeurs ont des corrections différentes pour ${path}. Enregistrez la version souhaitée.`);
         pending.set(path, view);
       });
       for (const view of pending.values()) await view.save();
       await refreshCorrections(cwd, folders, versions);
+      this.structure = await syncStructure(cwd, folders, {}, this.configurationDirectory());
+      const delivery = await collectChanges(cwd, folders, this.configurationDirectory());
+      this.session.pendingChanges = delivery.pending.map(change => change.path);
+      for (const view of this.views) view.update();
     });
     return cwd;
   }
@@ -430,13 +592,115 @@ export default class OreliusPlugin extends Plugin {
       const versions = this.settings.codexVersions[cwd] ?? {};
       const source = chapter ? await readProjectFile(cwd, chapter) : null;
       if (chapter && !source) throw new Error(`Chapitre introuvable : ${chapter}.`);
-      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text, wholeChapterRequested || Boolean(text.trim())) : undefined;
+      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text, true) : undefined;
       const protections = this.session.busy ? [] : await revisionProtections(cwd, this.settings, versions, chapter);
       const message = chapter ? await revisionPrompt(cwd, this.settings, chapter, versions, text, revision) : text;
-      await this.session.send(message, this.settings.codexPath, cwd, this.settings.threadId, revision, protections);
+      const context = this.session.busy ? null : this.contextForRequest(chapter ?? currentChapter);
+      await this.session.send(withContext(message, context), this.settings.codexPath, cwd, this.settings.threadId, revision, protections);
+      if (context && this.requestContext?.choice === context) this.requestContext = null;
       if (this.draft === text) this.draft = "";
       for (const view of this.views) view.update();
     } finally { this.sending = false; this.releaseNoteLocks(); }
+  }
+
+  async compareVersions(chapter: string): Promise<void> {
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche pour comparer les versions.");
+    const cwd = await this.refreshCorrections(chapter), folders = { ...this.settings };
+    const previous = await readProjectFile(cwd, chapter);
+    if (!previous) throw new Error("Chapitre introuvable.");
+    const versions = await comparisonVersions(cwd, folders, chapter, previous.text);
+    new ComparisonModal(this.app, versions, async (content, description) => {
+      if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche avant d’appliquer ce choix.");
+      const ensureCurrent = () => {
+        if (folders.folder !== this.settings.folder) throw new Error("Le dossier de travail a changé.");
+        this.checkSavedDirectory(cwd);
+        this.checkEditor(chapter, previous.text);
+      };
+      ensureCurrent();
+      this.sending = true;
+      this.lockNote(chapter);
+      try {
+        await this.correctionTask(async () => {
+          const archive: typeof import("./archives").archiveChanges = (root, changes) => archiveWithCorrections(root, folders, changes,
+            folders.codexVersions[cwd] ?? {}, (path, text) => this.checkEditor(path, text), this.configurationDirectory());
+          await applyComparison(cwd, folders, chapter, previous, content, ensureCurrent, archive, this.configurationDirectory());
+          const key = `${folders.folder ? `${folders.folder}/` : ""}${chapter}`;
+          const revisionHighlights = { ...this.settings.revisionHighlights };
+          if (content !== previous.text) revisionHighlights[key] = { before: previous.text, after: content };
+          await this.saveSettings({ codexVersions: { ...this.settings.codexVersions, [cwd]: { ...this.settings.codexVersions[cwd], [chapter]: content } }, revisionHighlights });
+        });
+        try {
+          const quote = (text: string) => text.split("\n").map(line => `    ${line}`).join("\n");
+          const changes = diffToGroups(previous.text, content).map(change => `### Avant\n\n${quote(change.delText)}\n\n### Retenu\n\n${quote(change.insText ?? "")}`).join("\n\n");
+          await recordFeedback(cwd, folders, { kind: "reaction", id: randomUUID(), title: `Choix de version — ${chapter}`,
+            body: `${description}\n\nChoix explicite de l’auteur. Seuls les changements ci-dessous sont retenus. Ce choix ne constitue pas une approbation générale du chapitre ni une règle de style.\n\n${changes || "Aucun changement de texte."}`,
+            summary: `L’auteur a choisi une version de ${chapter}. Consulter les différences retenues ; ne pas déduire de préférence générale d’une restauration ou d’un choix local.` },
+            (path, text) => this.checkEditor(path, text));
+        } catch (error) { new Notice(`Texte appliqué et archivé, mais le suivi du choix n’a pas pu être enregistré : ${errorText(error)}`, 12000); }
+        new Notice("Version appliquée. Le texte précédent est conservé dans les archives.");
+      } finally { this.sending = false; this.releaseNoteLocks(); for (const view of this.views) view.update(); }
+    }).open();
+  }
+
+  private captureSelection(editor: Editor, filePath?: string) {
+    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
+    if (!filePath?.startsWith(prefix) || editor.listSelections().length !== 1) return null;
+    const path = filePath.slice(prefix.length);
+    if (chapterPath("/", this.settings, path) !== path) return null;
+    const source = editor.getValue(), from = editor.posToOffset(editor.getCursor("from")), to = editor.posToOffset(editor.getCursor("to"));
+    if (!source.slice(from, to).trim()) return null;
+    return { path, source, from, to, folder: this.settings.folder };
+  }
+
+  private openSelectionAction(action: SelectionAction, selection: NonNullable<ReturnType<OreliusPlugin["captureSelection"]>>): void {
+    new SelectionModal(this.app, action, selection.source.slice(selection.from, selection.to), async (details, target) => {
+      const request = selectionRequest(action, selection.path, selection.source, selection.from, selection.to, details, target);
+      await this.sendSelection(request, selection.folder);
+    }).open();
+  }
+
+  private async sendSelection(request: SelectionRequest, folder: string): Promise<void> {
+    await this.settingsWrite;
+    if (folder !== this.settings.folder) throw new Error("Le dossier de travail a changé. Sélectionnez de nouveau le passage.");
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche avant de lancer une action sur la sélection.");
+    this.sending = true;
+    try {
+      const cwd = await this.refreshCorrections(request.path);
+      if (folder !== this.settings.folder || chapterPath(cwd, this.settings, request.path) !== request.path) throw new Error("Le dossier ou le chapitre sélectionné a changé.");
+      this.checkSavedDirectory(cwd);
+      const source = await readProjectFile(cwd, request.path);
+      if (!source) throw new Error("Le chapitre sélectionné n’existe plus.");
+      const revision = selectionPlan(request, source.text);
+      this.checkEditor(request.path, source.text);
+      if (!revision.selection?.readOnly) this.lockNote(request.path);
+      const context = this.contextForRequest(request.path);
+      await this.session.send(withContext(selectionPrompt(request), context), this.settings.codexPath, cwd, this.settings.threadId, revision);
+      if (context && this.requestContext?.choice === context) this.requestContext = null;
+      await this.openChat(true);
+    } finally { this.sending = false; this.releaseNoteLocks(); }
+  }
+
+  async populateWorkshop(): Promise<void> {
+    if (this.sending || this.connecting || this.session.busy) throw new Error("Attendez la fin de la tâche avant de peupler l’atelier.");
+    this.sending = true;
+    try {
+      const cwd = await this.refreshCorrections();
+      this.checkSavedDirectory(cwd);
+      const instruction = POPULATE_PREFIX + `Dossier du manuscrit : ${this.settings.manuscriptFolder}. Sources : ${this.settings.modelFolder}, ${this.settings.bibleFolder}, ${this.settings.manuscriptFolder}.\n\n` + populateTemplate;
+      await this.session.send(instruction, this.settings.codexPath, cwd, this.settings.threadId);
+    } finally { this.sending = false; }
+  }
+
+  async refreshNarrativeState(): Promise<void> {
+    if (this.session.busy || this.sending || this.connecting) throw new Error("Attendez la fin de la tâche avant d’actualiser les états.");
+    this.sending = true;
+    try {
+      await this.settingsWrite;
+      const cwd = await this.workingDirectory();
+      const pending = await pendingStates(cwd, this.settings);
+      if (!pending.length) { new Notice("Les états narratifs sont à jour."); return; }
+      await this.session.send(maintenancePrompt(pending), this.settings.codexPath, cwd, this.settings.threadId);
+    } finally { this.sending = false; }
   }
 
   async retry(): Promise<void> {
@@ -480,7 +744,7 @@ export default class OreliusPlugin extends Plugin {
     });
   }
 
-  async openFile(path: string): Promise<void> {
+  async openFile(path: string, newTab = false): Promise<void> {
     const adapter = this.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter)) return;
     const cwd = await this.workingDirectory();
@@ -490,6 +754,6 @@ export default class OreliusPlugin extends Plugin {
     if (location === ".." || location.startsWith("../") || isAbsolute(location)) throw new Error("Ce fichier est extérieur au coffre.");
     const file = this.app.vault.getAbstractFileByPath(location);
     if (!(file instanceof TFile)) throw new Error(`Fichier introuvable dans Obsidian : ${location}`);
-    await this.app.workspace.getLeaf(false).openFile(file);
+    await this.app.workspace.getLeaf(newTab ? "tab" : false).openFile(file);
   }
 }

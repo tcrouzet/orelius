@@ -1,3 +1,5 @@
+import { configPath, parseConfig, readData, visibleSections } from "./narrative-context.ts";
+import { contextChoice, contextExcluded, validateContextChoice, manualRole, SOURCE_REASONS } from "./request-context.ts";
 import { buildSceneContext } from "./scene-context.ts";
 import { chapterPath, correctionReport } from "./corrections.ts";
 import { readProjectFile } from "./project-files.ts";
@@ -5,10 +7,12 @@ import { validateProjectFolders, type ProjectFolders } from "./settings.ts";
 
 type SourceRole = "instructions" | "current-manuscript" | "correction-examples" | "approved-example" | "author-feedback" | "working-draft" | "correction-diff" | "editorial-memory" | "index";
 
-export async function readEditorialContext(cwd: string, folders: ProjectFolders, versions: Record<string, string>, chapter?: string): Promise<string[]> {
+export async function readEditorialContext(cwd: string, folders: ProjectFolders, versions: Record<string, string>, chapter?: string, request = ""): Promise<string[]> {
   validateProjectFolders(folders);
-  if (chapter) return (await buildSceneContext(cwd, folders, versions, chapter)).pages;
-  const sources: { path: string; content: string; role: SourceRole }[] = [];
+  const choice = contextChoice(request);
+  validateContextChoice(choice, folders, chapter);
+  if (chapter) return (await buildSceneContext(cwd, folders, versions, chapter, request)).pages;
+  const sources: { path: string; content: string; role: string; reason?: string }[] = [];
   const add = async (path: string, role: SourceRole) => {
     const file = await readProjectFile(cwd, path);
     if (file) sources.push({ path, content: file.text, role });
@@ -61,6 +65,19 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
     sources.push({ path: memoryPath, content: active ?? memory.text, role: "editorial-memory" });
   }
   if (index) sources.push({ path: indexPath, content: index, role: "index" });
+  for (let index = sources.length - 1; index >= 0; index--) {
+    const source = sources[index];
+    if (contextExcluded(choice, source.path) || choice?.exclude.some(path => source.role === "approved-example" && source.content.includes(`Chapitre : [${JSON.stringify(path)}]`))) sources.splice(index, 1);
+  }
+  const configuration = choice?.include.length ? await readProjectFile(cwd, configPath(folders)) : null;
+  const config = configuration ? parseConfig(readData(configuration.text), folders) : null;
+  for (const path of choice?.include ?? []) if (!sources.some(source => source.path === path)) {
+    const file = await readProjectFile(cwd, path);
+    if (!file) throw new Error(`Note choisie absente : ${path}`);
+    const reference = config?.references.find(reference => reference.path === path);
+    sources.push({ path, role: reference?.role === "example" ? "example-not-canon" : reference?.role === "style" ? "style-reference" : manualRole(path, folders), content: visibleSections(file.text, config?.references.find(reference => reference.path === path)?.hiddenSections ?? []), reason: "Ajout explicite pour cette demande" });
+  }
+  for (const source of sources) source.reason ??= choice?.include.includes(source.path) ? "Ajout explicite pour cette demande" : SOURCE_REASONS[source.role] ?? source.role;
   // Small pages prevent large histories from being silently cut in tool output.
   const pages: typeof sources[] = [[]];
   let size = 0;
@@ -73,5 +90,5 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
     }
   }
   return pages.map((sources, page) => JSON.stringify({ page, pages: pages.length,
-    ...(page === 0 ? { usage: "Le current-manuscript est le fichier présent sur disque, pas une preuve d’acceptation. Pour la continuité, partir des fichiers actuels du manuscrit et de la Bible : les variantes, archives et exemples stylistiques ne prouvent pas qu’un fait existe dans le récit conservé. La mémoire fournit seulement Consignes actives lorsque cette rubrique existe ; son historique complet reste consultable au chemin indiqué pour une recherche précise. Les correction-examples relient passages, commentaires exacts et sources avec leur statut. Dans les approved-example, seules la version approuvée et les sections Après sont acceptées ; les sections Avant restent des états antérieurs, sans approbation implicite. Respecter les réserves de l’auteur. Les working-draft sont des textes à examiner, pas des modèles de voix : leurs annotations peuvent rejeter le texte entier. Les correction-diff montrent les interventions humaines sans approuver les passages intacts. Les author-feedback portent sur un échange, pas sur tous les fichiers. La mémoire et l’index conservent aussi des avis historiques ; les derniers avis explicites sur le même objet priment. Relier la demande actuelle aux exemples acceptés et aux défauts signalés avant d’écrire. Consulter toutes les pages pour reconstituer chaque source intégrale." } : {}), sources }));
+    ...(page === 0 ? { usage: "Le current-manuscript est le fichier présent sur disque, pas une preuve d’acceptation. Pour la continuité, partir des fichiers actuels du manuscrit et de la Bible : les variantes, archives et exemples stylistiques ne prouvent pas qu’un fait existe dans le récit conservé. La mémoire fournit seulement Consignes actives lorsque cette rubrique existe ; son historique complet reste consultable au chemin indiqué pour une recherche précise. Les correction-examples relient passages, commentaires exacts et sources avec leur statut. Dans les approved-example, seules la version approuvée et les sections Après sont acceptées ; les sections Avant restent des états antérieurs, sans approbation implicite. Respecter les réserves de l’auteur. Les working-draft sont des textes à examiner, pas des modèles de voix : leurs annotations peuvent rejeter le texte entier. Les correction-diff montrent les interventions humaines sans approuver les passages intacts. Les author-feedback portent sur un échange, pas sur tous les fichiers. La mémoire et l’index conservent aussi des avis historiques ; les derniers avis explicites sur le même objet priment. Relier la demande actuelle aux exemples acceptés et aux défauts signalés avant d’écrire. Consulter toutes les pages pour reconstituer chaque source intégrale." } : {}), raisons: Object.fromEntries(sources.map(source => [source.path, source.reason])), sources: sources.map(({ reason, ...source }) => source) }));
 }

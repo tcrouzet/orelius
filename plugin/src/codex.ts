@@ -131,7 +131,9 @@ export class CodexClient {
         .map(name => [name, { enabled: false }])) };
       if (files) this.threadConfig = { mcp_servers: { ...object(this.threadConfig.mcp_servers), orelius: {
         url: files.url, bearer_token_env_var: "ORELIUS_MCP_TOKEN", enabled: true, required: true,
-        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial", "preparer_chapitre", "consulter_methode", "enregistrer_etat_narratif"],
+        // The publication reviewer has a three-minute deadline inside the write call.
+        tool_timeout_sec: 210,
+        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial", "preparer_chapitre", "consulter_methode", "enregistrer_etat_narratif", "revoir_lots", "consulter_suivi_narratif", "consulter_atelier", "consulter_structure", "relier_elements", "proposer_variantes"],
       } } };
       const models = await this.request("model/list", { limit: 1 });
       if (!Array.isArray(models.data)) throw new Error(`Codex ${this.version} : catalogue des modèles invalide. Mettez à jour Codex et Orelius.`);
@@ -228,9 +230,9 @@ export class CodexClient {
           this.pending.delete(message.id);
           if (message.error) {
             const error = object(message.error);
-            const detail = error.code === -32600 || error.code === -32601
+            const detail = error.code === -32601
               ? "Fonction indisponible." : stringValue(error.message, "Erreur Codex.");
-            const advice = typeof error.code === "number" && [-32600, -32601, -32602].includes(error.code)
+            const advice = typeof error.code === "number" && ([-32601, -32602].includes(error.code) || error.code === -32600 && /unknown (variant|method)|method not found/i.test(String(error.message)))
               ? " Mettez à jour Codex ou Orelius." : "";
             pending.reject(new Error(`Codex ${this.version} — ${pending.method} : ${detail}${advice}`));
           } else pending.resolve(object(message.result));

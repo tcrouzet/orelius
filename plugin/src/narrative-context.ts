@@ -6,11 +6,12 @@ export const fingerprint = (text: string) => createHash("sha256").update(text).d
 export interface Reference {
   path: string; name?: string; aliases?: string[]; exclude?: string[];
   mode?: "auto" | "always" | "manual" | "hidden"; track?: boolean; caseSensitive?: boolean;
+  priority?: number; secondary?: string[]; secondaryMode?: "all" | "any" | "none";
   role?: "knowledge" | "style" | "example"; children?: string[]; hiddenSections?: string[];
 }
 export interface ChapterLink { path: string; previous?: string | null; pov?: string; tense?: string; include?: boolean; references?: string[]; plan?: string; model?: string; act?: string }
 export interface MethodPreset { instructions?: string; persona?: string; targetWords?: number }
-export interface NarrativeConfig { methods?: Record<string, MethodPreset>; chapters: ChapterLink[]; references: Reference[]; maxCharacters?: number }
+export interface NarrativeConfig { methods?: Record<string, MethodPreset>; chapters: ChapterLink[]; references: Reference[]; maxCharacters?: number; referenceBudget?: number; recursiveReferences?: boolean }
 export const EMPTY_CONFIG: NarrativeConfig = { chapters: [], references: [] };
 export const configPath = (folders: ProjectFolders) => `${folders.manuscriptFolder}/Context/configuration.md`;
 export const statePath = (folders: ProjectFolders, chapter: string) => `${folders.manuscriptFolder}/Context/${chapter.slice(`${folders.manuscriptFolder}/Chapitres/`.length).replace(/\.md$/i, "")}/etat.md`;
@@ -41,7 +42,7 @@ function keys(value: Record<string, unknown>, allowed: string[]): void {
 }
 export function parseConfig(value: unknown, folders: ProjectFolders): NarrativeConfig {
   const root = record(value);
-  keys(root, ["chapters", "references", "maxCharacters", "methods"]);
+  keys(root, ["chapters", "references", "maxCharacters", "methods", "referenceBudget", "recursiveReferences"]);
   if (!Array.isArray(root.chapters) || !Array.isArray(root.references)) throw new Error("chapters et references sont requis.");
   const chapters = root.chapters.map(value => {
     const item = record(value);
@@ -56,10 +57,12 @@ export function parseConfig(value: unknown, folders: ProjectFolders): NarrativeC
   });
   const references = root.references.map(value => {
     const item = record(value);
-    keys(item, ["path", "name", "aliases", "exclude", "mode", "track", "caseSensitive", "role", "children", "hiddenSections"]);
+    keys(item, ["path", "name", "aliases", "exclude", "mode", "track", "caseSensitive", "role", "children", "hiddenSections", "priority", "secondary", "secondaryMode"]);
     path(item.path);
     if (item.name !== undefined) text(item.name);
-    for (const field of ["aliases", "exclude", "children", "hiddenSections"]) if (item[field] !== undefined) strings(item[field]);
+    for (const field of ["aliases", "exclude", "children", "hiddenSections", "secondary"]) if (item[field] !== undefined) strings(item[field]);
+    if (item.priority !== undefined && (!Number.isSafeInteger(item.priority) || Math.abs(Number(item.priority)) > 100000)) throw new Error("Priorité invalide.");
+    if (item.secondaryMode !== undefined && !["all", "any", "none"].includes(String(item.secondaryMode))) throw new Error("Condition secondaire invalide.");
     if (item.children) strings(item.children).forEach(path);
     if (item.mode !== undefined && !["auto", "always", "manual", "hidden"].includes(String(item.mode))) throw new Error("Mode de référence invalide.");
     if (item.role !== undefined && !["knowledge", "style", "example"].includes(String(item.role))) throw new Error("Rôle de référence invalide.");
@@ -86,7 +89,9 @@ export function parseConfig(value: unknown, folders: ProjectFolders): NarrativeC
     }
   }
   if (root.maxCharacters !== undefined && (!Number.isSafeInteger(root.maxCharacters) || Number(root.maxCharacters) < 1000)) throw new Error("Budget de contexte invalide (caractères, minimum 1000).");
-  return { chapters, references, methods, ...(root.maxCharacters === undefined ? {} : { maxCharacters: Number(root.maxCharacters) }) };
+  if (root.referenceBudget !== undefined && (!Number.isSafeInteger(root.referenceBudget) || Number(root.referenceBudget) < 0)) throw new Error("Budget de références invalide.");
+  if (root.recursiveReferences !== undefined && typeof root.recursiveReferences !== "boolean") throw new Error("recursiveReferences doit être un booléen.");
+  return { chapters, references, methods, referenceBudget: root.referenceBudget as number | undefined, recursiveReferences: root.recursiveReferences as boolean | undefined, ...(root.maxCharacters === undefined ? {} : { maxCharacters: Number(root.maxCharacters) }) };
 }
 export function selectReferences(references: Reference[], selection: string, explicit: string[]): { selected: Reference[]; mentions: string[] } {
   const selected = new Map<string, Reference>();
@@ -107,13 +112,15 @@ export function selectReferences(references: Reference[], selection: string, exp
   };
   for (const reference of references) {
     const value = normalize(selection, reference.caseSensitive);
-    const detected = reference.track !== false && [reference.name ?? reference.path.split("/").pop()!.replace(/\.md$/i, ""), ...(reference.aliases ?? [])]
+    const secondary = (reference.secondary ?? []).map(key => match(value, normalize(key, reference.caseSensitive)));
+    const condition = !secondary.length || (reference.secondaryMode === "all" ? secondary.every(Boolean) : reference.secondaryMode === "none" ? secondary.every(found => !found) : secondary.some(Boolean));
+    const detected = condition && reference.track !== false && [reference.name ?? reference.path.split("/").pop()!.replace(/\.md$/i, ""), ...(reference.aliases ?? [])]
       .some(name => match(value, normalize(name, reference.caseSensitive))) && !(reference.exclude ?? []).some(name => match(value, normalize(name, reference.caseSensitive)));
     if (detected && reference.mode !== "hidden") mentions.push(reference.path);
     if (reference.mode === "always" || explicit.includes(reference.path) || detected && (reference.mode ?? "auto") === "auto") visit(reference);
   }
   for (const requested of explicit) if (!references.some(r => r.path === requested)) throw new Error(`Référence explicite inconnue : ${requested}`);
-  return { selected: [...selected.values()], mentions };
+  return { selected: [...selected.values()].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)), mentions };
 }
 export function visibleSections(content: string, hidden: string[]): string {
   const lines = content.split("\n");
@@ -130,8 +137,8 @@ export function visibleSections(content: string, hidden: string[]): string {
 
 export interface NarrativeState {
   chapter: string; hash: string; summary: string; dependencies?: Record<string, string>;
-  facts: { entity: string; field: string; value: string; quote: string; mode: "append" | "replace"; knownBy: string[] }[];
-  moments: { id: string; description: string; quote: string; after?: string; offset?: number }[];
+  facts: { entity: string; field: string; value: string; quote: string; mode: "append" | "replace"; knownBy: string[]; at?: number }[];
+  moments: { id: string; description: string; quote: string; after?: string; offset?: number; at?: number; duration?: number; unit?: "seconds" | "minutes" | "hours" | "days" }[];
 }
 export function parseState(value: unknown, chapter: string, manuscript: string): NarrativeState {
   const data = record(value);
@@ -142,17 +149,23 @@ export function parseState(value: unknown, chapter: string, manuscript: string):
   const cite = (quote: unknown) => { if (!manuscript.includes(text(quote))) throw new Error("Citation absente du manuscrit conservé."); };
   const facts = data.facts.map(value => {
     const item = record(value);
-    keys(item, ["entity", "field", "value", "quote", "mode", "knownBy"]);
+    keys(item, ["entity", "field", "value", "quote", "mode", "knownBy", "at"]);
     path(item.entity); text(item.field); text(item.value); cite(item.quote); strings(item.knownBy);
     if (!["append", "replace"].includes(String(item.mode))) throw new Error("Progression append ou replace attendue.");
-    return item as unknown as NarrativeState["facts"][number];
+    const quote = String(item.quote);
+    const at = item.at ?? manuscript.indexOf(quote) + quote.length;
+    if (!Number.isSafeInteger(at) || Number(at) < quote.length || manuscript.slice(Number(at) - quote.length, Number(at)) !== quote) throw new Error("Position de fait invalide.");
+    if (item.at === undefined && manuscript.indexOf(quote) !== manuscript.lastIndexOf(quote)) throw new Error("Citation ambiguë : préciser at (fin de citation UTF-16) ou fournir une citation unique.");
+    return { ...item, at } as unknown as NarrativeState["facts"][number];
   });
   const moments = data.moments.map(value => {
     const item = record(value);
-    keys(item, ["id", "description", "quote", "after", "offset"]);
+    keys(item, ["id", "description", "quote", "after", "offset", "at", "duration", "unit"]);
     text(item.id); text(item.description); cite(item.quote);
     if (item.after !== undefined) text(item.after);
     if (item.offset !== undefined && (typeof item.offset !== "number" || !Number.isFinite(item.offset))) throw new Error("Décalage temporel numérique attendu.");
+    for (const field of ["at", "duration"]) if (item[field] !== undefined && (typeof item[field] !== "number" || !Number.isFinite(item[field]) || field === "duration" && Number(item[field]) < 0)) throw new Error("Date ou durée invalide.");
+    if (item.unit !== undefined && !["seconds", "minutes", "hours", "days"].includes(String(item.unit))) throw new Error("Unité temporelle invalide.");
     return item as unknown as NarrativeState["moments"][number];
   });
   if (new Set(moments.map(m => m.id)).size !== moments.length) throw new Error("Moment dupliqué.");
@@ -162,7 +175,7 @@ export function parseState(value: unknown, chapter: string, manuscript: string):
     while (current) {
       if (visited.has(current.id)) throw new Error("Cycle temporel dans les moments.");
       visited.add(current.id);
-      if (!current.after) break;
+      if (!current.after || current.after.includes("#")) break;
       const parent: typeof moment | undefined = moments.find(m => m.id === current!.after);
       if (!parent) throw new Error("Référence temporelle inconnue.");
       current = parent;

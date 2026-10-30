@@ -8,7 +8,7 @@ await build({
   platform: "node",
   format: "cjs",
   target: "es2020",
-  loader: { ".md": "text" },
+  loader: { ".md": "text", ".svg": "text" },
   outfile: "plugin/main.js",
   logLevel: "info",
 });

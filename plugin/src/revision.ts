@@ -12,6 +12,7 @@ export interface RevisionPlan {
   wholeChapter: boolean;
   wholeChapterRequested?: boolean;
   intentRecorded: boolean;
+  selection?: { from: number; to: number; readOnly: boolean; method: string };
 }
 
 function pathKey(path: string): string { return path.normalize("NFC").toLowerCase(); }
@@ -82,7 +83,11 @@ export function planRevision(path: string, source: string, baseline?: string, de
 export function checkRevision(plan: RevisionPlan, current: string | undefined, proposed: string): void {
   if (current !== plan.expected) throw new Error("Le chapitre a changé depuis la demande de révision. Votre texte est conservé ; relancez Réviser.");
   if (!plan.intentRecorded) throw new Error("Révision refusée : consignez d’abord l’intention des corrections dans la base de connaissances éditoriales.");
-  for (const change of diffToGroups(plan.source, proposed, true)) {
+  if (plan.selection) {
+    if (plan.selection.readOnly) throw new Error("Les variantes sont proposées dans le chat ; aucun remplacement du manuscrit n’est autorisé.");
+    const before = plan.source.slice(0, plan.selection.from), after = plan.source.slice(plan.selection.to);
+    if (proposed.length < before.length + after.length || !proposed.startsWith(before) || !proposed.endsWith(after)) throw new Error("Modification hors de la sélection : le chapitre est conservé.");
+  } else for (const change of diffToGroups(plan.source, proposed, true)) {
     if (!plan.ranges.some(range => change.delFrom >= range.from && change.delTo <= range.to)) {
       const line = plan.source.slice(0, change.delFrom).split("\n").length;
       throw new Error(`Révision refusée : modification hors des paragraphes corrigés par l’auteur, vers la ligne ${line}. Cette écriture n’a pas été publiée.`);

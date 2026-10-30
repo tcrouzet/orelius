@@ -20,6 +20,8 @@ class FolderPicker extends FuzzySuggestModal<string> {
 }
 
 export class OreliusSettingTab extends PluginSettingTab {
+  override icon = "orelius";
+
   constructor(private readonly plugin: OreliusPlugin) { super(plugin.app, plugin); }
 
   getSettingDefinitions(): SettingDefinitionItem[] {

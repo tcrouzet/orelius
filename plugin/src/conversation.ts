@@ -1,3 +1,7 @@
+import { withoutContext } from "./request-context.ts";
+import { parseSelectionPrompt, selectionSummary } from "./selection-actions.ts";
+import { POPULATE_PREFIX, withoutChanges } from "./workshop.ts";
+import { MAINTENANCE_PREFIX } from "./editorial-workflow.ts";
 import { revisionRequest } from "./corrections.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
@@ -16,20 +20,28 @@ export interface ConversationTurn {
 }
 
 export function finalResponses(turn: ConversationTurn): ChatItem[] {
-  if (!turn.completed) return [];
+  if (!turn.completed || turn.messages.some(item => item.role === "user" && item.text.startsWith(MAINTENANCE_PREFIX))) return [];
   const answers = turn.messages.filter(message => message.role === "assistant" && message.text.trim());
   const finals = answers.filter(message => message.phase === "final_answer");
   return finals.length ? finals : answers.filter(message => message.phase === undefined).slice(-1);
 }
 
 export function authorPrompt(text: string): string {
+  text = withoutChanges(text);
+  try { text = withoutContext(text); } catch { return text; }
+  if (text.startsWith(POPULATE_PREFIX)) return "Peupler l’atelier à partir de Manuscript, Model et Bible.";
+  try { const selection = parseSelectionPrompt(text); if (selection) return selectionSummary(selection); } catch { /* Preserve an incomplete author message. */ }
   const revision = revisionRequest(text);
   return revision ? revision.details || `Réviser ${revision.path}${revision.wholeChapterRequested ? " — chapitre entier" : " — mes annotations"}.` : text;
 }
 
 export function visibleMessages(items: ChatItem[], turns: ConversationTurn[]): ChatItem[] {
   const finals = new Set(turns.flatMap(finalResponses).map(item => item.id));
-  return items.filter(item => item.role === "user" || item.role === "assistant" && (item.phase === "final_answer" || finals.has(item.id)))
+  let maintenance = false;
+  return items.filter(item => {
+    if (item.role === "user") maintenance = item.text.startsWith(MAINTENANCE_PREFIX);
+    return !maintenance && (item.role === "user" || item.role === "assistant" && (item.phase === "final_answer" || finals.has(item.id)));
+  })
     .map(item => item.role === "user" ? { ...item, text: authorPrompt(item.text) } : item);
 }
 
@@ -38,6 +50,7 @@ export function renderConversation(turns: ConversationTurn[]): string {
   let content = "";
   let previousDate = "";
   for (const turn of turns) {
+    if (turn.messages.some(item => item.role === "user" && item.text.startsWith(MAINTENANCE_PREFIX))) continue;
     const prompts = turn.messages.filter(message => message.role === "user" && message.text.trim());
     const selected = finalResponses(turn);
     if (!prompts.length && !selected.length) continue;

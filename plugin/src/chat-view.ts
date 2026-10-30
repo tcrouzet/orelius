@@ -1,3 +1,4 @@
+import type { Decision } from "./story-structure";
 import { visibleMessages } from "./conversation";
 import { Component, ItemView, MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
 import type OreliusPlugin from "./main";
@@ -17,9 +18,15 @@ export class OreliusView extends ItemView {
   private messagesEl!: HTMLElement;
   private requestsEl!: HTMLElement;
   private input!: HTMLTextAreaElement;
+  private decisionLabel!: HTMLLabelElement;
+  private decisionSelect!: HTMLSelectElement;
+  private populateButton!: HTMLButtonElement;
+  private changesButton!: HTMLButtonElement;
   private sendButton!: HTMLButtonElement;
   private reviseButton!: HTMLButtonElement;
   private rewriteButton!: HTMLButtonElement;
+  private contextButton!: HTMLButtonElement;
+  private compareButton!: HTMLButtonElement;
   private acceptButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
@@ -42,7 +49,7 @@ export class OreliusView extends ItemView {
   constructor(leaf: WorkspaceLeaf, private readonly plugin: OreliusPlugin) { super(leaf); }
   getViewType(): string { return VIEW_TYPE; }
   getDisplayText(): string { return this.plugin?.settings.folder.split("/").pop() || this.app.vault.getName(); }
-  getIcon(): string { return "messages-square"; }
+  getIcon(): string { return "orelius"; }
 
   async onOpen(): Promise<void> {
     this.active = true;
@@ -100,9 +107,24 @@ export class OreliusView extends ItemView {
     this.rewriteButton = buttons.createEl("button", { text: "Recommencer" });
     this.rewriteButton.title = "Reprendre tout le chapitre ouvert, annotations comprises, avec vos précisions éventuelles et archivage de l’original.";
     this.rewriteButton.onclick = () => { void this.send(true, true); };
+    this.compareButton = buttons.createEl("button", { text: "Comparer" });
+    this.compareButton.onclick = () => { const chapter = this.plugin.revisionChapter; if (chapter) void this.run(() => this.plugin.compareVersions(chapter)); };
     this.acceptButton = buttons.createEl("button", { text: "Accepter", cls: "mod-cta" });
     this.acceptButton.title = "Valider la version actuelle, retirer le surlignage et joindre le message éventuel comme retour positif dans le suivi.";
     this.acceptButton.onclick = () => { void this.accept(); };
+    this.contextButton = buttons.createEl("button", { text: "Contexte" });
+    this.contextButton.onclick = () => { void this.run(() => this.plugin.chooseContext()); };
+    const novelButton = buttons.createEl("button", { text: "Roman" });
+    novelButton.onclick = () => { void this.run(() => this.plugin.openNovel()); };
+    this.populateButton = buttons.createEl("button", { text: "Peupler" });
+    this.populateButton.title = "Compléter les fiches d’atelier à partir de Manuscript, Model et Bible, sans réécrire les chapitres.";
+    this.populateButton.onclick = () => { void this.run(() => this.plugin.populateWorkshop()); };
+    this.decisionLabel = composer.createEl("label", { text: "Cette fiche : " });
+    this.decisionSelect = this.decisionLabel.createEl("select");
+    for (const [value, text] of [["propose", "Proposition"], ["retenu", "Retenue"], ["abandonne", "Écartée"]]) this.decisionSelect.createEl("option", { value, text });
+    this.decisionSelect.onchange = () => { const value = this.decisionSelect.value as Decision; void this.run(() => this.plugin.decideStory(value)); };
+    this.changesButton = composer.createEl("button");
+    this.changesButton.onclick = () => { void this.run(() => this.plugin.openFile(`${this.plugin.settings.manuscriptFolder}/Context/Modifications.md`)); };
     this.stopButton = buttons.createEl("button", { text: "Arrêter" });
     this.stopButton.onclick = () => { void this.run(() => this.plugin.session.interrupt()); };
     this.hintEl = composer.createEl("small");
@@ -226,11 +248,23 @@ export class OreliusView extends ItemView {
     const chapter = this.plugin.revisionChapter;
     this.reviseButton.disabled = this.submitting || session.busy || !chapter;
     this.rewriteButton.disabled = this.reviseButton.disabled;
+    this.compareButton.toggle(Boolean(chapter));
+    this.compareButton.disabled = this.reviseButton.disabled;
     this.acceptButton.toggle(Boolean(this.plugin.acceptanceChapter));
     this.acceptButton.disabled = this.submitting || session.busy;
     this.reviseButton.title = !chapter ? "Ouvrez un chapitre du manuscrit pour le réviser."
       : session.busy ? "Attendez la fin de la tâche pour réviser le chapitre."
         : `Réviser ${chapter} à partir de vos corrections ou de votre demande dans le message.`;
+    this.populateButton.disabled = this.submitting || session.busy;
+    this.contextButton.disabled = this.submitting || session.busy;
+    this.contextButton.setText(this.plugin.contextChoiceCount ? `Contexte (${this.plugin.contextChoiceCount})` : "Contexte");
+    const storyNode = this.plugin.activeStoryNode;
+    this.decisionLabel.toggle(Boolean(storyNode));
+    this.decisionSelect.value = storyNode?.decision ?? "propose";
+    this.decisionSelect.disabled = this.submitting || session.busy;
+    this.changesButton.toggle(session.pendingChanges.length > 0);
+    this.changesButton.setText(`${session.pendingChanges.length} fichier(s) à signaler au prochain envoi`);
+    this.changesButton.title = session.pendingChanges.join("\n");
     this.stopButton.disabled = !session.busy;
     this.newButton.disabled = session.busy;
     this.input.placeholder = session.running ? "Ajouter une consigne à la tâche en cours…" : "Message, précisions pour Réviser ou commentaire à joindre à votre réaction…";

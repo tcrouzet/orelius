@@ -1,3 +1,4 @@
+import { withoutContext } from "./request-context.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -58,10 +59,10 @@ export async function revisionPrompt(cwd: string, folders: ProjectFolders, path:
     return `### Zone ${index + 1} — à partir de la ligne ${line}\n\n${quoted(revision.source.slice(range.from, range.to))}`;
   }).join("\n\n");
   const scope = revision.wholeChapter
-    ? "Le chapitre entier est autorisé à la révision sur la base de ma demande dans le chat. Les annotations existantes restent des consignes à traiter ; elles ne limitent pas cette reprise aux seuls paragraphes annotés. Applique cette demande à sa portée réelle : une demande de recommencer concerne l’ensemble du chapitre ; une consigne locale concerne seulement le passage désigné. Les protections des paragraphes intacts propres aux corrections humaines ne bloquent pas cette demande explicite."
+    ? "Le chapitre entier est autorisé à la révision à partir de mes remarques, dans le chat comme dans les annotations. Les annotations existantes restent des consignes à traiter ; elles ne limitent pas cette reprise aux seuls paragraphes annotés. Une remarque désigne un exemple du problème : recherche toutes ses occurrences et ses conséquences dans le chapitre. Corrige les passages concernés et leurs raccords ; conserve le reste. Seule une limitation explicite de l’auteur réduit cette portée. Les protections des paragraphes intacts propres aux corrections humaines ne bloquent pas cette demande explicite."
     : "Compare la version Codex de référence aux corrections actuelles ci-dessous. Préserve mes réécritures et mes coupes ; ne réintroduis pas les passages supprimés. Modifie uniquement les zones autorisées ci-dessous, correspondant aux paragraphes corrigés ou annotés par l’auteur. Tous les autres caractères, y compris les espaces et sauts de ligne, doivent rester strictement identiques.";
   const intention = revision.wholeChapter
-    ? "Avant de réécrire, identifie ce que mon retour dans le chat demande et pourquoi, sans inventer de corrections humaines ni de diff."
+    ? "Avant de réécrire, identifie l’attente exprimée par mes annotations et mon message, sans inventer de corrections humaines, puis examine tout le chapitre à cette lumière. Une attente concernant la voix, un personnage ou la manière d’écrire doit rejoindre les Consignes actives pour les prochains passages, avec sa source ; ne l’enferme pas dans le paragraphe signalé."
     : "Avant de réécrire, identifie pour chaque zone ce que ma correction change et pourquoi : relie l’écart observé à mon commentaire ou à une consigne explicite, distingue une intention établie d’une hypothèse et garde une portée locale aux coupes isolées.";
   const report = baseline === undefined ? "Aucune version Codex de référence connue : ne fabrique pas de diff. Appuie-toi sur le texte actuel et les consignes de l’auteur."
     : baseline === source.text ? "Le chapitre est identique à la dernière version Codex connue."
@@ -70,6 +71,7 @@ export async function revisionPrompt(cwd: string, folders: ProjectFolders, path:
 }
 
 export function revisionRequest(text: string): { path: string; details: string; wholeChapterRequested?: boolean } | null {
+  text = withoutContext(text);
   const match = /^Révise le chapitre ("(?:[^"\\]|\\.)*") et enregistre sa version révisée dans ce même fichier avec l’outil MCP Orelius ecrire_fichier\.\n\n/.exec(text);
   if (!match) return null;
   const marker = "\n\n## Précisions supplémentaires de l’auteur\n\n";

@@ -1,3 +1,16 @@
+import { withContext, contextChoice } from "../plugin/src/request-context.ts";
+import { checkContextChoice } from "./check-context-choice.mjs";
+import { checkOutline } from "./check-outline.mjs";
+import { checkComparison } from "./check-comparison.mjs";
+import { comparisonVersions } from "../plugin/src/comparison.ts";
+import { checkSelection } from "./check-selection.mjs";
+import { selectionRequest, selectionPlan, selectionPrompt } from "../plugin/src/selection-actions.ts";
+import { checkPublication, checkPublicationProtocol, publicationVerdict } from "./check-publication.mjs";
+import { checkStructure } from "./check-structure.mjs";
+import { checkImpact } from "./check-impact.mjs";
+import { checkWorkshop } from "./check-workshop.mjs";
+import { POPULATE_PREFIX, withoutChanges } from "../plugin/src/workshop.ts";
+import { checkWorkflows } from "./check-workflows.mjs";
 import { checkNarrative } from "./check-narrative.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, access, readFile, realpath, readdir, rm, stat, writeFile, mkdir, symlink, link } from "node:fs/promises";
@@ -20,7 +33,7 @@ import { authorPrompt, visibleMessages, renderConversation, saveConversation } f
 import { TASK_PROMPT_NAMES, renderTaskPrompts } from "../plugin/src/task-prompts.ts";
 import { buildSceneContext as buildSceneContextRaw, checkSceneContext, saveSceneContext } from "../plugin/src/scene-context.ts";
 import { ChapterReview } from "../plugin/src/chapter-review.ts";
-import { METHOD_TOOL, STATE_TOOL, CONTEXT_TOOL, REVIEW_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
+import { STRUCTURE_TOOL, LINK_TOOL, BATCH_TOOL, WORKFLOW_TOOL, WORKSHOP_TOOL, METHOD_TOOL, STATE_TOOL, CONTEXT_TOOL, REVIEW_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
 import { readEditorialContext } from "../plugin/src/editorial-context.ts";
 import { diffToGroups } from "../plugin/src/diff.ts";
 import { checkRevision, fullRewriteRequested, planRevision, revisionMarks, revisionPath, revisionFor } from "../plugin/src/revision.ts";
@@ -51,6 +64,15 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("Contexte par demande : sources ciblées, exclusions, budgets et relances", checkContextChoice);
+  await check("Vue du roman : ordre, déplacements, relations, concurrence et transmission", checkOutline);
+  await check("Comparaison : choix partiels, variantes périmées, archivage et restauration", checkComparison);
+  await check("Actions sur sélection : bornes exactes, Unicode, variantes et conservation du reste", checkSelection);
+  await check("Publication : contrôle séparé, reprise bornée, preuves, interruption et sources modifiées", checkPublication);
+  await check("Structure narrative : identités, décisions, citations et outils MCP", checkStructure);
+  await check("Conséquences des modifications : liens, mentions, connaissances et absence de réécriture", checkImpact);
+  await check("Peupler et file persistante des modifications", checkWorkshop);
+  await check("Atelier : revue reprenable, suivi persistant, chronologie et conditions", checkWorkflows);
   await check("REA : références, progressions, méthodes, chronologie et invalidation", () => checkNarrative());
   await check("Site web : catalogue et publication des livres d’exemple", () => checkWeb());
   await check("Publication : contrôles, commits automatiques, versions et tags", () => checkRelease());
@@ -449,7 +471,8 @@ try {
       await prepareProject(project, folders);
       await writeFile(join(project, path), human);
       const details = "Donne-lui une voix.\n\n## Précisions supplémentaires de l’auteur\n\nGarde cette précision aussi.";
-      const text = await revisionPrompt(project, folders, path, versions, details);
+      const choices = { chapter: path, include: [], exclude: ["Bible/Style/Narration.md"] };
+      const text = withContext(await revisionPrompt(project, folders, path, versions, details), choices);
       assert.deepEqual(revisionRequest(text), { path, details });
       assert.equal(revisionRequest("Parlons du chapitre, sans le modifier."), null);
       session.threadId = "conversation";
@@ -461,6 +484,7 @@ try {
       assert.match(session.failure.message, /temporairement saturé/);
       const request = await session.prepareRetry(project, session.threadId);
       assert.equal(request.text, `${text}\n\nConserve la dernière phrase.`);
+      assert.deepEqual(contextChoice(request.text), choices);
       assert.equal(request.revision.path, path);
       assert.equal(request.revision.wholeChapter, false);
       request.revision.intentRecorded = true;
@@ -472,6 +496,16 @@ try {
       await assert.rejects(session.prepareRetry(project, session.threadId), /Le chapitre ou les consignes ont changé depuis l’échec\. Utilisez Réviser/);
       session.restoreFailure(project, session.threadId, [{ ...failed, id: "ancien format", messages: [{ id: "prompt", role: "user", text: 'Révise le chapitre "Manuscript/Chapitres/Été.md" avec un ancien format.', paths: [] }] }]);
       await assert.rejects(session.prepareRetry(project, session.threadId), /ancienne demande de révision.*Réviser/);
+      const selectionSource=await readFile(join(project,path),"utf8");
+      const start=selectionSource.indexOf("Une voix"),end=start+"Une voix".length;
+      const selected=selectionRequest("reformuler",path,selectionSource,start,end,"Plus direct.");
+      session.restoreFailure(project,session.threadId,[{...failed,id:"sélection échouée",messages:[{id:"sélection",role:"user",text:selectionPrompt(selected),paths:[]}]}]);
+      const selectionRetry=await session.prepareRetry(project,session.threadId);
+      assert.deepEqual(selectionRetry.revision.ranges,[{from:start,to:end}]);
+      assert.equal(selectionRetry.revision.wholeChapter,false);
+      assert.equal(selectionRetry.revision.selection.method,"reformuler");
+      await writeFile(join(project,path),selectionSource+" Nouvelle phrase.");
+      await assert.rejects(session.prepareRetry(project,session.threadId),/changé/);
       session.restoreFailure(project, session.threadId, [{ ...failed, completed: true, failure: undefined }]);
       assert.equal(session.failure, null);
       assert.equal(session.canRetry, false);
@@ -871,6 +905,12 @@ try {
       checkRevision(plan, source, source.replace("ne rien envoyer", "publier").replace("Louise efface, exactement ce que je voulais", "Louise publie, exactement ce que je voulais"));
       const prompt = await revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, {}, details, plan);
       assert.equal(authorPrompt(prompt), details);
+      const annotationsOnly = planRevision(path, source, source, "", true);
+      annotationsOnly.intentRecorded = true;
+      checkRevision(annotationsOnly, source, source.replace("ne rien envoyer", "publier"));
+      const instructions = await revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, {}, "", annotationsOnly);
+      assert.ok(instructions.includes("toutes ses occurrences"));
+      assert.ok(instructions.includes("Consignes actives pour les prochains passages"));
       const messages = [{ id: "u", role: "user", text: prompt, paths: [] }, { id: "c", role: "assistant", phase: "commentary", text: "Technique", paths: [] }, { id: "a", role: "activity", text: "Outil", paths: [] }, { id: "f", role: "assistant", phase: "final_answer", text: "Réponse", paths: [] }];
       assert.deepEqual(visibleMessages(messages, []).map(m => m.text), [details, "Réponse"]);
       assert.ok(!renderConversation([{ id: "t", date: null, completed: true, messages }]).includes("Zones autorisées"));
@@ -1215,6 +1255,7 @@ try {
         expected.push(`Manuscript/${child}`, `Archives/Manuscript/${child}`);
         expected.push(`Model/${child}`, `Archives/Model/${child}`);
       }
+      for (const child of ["Seeds", "Synopsis", "Scenes", "Arcs", "Intrigues", "Variantes", "Verification"]) expected.push(`Manuscript/${child}`, `Archives/Manuscript/${child}`);
       expected.push("Bible/Style", "Bible/Personnages", "Archives/Manuscript", "Archives/Model", "Archives/Bible", "Archives/Bible/Style", "Archives/Bible/Personnages");
       assert.deepEqual(projectPaths(DEFAULT_PROJECT_FOLDERS).sort(), expected.sort());
       for (const path of expected) assert.equal((await stat(join(project, path))).isDirectory(), true, path);
@@ -2069,7 +2110,9 @@ try {
     const next = "Manuscript/Chapitres/002.md";
     const baseline = "La voix de référence.\n";
     const versions = { [path]: baseline };
-    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, activeChapter: next, taskPrompts, codexVersions: { [project]: versions } }));
+    let evaluations = 0, rejectPublication = false, holdReview = null;
+    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, activeChapter: next, taskPrompts, codexVersions: { [project]: versions } }), undefined, undefined,
+      async (_executable, _cwd, _model, input, signal) => { evaluations++; return holdReview ? holdReview(input,signal) : publicationVerdict(input, evaluations > 1 && !rejectPublication); });
     await mkdir(project);
     try {
       await prepareProject(project, folders);
@@ -2084,14 +2127,19 @@ try {
       const threadId = thread.id;
       session.threadId = threadId;
       const prompts = [];
-      // Only turn/start is simulated: MCP discovery/calls use the installed Codex, without model usage.
+      let publicationInterrupts = 0;
+      // Synthetic turns need synthetic history; MCP discovery and calls remain native.
       session.client.request = (method, params) => {
+        if (method === "turn/interrupt") { publicationInterrupts++; return Promise.resolve({}); }
+        if (method === "turn/steer") return Promise.resolve({turnId:params.expectedTurnId});
+        if (method === "thread/turns/list") return Promise.resolve({ data: prompts.map((input,index)=>({id:`tour-${index+1}`,status:"completed",items:[{id:`prompt-${index}`,type:"userMessage",content:input}]})), nextCursor:null });
         if (method !== "turn/start") return native(method, params);
         prompts.push(params.input);
         return Promise.resolve({ turn: { id: `tour-${prompts.length}` } });
       };
       const call = async (tool, args) => native("mcpServer/tool/call", { threadId, server: "orelius", tool, arguments: args });
-      const write = () => call(FILE_TOOL, { chemin: next, contenu: "Chapitre suivant.\n" });
+      let candidate = "Plainte déjà déposée.\n";
+      const write = () => call(FILE_TOOL, { chemin: next, contenu: candidate });
       const prepare = () => call(REVIEW_TOOL, { chemin: next, situation: "Situation de départ.", objectif: "Continuer.", actions: ["Une action concrète."], connaissances: "Ce que sait le lecteur.", arrivee: "Situation finale.", corrections: "Même voix.", incertitudes: "Aucune." });
       await session.send("Écris le chapitre 002.", executable, project, threadId);
       for (const target of [next, "manuscript/chapitres/002.MD"]) {
@@ -2123,8 +2171,15 @@ try {
       assert.equal(method.isError, false);
       assert.ok(JSON.parse(method.content[0].text).prompt.includes("étapes causales"));
       assert.equal((await prepare()).isError, false);
+      const declined = await write();
+      assert.equal(declined.isError, true);
+      assert.match(declined.content[0].text, /UNE reprise/);
+      await assert.rejects(access(join(project, next)), { code: "ENOENT" });
+      candidate = "Chapitre suivant.\n";
       const writtenChapter = await write();
       assert.equal(writtenChapter.isError, false);
+      assert.equal((await call(BATCH_TOOL, {action:"ouvrir"})).isError, false);
+      assert.equal((await call(WORKFLOW_TOOL, {})).isError, false);
       const chapterHash = JSON.parse(writtenChapter.content[0].text).empreinte;
       assert.equal((await call(STATE_TOOL, { chapter: next, hash: chapterHash, summary: "Chapitre suivant.", facts: [], moments: [] })).isError, false);
       assert.ok((await readFile(join(project, "Manuscript/Context/002/etat.md"), "utf8")).includes(chapterHash));
@@ -2154,9 +2209,113 @@ try {
       assert.equal((await write()).isError, true, "La préparation du tour précédent ne suffit pas.");
       assert.equal((await prepare()).isError, false);
       assert.equal((await write()).isError, false);
-      assert.deepEqual(prompts, ["Écris le chapitre 002.", "Reprends avec mes nouvelles remarques."].map(text => [{ type: "text", text, text_elements: [] }]));
+      assert.ok(prompts[0][0].text.includes("orelius:changes"));
+      assert.deepEqual(prompts.map(input => input.map(item => ({...item, text: withoutChanges(item.text)}))), ["Écris le chapitre 002.", "Reprends avec mes nouvelles remarques."].map(text => [{ type: "text", text, text_elements: [] }]));
       assert.equal(await readFile(join(project, path), "utf8"), baseline + "(((Cette transition est absurde.)))\n");
+      await session.notification("turn/completed", { threadId, turn: { id: "tour-2", status: "completed" } }, project);
+      assert.equal(prompts.length, 3, "Une passe de suivi démarre automatiquement après l’écriture.");
+      assert.ok(prompts[2][0].text.startsWith("[Orelius : actualisation interne du suivi]"));
+      assert.equal((await write()).isError, true, "La maintenance ne peut pas réécrire le chapitre.");
+      await session.notification("turn/completed", { threadId, turn: { id: "tour-3", status: "completed" } }, project);
+      assert.equal(prompts.length, 3, "Un suivi incomplet ne crée pas une boucle de générations.");
+      assert.match(session.status, /suivi incomplet/);
+      await session.send(POPULATE_PREFIX + "Organise les sources.", executable, project, threadId);
+      assert.equal((await call(FILE_TOOL, {chemin:"Manuscript/Seeds/index.md",contenu:"Avant lecture"})).isError,true);
+      for(let page=0,pages=1;page<pages;page++) {
+        const response=await call(WORKSHOP_TOOL,{page});
+        assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;
+      }
+      assert.equal((await write()).isError,true,"Peupler ne peut réécrire un chapitre.");
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Style/Narration.md",contenu:"Non"})).isError,true);
+      assert.equal((await call(FILE_TOOL,{chemin:"Manuscript/Seeds/index.md",contenu:"# Seeds\n\nSource : Manuscript/Chapitres/001.md"})).isError,false);
+      for (const [chemin,contenu] of [["Manuscript/Seeds/idee.md","Idée."],["Manuscript/Plan/idee.md","Plan proposé."]]) assert.equal((await call(FILE_TOOL,{chemin,contenu})).isError,false);
+      const structureResponse=await call(STRUCTURE_TOOL,{});
+      assert.equal(structureResponse.isError,false);
+      const structure=JSON.parse(structureResponse.content[0].text);
+      const seed=structure.nodes.find(node=>node.path==="Manuscript/Seeds/idee.md"),plan=structure.nodes.find(node=>node.path==="Manuscript/Plan/idee.md");
+      assert.equal((await call(LINK_TOOL,{from:seed.id,to:plan.id,relation:"developpe",fromHash:seed.hash,toHash:plan.hash})).isError,false);
+      assert.equal((await call(FILE_TOOL,{chemin:"Manuscript/Context/Structure.md",contenu:"Retenu par le modèle"})).isError,true);
+      await session.notification("turn/completed",{threadId,turn:{id:"tour-4",status:"completed"}},project);
+      assert.match(session.status,/Atelier incomplet/);
+      rejectPublication = true;
+      await session.send("Révise le chapitre sans inventer de plainte.",executable,project,threadId);
+      const reread = async () => { for(let page=0,pages=1;page<pages;page++) { const response=await call(CONTEXT_TOOL,{page});assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages; } assert.equal((await prepare()).isError,false); };
+      await reread();
+      candidate="Candidat refusé numéro un.";
+      assert.equal((await write()).isError,true);
+      await reread();
+      candidate="Candidat refusé numéro deux.";
+      assert.equal((await write()).isError,true);
+      const evaluated=evaluations;
+      await reread();
+      candidate="Troisième candidat interdit.";
+      assert.equal((await write()).isError,true);
+      assert.equal(evaluations,evaluated,"Relire et préparer ne réinitialise pas la limite de reprise.");
+      assert.equal((await call(FILE_TOOL,{chemin:"Manuscript/Context/002/Publication/controle-2.md",contenu:"Validé"})).isError,true);
+      assert.equal(await readFile(join(project,next),"utf8"),"Chapitre suivant.\n");
+      await session.notification("turn/completed",{threadId,turn:{id:"tour-5",status:"completed"}},project);
+      assert.equal(session.canRetry,true);
+      assert.equal(publicationInterrupts,1,"Le refus final arrête le rédacteur au lieu de lui laisser boucler.");
+      assert.match(session.failure.message,/contrôle avant publication/);
+      rejectPublication=false;
+      await session.send("Révise avec les faits conservés.",executable,project,threadId);
+      await reread();
+      let reviewing;
+      const startedReview=new Promise(resolve=>{reviewing=resolve;});
+      holdReview=async (_input,signal)=>{reviewing();return new Promise((_resolve,reject)=>signal.addEventListener("abort",()=>reject(new Error("Contrôle annulé par la nouvelle consigne.")),{once:true}));};
+      candidate="Candidat devenu périmé.";
+      const pendingWrite=write();
+      await startedReview;
+      await session.steer("Conserve le point de vue de Jonas.");
+      assert.equal((await pendingWrite).isError,true);
+      assert.equal(publicationInterrupts,1,"Une consigne supplémentaire invalide le contrôle sans arrêter la nouvelle demande.");
+      assert.equal(await readFile(join(project,next),"utf8"),"Chapitre suivant.\n");
+      holdReview=null;
+      await reread();
+      candidate="Chapitre suivant.\n";
+      assert.equal((await write()).isError,false);
+      session.busy=false;session.turnId="";
+      const selectedSource=await readFile(join(project,next),"utf8");
+      const selectedFrom=selectedSource.indexOf("suivant"),selectedTo=selectedFrom+"suivant".length;
+      const selectedRequest=selectionRequest("reformuler",next,selectedSource,selectedFrom,selectedTo);
+      await session.send(selectionPrompt(selectedRequest),executable,project,threadId,selectionPlan(selectedRequest,selectedSource));
+      await reread();
+      candidate=selectedSource.slice(0,selectedFrom)+"nouveau"+selectedSource.slice(selectedTo);
+      const unreadMethod=await write();assert.equal(unreadMethod.isError,true);assert.match(unreadMethod.content[0].text,/méthode demandée/);
+      const consulted=await call(METHOD_TOOL,{tache:"reformuler",debut:selectedFrom,fin:selectedTo});
+      assert.equal(consulted.isError,false);assert.equal(JSON.parse(consulted.content[0].text).selection.texte,"suivant");
+      candidate+="Modification extérieure.";
+      const outside=await write();assert.equal(outside.isError,true);assert.match(outside.content[0].text,/hors de la sélection/);
+      candidate="Chapitre nouveau.\n";assert.equal((await write()).isError,false);
+      assert.equal(await readFile(join(project,next),"utf8"),candidate);
+      session.busy=false;session.turnId="";
+      const variantsRequest=selectionRequest("variantes",next,candidate,selectedFrom,selectedTo);
+      await session.send(withContext(selectionPrompt(variantsRequest),{chapter:next,include:[],exclude:["Bible/Style/Narration.md"]}),executable,project,threadId,selectionPlan(variantsRequest,candidate));
+      await reread();
+      assert.ok(!session.sceneContext.sources.some(source=>source.path==="Bible/Style/Narration.md"),"Le dossier MCP applique le retrait demandé.");
+      assert.equal((await call(WORKSHOP_TOOL,{page:0})).isError,true,"Une demande ciblée ne charge pas tout l’atelier.");
+      assert.equal((await call(METHOD_TOOL,{tache:"idees",debut:selectedFrom,fin:selectedTo})).isError,false);
+      const proposed=await call("proposer_variantes",{variantes:[{titre:"Courte",texte:"bref"},{titre:"Longue",texte:"développé"}]});
+      assert.equal(proposed.isError,false,JSON.stringify(proposed));
+      const choices=await comparisonVersions(project,DEFAULT_PROJECT_FOLDERS,next,candidate);
+      assert.ok(choices.some(choice=>choice.label.startsWith("Courte") && choice.text.includes("bref")));
+      const beforeVariants=evaluations;
+      for(const chemin of [next,"Bible/Suivi/Connaissances.md","Manuscript/Variantes/proposition.md"]) {
+        const denied=await call(FILE_TOOL,{chemin,contenu:"Interdit"});assert.equal(denied.isError,true);assert.match(denied.content[0].text,/variantes/);
+      }
+      assert.equal((await call(LINK_TOOL,{from:seed.id,to:plan.id,relation:"developpe",fromHash:seed.hash,toHash:plan.hash})).isError,true);
+      assert.equal(evaluations,beforeVariants);assert.equal(await readFile(join(project,next),"utf8"),candidate);
+
+
+
+
+
     } finally { await session.disconnect(); await rm(project, { recursive: true }); }
+  });
+
+  await check("Contrôleur Codex réel : session éphémère, sans MCP, inférence simulée et arrêt du processus", async () => {
+    const models=await rpc.request("model/list",{limit:1});
+    await checkPublicationProtocol(executable,directory,models.data[0].model);
   });
 
   await check("Catalogue Codex réel et changement de modèle sur la même session temporaire", async () => {

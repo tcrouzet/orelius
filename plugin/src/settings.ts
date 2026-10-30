@@ -38,10 +38,13 @@ export function validateProjectFolders(folders: ProjectFolders): void {
   }
 }
 
+export const WORKSHOP_FOLDERS = ["Seeds", "Synopsis", "Scenes", "Arcs", "Intrigues", "Variantes", "Verification"];
+
 export function projectPaths(folders: ProjectFolders): string[] {
   validateProjectFolders(folders);
   const content = [...[folders.manuscriptFolder, folders.modelFolder].flatMap(folder => [folder,
     ...["Chapitres", "Personnages", "Plan", "Resume"].map(name => `${folder}/${name}`)]),
+    ...WORKSHOP_FOLDERS.map(name => `${folders.manuscriptFolder}/${name}`),
     folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Personnages`, `${folders.manuscriptFolder}/Context`];
   return [folders.archiveFolder, ...content, ...content.map(path => `${folders.archiveFolder}/${path}`)];
 }

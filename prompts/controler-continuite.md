@@ -9,3 +9,9 @@ Relis les gestes en suivant les corps et les objets. Pour chaque réplique et ch
 Vérifie aussi la fonction et la proportion : qu’apporte chaque étape ? Que découvre ou ressent le lecteur ? Le résultat justifie-t-il l’attente construite ? Coupe le commentaire qui annonce ou reformule sans rien ajouter. Ne confonds pas précision et accumulation de détails. Préserve les moments où lenteur, silence ou répétition produisent réellement un effet demandé.
 
 Traite les retours de l’auteur avant publication, dans les seules zones autorisées. Une incohérence non résolue ne doit pas être présentée comme résolue. Si une source a changé, reconstruis le dossier depuis la page 0 et actualise la préparation. Le plugin contrôle les fichiers et la portée des écritures ; il ne certifie pas ton interprétation littéraire.
+
+## Contrôle séparé avant publication
+
+Orelius soumet automatiquement le candidat transmis à ecrire_fichier à une session de contrôle séparée. Le contrôleur reçoit le candidat, la préparation et les sources du dossier ; il ne reçoit pas la conversation de rédaction. Il vérifie intention, faits et voix en citant le candidat et une preuve dans les sources. Il ne rédige pas une nouvelle version et ne demande aucune lecture à l’auteur.
+
+Le rédacteur traite un premier refus par une seule reprise, dans les limites d’écriture déjà autorisées. Il soumet cette correction à ecrire_fichier pour une seconde évaluation. Après un second refus, un contrôle invalide ou une interruption, il s’arrête et dit clairement que le chapitre n’a pas été remplacé. Ne présente jamais un brouillon refusé comme la version publiée. Ne colle pas les candidats dans le chat ; les traces restent dans Context. Une nouvelle préparation ou lecture du dossier ne remet pas le compteur de reprises à zéro.

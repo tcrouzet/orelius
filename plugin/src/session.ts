@@ -1,15 +1,26 @@
+import { contextChoice, withoutContext, validateContextChoice } from "./request-context.ts";
+import { contextDelivery } from "./workshop.ts";
+import { saveVariants } from "./comparison.ts";
+import { parseSelectionPrompt, selectionPlan } from "./selection-actions.ts";
+import { evaluatePublication } from "./codex-review.ts";
+import { PublicationReview, PublicationError } from "./publication-review.ts";
+import { structurePath, syncStructure, structureView } from "./story-structure.ts";
+import { projectSources } from "./project-sources.ts";
+import { POPULATE_PREFIX, WorkshopContext, collectChanges, deliverChanges, rememberGenerated, populateDestination, withChanges, withoutChanges, type ChangeDelivery } from "./workshop.ts";
+import { MAINTENANCE_PREFIX, maintenancePrompt, pendingStates, saveWorkflow } from "./editorial-workflow.ts";
+import { reviewBatch } from "./review-queue.ts";
 import { configPath, parseConfig, readData, fingerprint } from "./narrative-context.ts";
 import { consultMethod, recordNarrativeState } from "./writing-methods.ts";
 import type { TaskPrompts } from "./task-prompts.ts";
 import { realpath } from "node:fs/promises";
 import { archiveChanges } from "./archives.ts";
-import { DEFAULT_PROJECT_FOLDERS, type OreliusSettings, type ProjectFolders } from "./settings.ts";
+import { WORKSHOP_FOLDERS, DEFAULT_PROJECT_FOLDERS, type OreliusSettings, type ProjectFolders } from "./settings.ts";
 import { contextRemaining, modelOptions, type ModelOption } from "./models.ts";
 import { ProjectMcp } from "./mcp.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { CodexClient, errorText, findCodex, object, stringValue, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
 import type { ConversationTurn } from "./conversation.ts";
-import { planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
+import { checkRevision, planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
 import { chapterPath, revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
 import { buildSceneContext, saveSceneContext, type SceneContext } from "./scene-context.ts";
 import { ChapterReview } from "./chapter-review.ts";
@@ -62,12 +73,22 @@ export class ChatSession {
   private recording = Promise.resolve();
   private closing = Promise.resolve();
   private revision: RevisionPlan | null = null;
+  private selectedMethodRead = false;
   private protections: RevisionPlan[] = [];
   private sceneContext: SceneContext | null = null;
   private chapterReview = new ChapterReview();
+  private publication = new PublicationReview();
+  private readonly evaluate: typeof evaluatePublication;
   private editorialContext: Promise<string[]> | null = null;
   private editorialChapter: string | undefined;
   private editorialPagesRead = new Set<number>();
+  pendingChanges: string[] = [];
+  private deliveries: ChangeDelivery[] = [];
+  private populating = false;
+  private workshop = new WorkshopContext();
+  private maintenance = false;
+  private maintained = false;
+  private wroteChapter = false;
   private lastRequest: { text: string; cwd: string; threadId: string; turnId?: string; revision?: RevisionPlan; protections: RevisionPlan[]; restored?: boolean; originalPrompt?: string } | null = null;
 
   private readonly changed: () => void;
@@ -83,7 +104,9 @@ export class ChatSession {
   constructor(changed: () => void, remember: (threadId: string, cwd: string) => Promise<void>,
     archive: typeof archiveChanges = archiveChanges, context: () => SessionContext = () => DEFAULT_PROJECT_FOLDERS,
     written: (cwd: string, changes: unknown, highlight?: RevisionHighlight) => Promise<void> = async () => {},
-    conversation?: (cwd: string, threadId: string, turns: ConversationTurn[]) => Promise<void>) {
+    conversation?: (cwd: string, threadId: string, turns: ConversationTurn[]) => Promise<void>,
+    evaluate: typeof evaluatePublication = evaluatePublication) {
+    this.evaluate = evaluate;
     this.changed = changed;
     this.remember = remember;
     this.archive = archive;
@@ -114,12 +137,17 @@ export class ChatSession {
   }
 
   async send(text: string, executable: string, cwd: string, savedThreadId: string, revision?: RevisionPlan, protections: RevisionPlan[] = []): Promise<void> {
+    text = withoutChanges(text);
     if (!text.trim()) return;
+    if (this.maintenance) throw new Error("Le suivi se termine ; votre message reste saisi.");
     if (this.busy) {
       if (revision) throw new Error("Attendez la fin de la tâche avant une révision ciblée.");
       await this.steer(text);
       return;
     }
+    this.deliveries = [];
+    this.maintained = false;
+    this.wroteChapter = false;
     const operation = ++this.operation;
     this.failure = null;
     this.lastRequest = null;
@@ -129,25 +157,36 @@ export class ChatSession {
     try {
       if (!this.connected || !this.threadId) await this.initialize(executable, cwd, savedThreadId, true);
       this.failure = null;
+      this.populating = text.startsWith(POPULATE_PREFIX);
+      this.workshop = new WorkshopContext();
+      this.maintenance = text.startsWith(MAINTENANCE_PREFIX);
+      this.maintained = this.maintenance;
       this.revision = revision ?? null;
+      this.selectedMethodRead = false;
       this.protections = revision ? [revision, ...protections] : protections;
       this.editorialContext = null;
       this.chapterReview = new ChapterReview();
+      this.publication.cancel();
+      this.publication = new PublicationReview();
       this.sceneContext = null;
-      this.editorialChapter = revision?.path ?? this.context().activeChapter ?? undefined;
+      this.editorialChapter = revision?.path ?? contextChoice(text)?.chapter ?? this.context().activeChapter ?? undefined;
+      validateContextChoice(contextChoice(text), this.context(), this.editorialChapter);
       this.editorialPagesRead.clear();
       this.lastRequest = { text, cwd, threadId: this.threadId, revision, protections };
       const client = this.client;
       if (!client) throw new Error("Connexion Codex interrompue.");
+      const delivery = await this.requestDelivery(cwd, text);
+      this.pendingChanges = delivery.pending.map(change => change.path);
       const result = await client.request("turn/start", {
         threadId: this.threadId,
-        input: [{ type: "text", text, text_elements: [] }],
+        input: [{ type: "text", text: withChanges(text, delivery), text_elements: [] }],
         cwd, approvalPolicy: "never", approvalsReviewer: "user",
         sandboxPolicy: { type: "readOnly", networkAccess: false },
       });
       if (operation === this.operation && this.busy) {
         this.turnId = stringValue(object(result.turn).id);
         if (this.lastRequest) this.lastRequest.turnId = this.turnId;
+        this.deliveries.push(delivery);
       }
     } catch (error) {
       // A lost start response can hide a running turn; close our process before retrying.
@@ -162,6 +201,16 @@ export class ChatSession {
     await this.send(request.text, executable, cwd, savedThreadId, request.revision, request.protections);
   }
 
+  private async requestDelivery(cwd: string, text: string): Promise<ChangeDelivery> {
+    const context = this.context();
+    const delivery = await collectChanges(cwd, context, context.configDir);
+    if (!this.editorialChapter || this.populating || this.maintenance) return contextDelivery(delivery, text);
+    const dossier = await buildSceneContext(cwd, context, context.codexVersions?.[cwd] ?? {}, this.editorialChapter, text, context.taskPrompts, true);
+    const paths = new Set(dossier.sources.map(source => source.path));
+    paths.add(configPath(context));
+    return contextDelivery(delivery, text, paths);
+  }
+
   private async prepareRetry(cwd: string, savedThreadId: string) {
     const request = this.lastRequest;
     if (!this.canRetry || !request) throw new Error("Aucune demande interrompue à relancer.");
@@ -169,7 +218,14 @@ export class ChatSession {
     if (request.restored) {
       const folders = this.context();
       const versions = folders.codexVersions?.[cwd] ?? {};
-      const originalPrompt = request.originalPrompt ?? request.text;
+      const originalPrompt = withoutContext(request.originalPrompt ?? request.text);
+      const selection = parseSelectionPrompt(originalPrompt);
+      if (selection) {
+        if (chapterPath(cwd, folders, selection.path) !== selection.path) throw new Error("Chapitre de sélection invalide.");
+        const source = await readProjectFile(cwd, selection.path);
+        if (!source) throw new Error("Chapitre de sélection introuvable.");
+        request.revision = selectionPlan(selection, source.text);
+      }
       const target = revisionRequest(originalPrompt);
       if (!target && originalPrompt.startsWith("Révise le chapitre ")) throw new Error("Cette ancienne demande de révision ne peut pas être récupérée. Ouvrez le chapitre puis utilisez Réviser.");
       if (target) {
@@ -196,7 +252,7 @@ export class ChatSession {
     const last = turns[turns.length - 1];
     this.failure = last?.failure ?? null;
     if (last?.failure && this.lastRequest?.turnId !== last.id) {
-      const prompts = last.messages.filter(item => item.role === "user").map(item => item.text);
+      const prompts = last.messages.filter(item => item.role === "user").map(item => withoutChanges(item.text));
       const text = prompts.join("\n\n");
       this.lastRequest = text ? { text, cwd, threadId, turnId: last.id, protections: [], restored: true, originalPrompt: prompts[0] } : null;
     }
@@ -215,17 +271,25 @@ export class ChatSession {
     const generation = this.generation;
     const turnId = this.turnId;
     if (!client || !this.running) throw new Error("Aucune tâche active ne peut recevoir cette consigne. Votre message est conservé.");
+    const cwd = this.lastRequest?.cwd;
+    if (!cwd) throw new Error("Dossier de la tâche introuvable.");
+    const delivery = await this.requestDelivery(cwd, this.lastRequest?.text ?? "");
     const result = await client.request("turn/steer", { threadId: this.threadId, expectedTurnId: turnId,
-      input: [{ type: "text", text, text_elements: [] }] });
+      input: [{ type: "text", text: withChanges(text, delivery), text_elements: [] }] });
     if (generation !== this.generation) throw new Error("Connexion interrompue pendant l’envoi. Vérifiez l’historique avant de renvoyer la consigne.");
     if (result.turnId !== turnId) {
       await this.disconnect("Codex n’a pas confirmé la tâche destinataire de la consigne.");
       throw new Error(this.status);
     }
+    this.publication.cancel();
+    this.publication = new PublicationReview();
+    this.deliveries.push(delivery);
+    this.workshop = new WorkshopContext();
     if (this.lastRequest) this.lastRequest.text += `\n\n${text}`;
     this.editorialContext = null;
     this.sceneContext = null;
     this.editorialPagesRead.clear();
+    this.selectedMethodRead = false;
     this.chapterReview = new ChapterReview();
     this.upsert({ id: `steer-${turnId}-${Date.now()}`, role: "activity", text: "Consigne transmise à la tâche en cours", paths: [] });
     this.changed();
@@ -238,6 +302,7 @@ export class ChatSession {
       await this.disconnect("Connexion interrompue. Vous pouvez reprendre la conversation.");
       return;
     }
+    this.publication.cancel();
     this.interrupting = true;
     this.status = "Interruption…";
     this.changed();
@@ -259,12 +324,14 @@ export class ChatSession {
   }
 
   disconnect(status = "Déconnecté"): Promise<void> {
+    this.publication.cancel();
     this.operation++;
     this.generation++;
     this.closing = Promise.all([this.closing, this.client?.stop(), this.files?.stop(), this.recording.catch(() => {})]).then(() => {});
     this.client = null;
     this.files = null;
     this.connected = false;
+    this.maintenance = false;
     this.busy = false;
     this.turnId = "";
     this.interrupting = false;
@@ -313,7 +380,7 @@ export class ChatSession {
           pendingUsage = params.tokenUsage;
         }
         if (generation === this.generation) void this.notification(method, params, cwd).catch(error => {
-          if (generation === this.generation) void this.disconnect(errorText(error));
+          if (generation === this.generation) { this.fail(error); void this.disconnect(this.status); }
         });
       },
       request: request => {
@@ -354,14 +421,26 @@ export class ChatSession {
     ensureCurrent();
     const files = new ProjectMcp((path, content) => {
       const turnId = this.turnId;
+      const requestText = this.lastRequest?.text;
       let original: string | null = null;
       const ensureActive = () => {
         ensureCurrent();
         if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Écriture refusée hors de la tâche Codex active.");
+        if (this.lastRequest?.text !== requestText) throw new Error("La demande a changé ; préparez de nouveau le chapitre avant publication.");
         if (original !== null) this.context().checkEditor?.(path, original);
       };
       const write = this.recording.then(async () => {
         ensureActive();
+        if (this.revision?.selection?.readOnly) throw new Error("Cette demande propose des variantes dans le chat et n’autorise aucune écriture de fichier.");
+        if (revisionKey(cwd, path).startsWith(`${this.context().manuscriptFolder}/Context/`.normalize("NFC").toLowerCase()) && revisionKey(cwd, path).includes("/publication/")) throw new Error("Les candidats et contrôles de publication sont gérés par Orelius.");
+        if (revisionKey(cwd, path).startsWith(`${this.context().manuscriptFolder}/Context/`.normalize("NFC").toLowerCase()) && revisionKey(cwd, path).includes("/variantes/")) throw new Error("Les propositions de comparaison sont gérées par proposer_variantes.");
+        if (revisionKey(cwd, path) === revisionKey(cwd, structurePath(this.context()))) throw new Error("La structure est gérée par Orelius. Utilisez relier_elements ; les décisions appartiennent à l’auteur.");
+        if (this.populating) {
+          if (!populateDestination(this.context(), path)) throw new Error("Peupler peut seulement compléter les fiches d’atelier, Plan, Resume et Personnages du manuscrit. Chapitres, Model et Bible sont préservés.");
+          await this.workshop.check(cwd, this.context());
+        }
+        if (revisionKey(cwd, path) === revisionKey(cwd, `${this.context().manuscriptFolder}/Context/Modifications.md`)) throw new Error("La file des modifications est gérée par Orelius.");
+        if (this.maintenance) throw new Error("Le suivi automatique ne peut modifier aucun manuscrit ni autre fichier libre.");
         this.status = "Archivage et écriture…";
         this.changed();
         const revision = this.revision;
@@ -376,11 +455,26 @@ export class ChatSession {
             throw new Error("Avant d’écrire un chapitre, lisez toutes les pages de consulter_contexte_editorial pour appliquer les consignes et les corrections des chapitres précédents à cette demande.");
           }
         }
-        if (chapterPath(cwd, this.context(), path)) await this.chapterReview.check(cwd, path);
-        this.context().lockNote?.(revisionKey(cwd, path));
         const previous = await readProjectFile(cwd, path);
         original = previous?.text ?? "";
+        ensureActive();
+        if (protection) checkRevision(protection, previous?.text, content);
+        this.context().lockNote?.(revisionKey(cwd, path));
+        const publication = this.publication;
+        if (chapterPath(cwd, this.context(), path)) {
+          if (this.revision?.selection && !this.selectedMethodRead) throw new Error("Consultez la méthode demandée avec les limites exactes de la sélection avant d’écrire.");
+          const input = await this.chapterReview.publicationInput(cwd, path, content);
+          this.status = "Contrôle avant publication…";
+          this.changed();
+          await publication.check(cwd, this.context(), input, (input, signal) => this.evaluate(binary, cwd, this.model, input, signal), ensureActive, this.context().configDir);
+          ensureActive();
+          await this.chapterReview.check(cwd, path);
+        }
         const archives = await writeProjectFile(cwd, path, content, previous, this.context().archiveFolder, this.archive, ensureActive, true, protection, this.context().configDir);
+        if (chapterPath(cwd, this.context(), path)) publication.published(path);
+        if (this.populating) this.workshop.written(path, content);
+        if (!path.startsWith(`${this.context().manuscriptFolder}/Context/`) || path.endsWith("/configuration.md") || path.includes("/Context/Prompts/")) await rememberGenerated(cwd, this.context(), path, content, this.context().configDir);
+        if (chapterPath(cwd, this.context(), path)) this.wroteChapter = true;
         const changes = [{ path, kind: { type: previous ? "update" : "add" } }];
         try { await this.written(cwd, changes, protection ? { before: protection.source, after: content } : undefined); }
         catch (error) { throw new Error(`Le fichier ${path} a été écrit, mais sa référence de suivi n’a pas pu être enregistrée : ${errorText(error)}`); }
@@ -399,7 +493,14 @@ export class ChatSession {
       this.recording = write.then(() => {}, () => {});
       return write.catch(error => {
         if (generation === this.generation) {
-          this.status = errorText(error);
+          this.status = this.lastRequest?.text !== requestText ? "Nouvelle consigne reçue ; préparation à actualiser."
+            : error instanceof PublicationError ? error.terminal ? "Publication non aboutie." : "Reprise après contrôle…" : errorText(error);
+          if (error instanceof PublicationError && error.terminal && !this.failure && this.running && this.lastRequest?.text === requestText) {
+            this.failure = { message: "Le contrôle avant publication n’a pas abouti. Le chapitre est conservé. Vous pouvez relancer la demande.", retryable: true };
+            void client.request("turn/interrupt", { threadId: this.threadId, turnId }).catch(() => {
+              if (generation === this.generation) void this.disconnect(this.failure?.message ?? "Publication interrompue.");
+            });
+          }
           this.upsert({ id: `write-error-${turnId}-${path}`, role: "activity", text: `Erreur d’écriture : ${errorText(error)}`, paths: [] });
           this.changed();
         }
@@ -418,11 +519,12 @@ export class ChatSession {
         const context = this.context();
         if (chapter !== undefined) {
           if (chapterPath(cwd, context, chapter) !== chapter) throw new Error("Chemin de chapitre relatif attendu.");
-          if (this.revision && chapter !== this.revision.path) throw new Error("Le dossier doit rester celui du chapitre ciblé par la révision.");
+          if (!this.maintenance && this.revision && chapter !== this.revision.path) throw new Error("Le dossier doit rester celui du chapitre ciblé par la révision.");
           if (chapter !== this.editorialChapter && page !== 0) throw new Error("Commencez le dossier du nouveau chapitre par la page 0.");
           this.editorialChapter = chapter;
         }
         if (page === 0 || !this.editorialContext) {
+          this.selectedMethodRead = false;
           this.editorialPagesRead.clear();
           this.chapterReview = new ChapterReview();
           this.sceneContext = null;
@@ -434,7 +536,7 @@ export class ChatSession {
             this.sceneContext = dossier;
             this.editorialContext = Promise.resolve(dossier.pages);
           } else {
-            this.editorialContext = readEditorialContext(cwd, context, context.codexVersions?.[cwd] ?? {});
+            this.editorialContext = readEditorialContext(cwd, context, context.codexVersions?.[cwd] ?? {}, undefined, this.lastRequest?.text ?? "");
           }
         }
         const pages = await this.editorialContext;
@@ -471,7 +573,10 @@ export class ChatSession {
         const ensureActive = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Tâche inactive."); };
         ensureActive();
         if (!this.sceneContext) throw new Error("Consultez le dossier du chapitre avant la méthode.");
-        return consultMethod(cwd, this.context(), args, this.sceneContext, ensureActive, this.context().configDir);
+        const result = await consultMethod(cwd, this.context(), args, this.sceneContext, ensureActive, this.context().configDir);
+        const selected = this.revision?.selection;
+        if (selected && args.tache === selected.method && args.debut === selected.from && args.fin === selected.to) this.selectedMethodRead = true;
+        return result;
       });
       this.recording = action.then(() => {}, () => {});
       return action;
@@ -482,6 +587,63 @@ export class ChatSession {
         ensureActive();
         if (!this.editorialChapter) throw new Error("Choisissez le chapitre avant son extraction.");
         return recordNarrativeState(cwd, this.context(), args, this.editorialChapter, ensureActive, this.context().configDir, this.sceneContext ?? undefined);
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
+    }, args => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        const ensureActive = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Revue hors tâche active."); };
+        ensureActive();
+        if (!this.sceneContext) throw new Error("Consultez le dossier avant la revue.");
+        return reviewBatch(cwd, this.context(), args, this.sceneContext, ensureActive, this.context().configDir);
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
+    }, () => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        const ensureActive = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Suivi hors tâche active."); };
+        ensureActive();
+        const pending = await pendingStates(cwd, this.context());
+        await saveWorkflow(cwd, this.context(), pending, ensureActive, this.context().configDir);
+        return JSON.stringify({ aActualiser: pending });
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
+    }, page => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        ensureCurrent();
+        if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Atelier hors tâche active.");
+        if (!this.populating) throw new Error("L’inventaire complet est réservé à Peupler. Utilisez consulter_contexte_editorial pour les notes de cette demande.");
+        const result = await this.workshop.page(cwd, this.context(), page);
+        ensureCurrent();
+        if (!this.running || turnId !== this.turnId) throw new Error("Atelier interrompu.");
+        return result;
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
+    }, args => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        const ensureActive = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Structure hors tâche active."); };
+        ensureActive();
+        if (this.revision?.selection?.readOnly && args) throw new Error("Une proposition de variantes ne modifie pas les liens narratifs.");
+        if (this.maintenance && args) throw new Error("Le suivi automatique ne modifie pas les liens narratifs.");
+        if (this.populating && args) await this.workshop.check(cwd, this.context());
+        const data = await syncStructure(cwd, this.context(), args ? { link: args } : {}, this.context().configDir, ensureActive);
+        return JSON.stringify(structureView(data, await projectSources(cwd, this.context())));
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
+    }, args => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        const active = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Proposition interrompue."); };
+        active();
+        if (!this.selectedMethodRead) throw new Error("Consultez la méthode de variantes avant de proposer les textes.");
+        return saveVariants(cwd, this.context(), this.revision, args, active, this.context().configDir);
       });
       this.recording = action.then(() => {}, () => {});
       return action;
@@ -561,10 +723,11 @@ export class ChatSession {
       this.interrupting = false;
       this.busy = true;
       this.failure = null;
-      this.status = "Codex travaille…";
+      this.status = this.maintenance ? "Actualisation du suivi…" : "Codex travaille…";
     } else if (method === "thread/tokenUsage/updated") {
       this.contextRemaining = contextRemaining(params.tokenUsage);
     } else if (method === "turn/completed") {
+      this.publication.cancel();
       const turn = object(params.turn);
       if (turn.status === "failed" || turn.error) this.fail(turn.error ?? "La tâche Codex a échoué.");
       this.turnId = "";
@@ -572,6 +735,7 @@ export class ChatSession {
       this.status = "Enregistrement du suivi…";
       this.changed();
       await this.recording;
+      if (turn.status === "completed" && this.publication.incomplete && !this.failure) this.failure = { message: "Le passage proposé n’a pas été publié après contrôle. Le chapitre est conservé. Vous pouvez relancer la demande.", retryable: true };
       if (generation !== this.generation || params.threadId !== this.threadId) return;
       if (this.client) {
         const ensureCurrent = () => {
@@ -583,10 +747,45 @@ export class ChatSession {
         await this.conversation?.(cwd, this.threadId, turns);
         ensureCurrent();
       }
+      if (turn.status === "completed" && !this.failure) {
+        for (const delivery of this.deliveries) await deliverChanges(cwd, this.context(), delivery, this.context().configDir);
+        this.deliveries = [];
+        this.pendingChanges = (await collectChanges(cwd, this.context(), this.context().configDir)).pending.map(change => change.path);
+      }
+      let pendingCount = 0;
+      if (this.wroteChapter || this.maintenance) {
+        const pending = await pendingStates(cwd, this.context());
+        const ensureActive = () => { if (generation !== this.generation) throw new Error("Suivi interrompu."); };
+        await saveWorkflow(cwd, this.context(), pending, ensureActive, this.context().configDir);
+        pendingCount = pending.length;
+        if (pending.length && turn.status === "completed" && !this.failure && !this.maintained && this.client) {
+          this.maintained = true;
+          this.maintenance = true;
+          this.status = "Actualisation du suivi…";
+          this.requests = [];
+          this.changed();
+          const instruction = maintenancePrompt(pending);
+          this.lastRequest = { text: instruction, cwd, threadId: this.threadId, protections: [] };
+          const result = await this.client.request("turn/start", { threadId: this.threadId,
+            input: [{ type: "text", text: instruction, text_elements: [] }], cwd,
+            approvalPolicy: "never", approvalsReviewer: "user", sandboxPolicy: { type: "readOnly", networkAccess: false } });
+          ensureActive();
+          this.turnId = stringValue(object(result.turn).id);
+          if (this.lastRequest) this.lastRequest.turnId = this.turnId;
+          return;
+        }
+      }
+      const missing: string[] = [];
+      if (this.populating) for (const folder of WORKSHOP_FOLDERS) {
+        const file = await readProjectFile(cwd, `${this.context().manuscriptFolder}/${folder}/index.md`);
+        if (!file?.text.trim()) missing.push(folder);
+      }
+      this.populating = false;
+      this.maintenance = false;
       this.busy = false;
       this.turnId = "";
       this.requests = [];
-      this.status = this.failure?.message ?? (turn.status === "interrupted" ? "Tâche interrompue" : "");
+      this.status = this.failure?.message ?? (turn.status === "interrupted" ? "Tâche interrompue" : missing.length ? `Atelier incomplet : ${missing.join(", ")}. Relancez Peupler pour poursuivre.` : pendingCount ? `Texte enregistré ; suivi incomplet pour ${pendingCount} chapitre(s).` : "");
     } else if (method === "item/started" || method === "item/completed") {
       const item = toChatItem(object(params.item));
       if (item && !(method === "item/started" && this.items.some(previous => previous.id === item.id))) this.upsert(item);

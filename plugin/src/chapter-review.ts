@@ -25,6 +25,11 @@ export class ChapterReview {
     return JSON.stringify({ fichier: context.preparationPath, consignes: [context.task, "controler-continuite", "actualiser-suivi"].map(name => ({ prompt: `prompts/${name}.md`, texte: context.prompts![name as keyof typeof context.prompts] })), resultat: "Préparation enregistrée. Vous pouvez rédiger en respectant cette situation, la voix de référence et les zones autorisées. Aucun texte du manuscrit n’a été changé. Une incertitude n’est pas un fait acquis ; ne la comblez pas par un antécédent inventé." });
   }
 
+  async publicationInput(cwd: string, path: string, candidat: string) {
+    await this.check(cwd, path);
+    return { candidat, preparation: this.preparation!.document, contexte: this.preparation!.context };
+  }
+
   async check(cwd: string, path: string): Promise<void> {
     if (!this.preparation || this.preparation.context.chapter !== path) {
       throw new Error("Consultez le dossier du chapitre puis utilisez preparer_chapitre pour établir situation et actions AVANT la prose. Aucun texte n’a été enregistré.");
