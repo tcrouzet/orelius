@@ -1,0 +1,88 @@
+import {ProjectMcp, METHOD_TOOL, STATE_TOOL} from "../plugin/src/mcp.ts";
+import assert from 'node:assert/strict';
+import {mkdtemp, mkdir, writeFile, readFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DEFAULT_PROJECT_FOLDERS as folders} from '../plugin/src/settings.ts';
+import {parseConfig, selectReferences, visibleSections, fingerprint, parseState, projectStates, readData} from '../plugin/src/narrative-context.ts';
+import {buildSceneContext, checkSceneContext, saveSceneContext} from '../plugin/src/scene-context.ts';
+import {consultMethod, recordNarrativeState, reviewChunks} from '../plugin/src/writing-methods.ts';
+import {TASK_PROMPT_NAMES, renderTaskPrompts} from '../plugin/src/task-prompts.ts';
+
+export async function checkNarrative() {
+  const root=await mkdtemp(join(tmpdir(),'orelius-narrative-'));
+  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
+  const templates=Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name=>[name,await readFile(new URL('../prompts/'+name+'.md',import.meta.url),'utf8')])));
+  const chapter='Manuscript/Chapitres/002.md', previous='Manuscript/Chapitres/001.md';
+  const refs=[{path:'Bible/Personnages/Nora.md',aliases:['Archiviste'],children:['Bible/Lieux/Phare.md']},{path:'Bible/Lieux/Phare.md',mode:'manual',children:['Bible/Personnages/Nora.md']},{path:'Bible/Secret.md',mode:'hidden'},{path:'Bible/Global.md',mode:'always'},{path:'Bible/Off.md',track:false}];
+  try {
+    const server=new ProjectMcp(async()=>'',undefined,undefined,async()=> 'méthode',async()=>{throw new Error('Citation absente');});
+    try {
+      const url=await server.start();
+      const rpc=async(method,params)=>await (await fetch(url,{method:'POST',headers:{authorization:'Bearer '+server.token,'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})})).json();
+      const list=await rpc('tools/list',{});
+      assert.ok(list.result.tools.some(t=>t.name===METHOD_TOOL));
+      assert.ok(list.result.tools.some(t=>t.name===STATE_TOOL));
+      assert.equal((await rpc('tools/call',{name:METHOD_TOOL,arguments:{tache:'critiquer'}})).result.content[0].text,'méthode');
+      assert.equal((await rpc('tools/call',{name:STATE_TOOL,arguments:{}})).result.isError,true);
+    } finally { await server.stop(); }
+    assert.deepEqual(selectReferences(refs,'Une archiviste arrive.',[]).selected.map(r=>r.path),[refs[0].path,refs[1].path,refs[3].path]);
+    assert.deepEqual(selectReferences(refs,'Norabelle',[]).mentions,[]);
+    assert.ok(!selectReferences(refs,'Nora Secret Off',[refs[2].path]).selected.some(r=>r.path===refs[2].path));
+    assert.ok(selectReferences(refs,'',[refs[4].path]).selected.some(r=>r.path===refs[4].path));
+    assert.deepEqual(selectReferences([{...refs[0],exclude:['faux']}],'Archiviste faux',[]).selected,[]);
+    assert.deepEqual(selectReferences([{...refs[0],children:[],caseSensitive:true}],'archiviste',[]).selected,[]);
+    assert.throws(()=>selectReferences(refs,'',['inconnu.md']),/inconnue/);
+    assert.equal(visibleSections('# Nora\nPublic\n## Secret\nCaché\n### Détail\nCaché aussi\n## Voix\nAudible',['Secret']),'# Nora\nPublic\n## Voix\nAudible');
+    assert.throws(()=>parseConfig({chapters:[{path:previous,previous:chapter},{path:chapter,previous}],references:[]},folders),/cycle/);
+    assert.throws(()=>parseConfig({chapters:[],references:[{path:'../secret.md'}]},folders),/relatif/);
+    assert.throws(()=>parseConfig({chapters:[],references:[],maxCharacters:0},folders),/Budget/);
+    const custom={...templates,idees:'{include:condenser}',condenser:'{chapter}'};
+    assert.equal(renderTaskPrompts(custom,folders,chapter,'x','y').idees,chapter);
+    assert.throws(()=>renderTaskPrompts({...custom,condenser:'{include:idees}'},folders,chapter,'x','y'),/Cycle/);
+    assert.throws(()=>renderTaskPrompts({...custom,idees:'{include:absent}'},folders,chapter,'x','y'),/inconnu/);
+    const prose='Nora trouve la lettre. Elle apprend le nom du gardien.';
+    const state={chapter:previous,hash:fingerprint(prose),summary:'Nora trouve une lettre.',facts:[{entity:refs[0].path,field:'Connaissances',value:'Le nom du gardien',quote:'Elle apprend le nom du gardien.',mode:'append',knownBy:['Nora','lecteur']}],moments:[{id:'lettre',description:'Découverte',quote:'Nora trouve la lettre.'}]};
+    assert.equal(parseState(state,previous,prose).facts.length,1);
+    assert.throws(()=>parseState(state,previous,prose+' changé'),/périmé/);
+    assert.throws(()=>parseState({...state,facts:[{...state.facts[0],quote:'Inventé'}]},previous,prose),/Citation/);
+    assert.throws(()=>parseState({...state,moments:[{...state.moments[0],after:'lettre'}]},previous,prose),/Cycle/);
+    const replacement={...state,facts:[{...state.facts[0],mode:'replace',value:'Autre nom'}]};
+    assert.equal(projectStates([state,replacement],refs)[0].value,'Autre nom');
+    assert.deepEqual(projectStates([state],[{...refs[0],hiddenSections:['Connaissances']}]),[]);
+    await put(previous,prose);await put(chapter,'Nora entre au Phare.\n\nElle attend.');
+    await put(refs[0].path,'# Nora\nArchiviste\n## Secret\nFUTUR_INTERDIT\n## Voix\nPrécise');
+    await put(refs[1].path,'# Phare\nUn lieu.');await put(refs[3].path,'# Règle\nGlobale');
+    const config={chapters:[{path:previous},{path:chapter,previous,pov:refs[0].path}],references:refs.map(r=>r.path===refs[0].path?{...r,hiddenSections:['Secret']}:r),methods:{critiquer:{instructions:'Causalité',targetWords:100}}};
+    await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
+    await recordNarrativeState(root,folders,state,previous,()=>{});
+    let context=await buildSceneContext(root,folders,{},chapter,'',templates);
+    assert.ok(context.sources.some(s=>s.role==='verified-summary'));
+    assert.ok(context.sources.some(s=>s.role==='narrative-state'&&s.content.includes('gardien')));
+    assert.ok(!context.sources.some(s=>s.content.includes('FUTUR_INTERDIT')));
+    await saveSceneContext(root,folders,context);
+    const method=JSON.parse(await consultMethod(root,folders,{tache:'critiquer',debut:0,fin:4},context,()=>{}));
+    assert.equal(method.selection.texte,'Nora');assert.ok(method.prompt.includes('Causalité'));
+    assert.equal(method.empreinte,fingerprint(await readFile(join(root,chapter),'utf8')));
+    assert.ok((await readFile(join(root,'Manuscript/Context/002/methode-critiquer.md'),'utf8')).includes(method.prompt.slice(0,10)));
+    await assert.rejects(()=>consultMethod(root,folders,{tache:'critiquer',fin:999},context,()=>{}),/Sélection/);
+    const chunks=reviewChunks('A'.repeat(2500)+'\n\nCourt\n\nFin');assert.equal(chunks[0].text.length,2500);assert.equal(chunks[1].text,'Court\n\nFin');
+    await put('Manuscript/Context/Prompts/critiquer.md','Consigne personnelle {chapter}');
+    await assert.rejects(()=>checkSceneContext(root,context),/Source modifiée/);
+    context=await buildSceneContext(root,folders,{},chapter,'',templates);
+    assert.ok(context.prompts.critiquer.includes('Consigne personnelle'));
+    const second=await readFile(join(root,chapter),'utf8');
+    await recordNarrativeState(root,folders,{chapter,hash:fingerprint(second),summary:'Nora attend.',facts:[],moments:[]},chapter,()=>{},undefined,context);
+    const secondState=readData(await readFile(join(root,'Manuscript/Context/002/etat.md'),'utf8'));
+    assert.equal(secondState.dependencies[previous],fingerprint(prose));
+    await put(previous,prose+' Une autre phrase.');
+    await assert.rejects(()=>checkSceneContext(root,context),/Source modifiée/);
+    context=await buildSceneContext(root,folders,{},chapter,'',templates);
+    assert.ok(context.sources.some(s=>s.role==='stale-analysis'));
+    assert.ok(!context.sources.some(s=>s.role==='verified-summary'));
+    await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify({...config,maxCharacters:1000})+'\n```\n');
+    await assert.rejects(()=>buildSceneContext(root,folders,{},chapter,'',templates),/trop volumineux/);
+    const recorded=readData(await readFile(join(root,'Manuscript/Context/001/etat.md'),'utf8'));
+    assert.equal(recorded.hash,state.hash);
+  } finally { await rm(root,{recursive:true,force:true}); }
+}

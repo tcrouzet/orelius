@@ -8,9 +8,11 @@ import { ChatSession, readConversation } from "../plugin/src/session.ts";
 import { prepareProject } from "../plugin/src/archives.ts";
 import { archiveWithCorrections, captureCodexVersions } from "../plugin/src/corrections.ts";
 import { saveConversation } from "../plugin/src/conversation.ts";
+import { TASK_PROMPT_NAMES } from "../plugin/src/task-prompts.ts";
 import { DEFAULT_PROJECT_FOLDERS } from "../plugin/src/settings.ts";
-import { generateAgent, renderAgent } from "../generate-agent.ts";
+import { generateAgent, renderAgent } from "../plugin/src/generate-agent.ts";
 
+const taskPrompts = Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name => [name, await readFile(new URL(`../prompts/${name}.md`, import.meta.url), "utf8")])));
 const project = await mkdtemp(join(tmpdir(), "orelius-session-"));
 const folders = DEFAULT_PROJECT_FOLDERS;
 const path = "Manuscript/Chapitres/controle.md";
@@ -32,7 +34,7 @@ const session = new ChatSession(() => {}, async id => { savedId = id; },
   async (cwd, changes) => {
     if (!paused) { paused = true; await gate; }
     return archiveWithCorrections(cwd, folders, changes, versions, () => {});
-  }, () => ({ ...folders, agentInstructions }),
+  }, () => ({ ...folders, agentInstructions, taskPrompts }),
   async (cwd, changes) => { Object.assign(versions, await captureCodexVersions(cwd, folders, changes)); },
   (cwd, id, turns) => saveConversation(cwd, folders, id, turns));
 const cleaner = new CodexClient({ notification() {}, request: request => cleaner.rejectRequest(request.id), exit() {} });

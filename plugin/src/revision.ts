@@ -10,6 +10,7 @@ export interface RevisionPlan {
   expected: string;
   ranges: TextRange[];
   wholeChapter: boolean;
+  wholeChapterRequested?: boolean;
   intentRecorded: boolean;
 }
 
@@ -44,7 +45,18 @@ function paragraphs(text: string): TextRange[] {
   return ranges;
 }
 
-export function planRevision(path: string, source: string, baseline?: string, details = ""): RevisionPlan {
+export function fullRewriteRequested(text: string, path: string): boolean {
+  const request = text.trim().normalize("NFC").toLowerCase();
+  // Only direct commands open a chapter; quoted, negative and local requests stay protected.
+  if (/\b(seulement|uniquement|sauf|sans|ne|pas|garde|conserve|préserve|paragraphes?|phrases?|passages?|introduction|début|fin)\b/u.test(request)) return false;
+  const command = /^(recommence|reprends|réécris)(?:\s+(entièrement|tout|de a à z))?(?:\s+(?:le|ce)\s+chapitre(?:\s+(\d+))?)?(?=\s*[,!.:\n]|$)/u.exec(request);
+  if (!command || (command[1] !== "recommence" && !command[2])) return false;
+  const number = /(?:^|\/)(\d+)\.md$/i.exec(path)?.[1];
+  const mentioned = [...request.matchAll(/\bchapitre\s+(\d+)\b/gu)].map(match => match[1]);
+  return mentioned.every(value => number !== undefined && Number(value) === Number(number));
+}
+
+export function planRevision(path: string, source: string, baseline?: string, details = "", wholeChapterRequested = false): RevisionPlan {
   const touched: TextRange[] = [];
   let offset = 0;
   if (baseline !== undefined) for (const change of diffToGroups(baseline, source, true)) {
@@ -57,12 +69,14 @@ export function planRevision(path: string, source: string, baseline?: string, de
     touched.push({ from: match.index, to: match.index + match[0].length });
   }
   const ranges = paragraphs(source).filter(paragraph => touched.some(range => range.from < paragraph.to && range.to > paragraph.from));
-  const wholeChapter = !ranges.length && (baseline === undefined || baseline === source) && !!details.trim();
-  if (wholeChapter) ranges.push({ from: 0, to: source.length });
+  const wholeChapter = wholeChapterRequested || fullRewriteRequested(details, path)
+    || !ranges.length && (baseline === undefined || baseline === source) && !!details.trim();
+  if (wholeChapter) ranges.splice(0, ranges.length, { from: 0, to: source.length });
   if (!ranges.length && (baseline === undefined || baseline === source)) throw new Error(baseline === undefined
     ? "Aucune référence Codex ni annotation ne permet de délimiter une révision. Annotez les passages à reprendre ou indiquez votre demande dans le chat."
     : "Aucun paragraphe corrigé ou annoté à réviser. Les passages intacts sont protégés ; indiquez votre demande dans le chat pour reprendre le chapitre.");
-  return { path, source, expected: source, ranges, wholeChapter, intentRecorded: false };
+  return { path, source, expected: source, ranges, wholeChapter, intentRecorded: false,
+    ...(wholeChapterRequested ? { wholeChapterRequested: true } : {}) };
 }
 
 export function checkRevision(plan: RevisionPlan, current: string | undefined, proposed: string): void {

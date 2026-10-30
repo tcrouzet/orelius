@@ -33,8 +33,8 @@ export function validateProjectFolders(folders: ProjectFolders): void {
     return folders[key].normalize("NFC").toLowerCase();
   });
   if (new Set(names).size !== names.length || names.slice(1).includes("_archives")
-    || names.some(name => name === "agents.md" || name === "agents.override.md")) {
-    throw new Error("Les dossiers doivent avoir des noms distincts ; AGENTS.md, AGENTS.override.md et les anciennes archives _Archives sont réservés.");
+    || names.some(name => name === "agents.md" || name === "agents.override.md" || name === "context")) {
+    throw new Error("Les dossiers doivent avoir des noms distincts ; AGENTS.md, AGENTS.override.md, context et les anciennes archives _Archives sont réservés.");
   }
 }
 
@@ -42,7 +42,7 @@ export function projectPaths(folders: ProjectFolders): string[] {
   validateProjectFolders(folders);
   const content = [...[folders.manuscriptFolder, folders.modelFolder].flatMap(folder => [folder,
     ...["Chapitres", "Personnages", "Plan", "Resume"].map(name => `${folder}/${name}`)]),
-    folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Personnages`];
+    folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Personnages`, `${folders.manuscriptFolder}/Context`];
   return [folders.archiveFolder, ...content, ...content.map(path => `${folders.archiveFolder}/${path}`)];
 }
 

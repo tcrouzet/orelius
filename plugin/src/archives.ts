@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, rename, rmdir } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { object } from "./codex.ts";
 import { DEFAULT_PROJECT_FOLDERS, projectPaths, validateFolderName, type ProjectFolders } from "./settings.ts";
@@ -40,6 +40,33 @@ export async function checkPath(root: string, path: string, configDir?: string):
 export async function prepareProject(cwd: string, folders: ProjectFolders, configDir?: string): Promise<void> {
   const paths = projectPaths(folders);
   const root = await realpath(cwd);
+  const legacy = join(root, "context", folders.manuscriptFolder, "Chapitres");
+  const destination = join(root, folders.manuscriptFolder, "Context");
+  await checkPath(root, legacy, configDir);
+  let legacyExists = false;
+  try { legacyExists = (await lstat(legacy)).isDirectory(); }
+  catch (error) { if (object(error).code !== "ENOENT") throw error; }
+  if (legacyExists) {
+    await checkPath(root, destination, configDir);
+    let destinationExists = false;
+    try { await lstat(destination); destinationExists = true; }
+    catch (error) { if (object(error).code !== "ENOENT") throw error; }
+    if (destinationExists) throw new Error(`Les deux dossiers context/${folders.manuscriptFolder}/Chapitres et ${folders.manuscriptFolder}/Context existent. Aucun contexte n’a été déplacé ni écrasé.`);
+    const inspect = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (entry.isSymbolicLink()) throw new Error("Le contexte à déplacer contient un lien symbolique. Aucun contexte n’a été déplacé.");
+        if (entry.isDirectory()) await inspect(join(directory, entry.name));
+      }
+    };
+    await inspect(legacy);
+    await mkdir(dirname(destination), { recursive: true });
+    await checkPath(root, destination, configDir);
+    await rename(legacy, destination);
+    for (const empty of [dirname(legacy), join(root, "context")]) {
+      try { await rmdir(empty); }
+      catch (error) { if (!["ENOTEMPTY", "EEXIST", "ENOENT"].includes(String(object(error).code))) throw error; }
+    }
+  }
   for (const path of paths) {
     const target = join(root, path);
     await checkPath(root, target, configDir);

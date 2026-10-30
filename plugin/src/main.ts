@@ -11,14 +11,37 @@ import { applySettings, loadSettings, PROJECT_FOLDER_KEYS, visibleFolder, type P
 import { OreliusSettingTab } from "./settings-tab";
 import { OreliusView, VIEW_TYPE } from "./chat-view";
 import { ChatNavigation } from "./navigation";
-import { generateAgent, renderAgent } from "../../generate-agent.ts";
+import { generateAgent, renderAgent } from "./generate-agent.ts";
 import agentTemplate from "../../prompts/agent.md";
+import prepareScenePrompt from "../../prompts/preparer-scene.md";
+import writePrompt from "../../prompts/rediger.md";
+import revisePrompt from "../../prompts/reviser.md";
+import continuityPrompt from "../../prompts/controler-continuite.md";
+import followupPrompt from "../../prompts/actualiser-suivi.md";
+import task0 from "../../prompts/idees.md";
+import task1 from "../../prompts/synopsis.md";
+import task2 from "../../prompts/planifier.md";
+import task3 from "../../prompts/decomposer-scene.md";
+import task4 from "../../prompts/resumer.md";
+import task5 from "../../prompts/developper.md";
+import task6 from "../../prompts/reformuler.md";
+import task7 from "../../prompts/condenser.md";
+import task8 from "../../prompts/critiquer.md";
+import task9 from "../../prompts/extraire-style.md";
+import task10 from "../../prompts/adapter.md";
+import task11 from "../../prompts/actualiser-bible.md";
+import task12 from "../../prompts/decrire.md";
+import task13 from "../../prompts/continuer.md";
+
 import { readProjectFile } from "./project-files.ts";
-import { planRevision } from "./revision.ts";
+import { fullRewriteRequested, planRevision } from "./revision.ts";
 import { revisionHighlights } from "./revision-highlights";
 import { editorLock } from "./editor-lock";
 import { recordAcceptance } from "./acceptance";
 import { reactionExchanges, reactionKey, recordReaction, type Reaction } from "./reactions";
+
+const taskPrompts = { "preparer-scene": prepareScenePrompt, rediger: writePrompt, reviser: revisePrompt,
+  "controler-continuite": continuityPrompt, "actualiser-suivi": followupPrompt, "idees": task0, "synopsis": task1, "planifier": task2, "decomposer-scene": task3, "resumer": task4, "developper": task5, "reformuler": task6, "condenser": task7, "critiquer": task8, "extraire-style": task9, "adapter": task10, "actualiser-bible": task11, "decrire": task12, "continuer": task13 };
 
 export default class OreliusPlugin extends Plugin {
   settings = loadSettings(undefined);
@@ -49,6 +72,7 @@ export default class OreliusPlugin extends Plugin {
     (cwd, changes) => archiveWithCorrections(cwd, this.settings, changes, this.settings.codexVersions[cwd] ?? {},
       (path, content) => this.checkEditor(path, content), this.configurationDirectory()),
     () => ({ ...this.settings, agentInstructions: renderAgent(agentTemplate, this.settings),
+      activeChapter: this.revisionChapter, taskPrompts,
       configDir: this.configurationDirectory(),
       checkEditor: (path, content) => this.checkEditor(path, content), lockNote: path => this.lockNote(path) }),
     async (cwd, changes, highlight) => {
@@ -384,8 +408,11 @@ export default class OreliusPlugin extends Plugin {
     finally { this.connecting = null; }
   }
 
-  async send(text: string, chapter?: string): Promise<void> {
+  async send(text: string, chapter?: string, wholeChapterRequested = false): Promise<void> {
     await this.settingsWrite;
+    const currentChapter = this.revisionChapter;
+    if (wholeChapterRequested && !chapter) throw new Error("Ouvrez le chapitre à recommencer.");
+    if (!chapter && currentChapter && fullRewriteRequested(text, currentChapter)) chapter = currentChapter;
     if (this.sending || this.connecting) throw new Error("Un envoi ou une connexion est déjà en cours. Votre message est conservé.");
     if (chapter && this.session.busy) throw new Error("Attendez la fin de la tâche pour réviser le chapitre avec ses dernières corrections.");
     const activePath = this.app.workspace.getActiveFile()?.path;
@@ -403,7 +430,7 @@ export default class OreliusPlugin extends Plugin {
       const versions = this.settings.codexVersions[cwd] ?? {};
       const source = chapter ? await readProjectFile(cwd, chapter) : null;
       if (chapter && !source) throw new Error(`Chapitre introuvable : ${chapter}.`);
-      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text) : undefined;
+      const revision = chapter && source ? planRevision(chapter, source.text, versions[chapter], text, wholeChapterRequested) : undefined;
       const protections = this.session.busy ? [] : await revisionProtections(cwd, this.settings, versions, chapter);
       const message = chapter ? await revisionPrompt(cwd, this.settings, chapter, versions, text, revision) : text;
       await this.session.send(message, this.settings.codexPath, cwd, this.settings.threadId, revision, protections);

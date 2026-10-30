@@ -10,5 +10,5 @@
     "types": ["node"],
     "lib": ["ES2020", "DOM"]
   },
-  "include": ["plugin/src/**/*.ts", "generate-agent.ts"]
+  "include": ["plugin/src/**/*.ts"]
 }

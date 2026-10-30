@@ -1,0 +1,11 @@
+# Préparer la scène de {chapter}
+
+Lis le dossier {contextPath} et les consignes actuelles de l’auteur. Avant de rédiger, établis la situation initiale, les personnages présents, les objets utiles, l’objectif de la scène et son point d’arrivée. Distingue les faits conservés, les intentions du plan et les hypothèses. Le texte précédent donne le raccord ; les anciennes propositions et les exemples de voix ne rétablissent pas des événements abandonnés. Si l’ordre des noms de fichiers ne correspond pas au récit, consulte le vrai prédécesseur.
+
+Décris les actions et réactions avec leurs acteurs nommés, dans leur ordre causal. Pour chaque étape, précise ce qui change : information, rapport de force, décision, tension, perception ou progression de l’enquête. Une succession de microgestes ne suffit pas à construire une scène. Ne développe pas plusieurs paragraphes d’attente pour aboutir à une action banale sans conséquence ; l’importance donnée à une action doit être justifiée par son enjeu. Une action brève peut rester brève.
+
+Sépare ce que savent le narrateur, chaque personnage concerné et le lecteur à cet endroit. Les fiches de {bibleFolder}/Personnages peuvent contenir des secrets futurs ; elles ne prouvent pas que le lecteur connaît ces informations. Le plan exprime une intention, pas un fait déjà survenu. Une plainte, une promesse ou une décision passée ne doit pas apparaître comme acquise sans appui dans les sources actuelles. Signale les contradictions et les incertitudes plutôt que d’inventer des raccords.
+
+Lis les corrections et retours de l’auteur, dont le fichier retours-auteur.md du contexte lorsqu’il existe. Identifie le défaut de construction avant de chercher des synonymes. Distingue une préférence explicitement exprimée d’une hypothèse de lecture. Choisis une référence de voix acceptée pertinente pour le narrateur ; les mots d’argot seuls ne reproduisent pas son rythme, son regard ni ses intentions.
+
+Enregistre cette préparation avec preparer_chapitre : situation, objectif, actions, connaissances, arrivée, corrections, incertitudes. Ce document de travail sera visible dans {preparationPath}. Ne rédige pas encore le chapitre et n’impose pas à l’auteur de valider ce plan. Respecte la portée de la demande : une révision locale ne permet pas de reconstruire tout le chapitre.

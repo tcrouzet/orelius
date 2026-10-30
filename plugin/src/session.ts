@@ -1,3 +1,6 @@
+import { configPath, parseConfig, readData, fingerprint } from "./narrative-context.ts";
+import { consultMethod, recordNarrativeState } from "./writing-methods.ts";
+import type { TaskPrompts } from "./task-prompts.ts";
 import { realpath } from "node:fs/promises";
 import { archiveChanges } from "./archives.ts";
 import { DEFAULT_PROJECT_FOLDERS, type OreliusSettings, type ProjectFolders } from "./settings.ts";
@@ -8,6 +11,8 @@ import { CodexClient, errorText, findCodex, object, stringValue, type RpcId, typ
 import type { ConversationTurn } from "./conversation.ts";
 import { planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
 import { chapterPath, revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
+import { buildSceneContext, saveSceneContext, type SceneContext } from "./scene-context.ts";
+import { ChapterReview } from "./chapter-review.ts";
 import { readEditorialContext } from "./editorial-context.ts";
 
 export interface ChatItem {
@@ -19,8 +24,10 @@ export interface ChatItem {
 }
 
 interface SessionContext extends ProjectFolders {
+  activeChapter?: string | null;
   configDir?: string;
   agentInstructions?: string;
+  taskPrompts?: TaskPrompts;
   checkEditor?: (path: string, content: string) => void;
   lockNote?: (path: string) => void;
   codexVersions?: OreliusSettings["codexVersions"];
@@ -56,7 +63,10 @@ export class ChatSession {
   private closing = Promise.resolve();
   private revision: RevisionPlan | null = null;
   private protections: RevisionPlan[] = [];
+  private sceneContext: SceneContext | null = null;
+  private chapterReview = new ChapterReview();
   private editorialContext: Promise<string[]> | null = null;
+  private editorialChapter: string | undefined;
   private editorialPagesRead = new Set<number>();
   private lastRequest: { text: string; cwd: string; threadId: string; turnId?: string; revision?: RevisionPlan; protections: RevisionPlan[]; restored?: boolean; originalPrompt?: string } | null = null;
 
@@ -122,6 +132,9 @@ export class ChatSession {
       this.revision = revision ?? null;
       this.protections = revision ? [revision, ...protections] : protections;
       this.editorialContext = null;
+      this.chapterReview = new ChapterReview();
+      this.sceneContext = null;
+      this.editorialChapter = revision?.path ?? this.context().activeChapter ?? undefined;
       this.editorialPagesRead.clear();
       this.lastRequest = { text, cwd, threadId: this.threadId, revision, protections };
       const client = this.client;
@@ -162,7 +175,7 @@ export class ChatSession {
       if (target) {
         const source = await readProjectFile(cwd, target.path);
         if (!source) throw new Error("Chapitre introuvable. Ouvrez le chapitre puis utilisez Réviser.");
-        const revision = planRevision(target.path, source.text, versions[target.path], target.details);
+        const revision = planRevision(target.path, source.text, versions[target.path], target.details, target.wholeChapterRequested);
         if (await revisionPrompt(cwd, folders, target.path, versions, target.details, revision) !== originalPrompt) {
           throw new Error("Le chapitre ou les consignes ont changé depuis l’échec. Utilisez Réviser pour préparer une nouvelle demande.");
         }
@@ -210,6 +223,10 @@ export class ChatSession {
       throw new Error(this.status);
     }
     if (this.lastRequest) this.lastRequest.text += `\n\n${text}`;
+    this.editorialContext = null;
+    this.sceneContext = null;
+    this.editorialPagesRead.clear();
+    this.chapterReview = new ChapterReview();
     this.upsert({ id: `steer-${turnId}-${Date.now()}`, role: "activity", text: "Consigne transmise à la tâche en cours", paths: [] });
     this.changed();
   }
@@ -349,6 +366,8 @@ export class ChatSession {
         this.changed();
         const revision = this.revision;
         if (revision) path = revisionPath(revision, cwd, this.context().bibleFolder, path);
+        if (revisionKey(cwd, path).startsWith(`${this.context().manuscriptFolder}/Context/`.normalize("NFC").toLowerCase()) && revisionKey(cwd, path).endsWith("/etat.md")) throw new Error("Utilisez enregistrer_etat_narratif pour les états vérifiés.");
+        if (revisionKey(cwd, path) === revisionKey(cwd, configPath(this.context()))) parseConfig(readData(content), this.context());
         const protection = revisionFor(this.protections, cwd, path);
         if (protection) path = protection.path;
         if (chapterPath(cwd, this.context(), path)) {
@@ -357,6 +376,7 @@ export class ChatSession {
             throw new Error("Avant d’écrire un chapitre, lisez toutes les pages de consulter_contexte_editorial pour appliquer les consignes et les corrections des chapitres précédents à cette demande.");
           }
         }
+        if (chapterPath(cwd, this.context(), path)) await this.chapterReview.check(cwd, path);
         this.context().lockNote?.(revisionKey(cwd, path));
         const previous = await readProjectFile(cwd, path);
         original = previous?.text ?? "";
@@ -373,7 +393,8 @@ export class ChatSession {
           this.status = "Codex travaille…";
           this.changed();
         }
-        return JSON.stringify({ fichier: path, archives, resultat: "Fichier écrit et version générée archivée." });
+        return JSON.stringify({ fichier: path, archives, resultat: "Fichier écrit et version générée archivée.",
+          ...(chapterPath(cwd, this.context(), path) ? { empreinte: fingerprint(content), suite: "Actualiser le résumé et les progressions avec enregistrer_etat_narratif depuis le texte enregistré ; aucun fait du plan ne devient acquis automatiquement." } : {}) });
       });
       this.recording = write.then(() => {}, () => {});
       return write.catch(error => {
@@ -384,18 +405,86 @@ export class ChatSession {
         }
         throw error;
       });
-    }, async page => {
-      ensureCurrent();
+    }, (page, chapter) => {
       const turnId = this.turnId;
-      if (!this.running || !turnId) throw new Error("Consultation éditoriale refusée hors de la tâche Codex active.");
-      const context = this.context();
-      this.editorialContext ??= readEditorialContext(cwd, context, context.codexVersions?.[cwd] ?? {});
-      const pages = await this.editorialContext;
-      ensureCurrent();
-      if (!this.running || turnId !== this.turnId) throw new Error("La tâche a changé pendant la consultation éditoriale.");
-      if (page >= pages.length) throw new Error(`Page introuvable. Consultez les pages 0 à ${pages.length - 1}.`);
-      this.editorialPagesRead.add(page);
-      return pages[page];
+      const requestText = this.lastRequest?.text;
+      const consultation = this.recording.then(async () => {
+        const ensureActive = () => {
+          ensureCurrent();
+          if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Consultation refusée hors de la tâche active.");
+          if (this.lastRequest?.text !== requestText) throw new Error("La demande a changé. Relisez le dossier depuis la page 0.");
+        };
+        ensureActive();
+        const context = this.context();
+        if (chapter !== undefined) {
+          if (chapterPath(cwd, context, chapter) !== chapter) throw new Error("Chemin de chapitre relatif attendu.");
+          if (this.revision && chapter !== this.revision.path) throw new Error("Le dossier doit rester celui du chapitre ciblé par la révision.");
+          if (chapter !== this.editorialChapter && page !== 0) throw new Error("Commencez le dossier du nouveau chapitre par la page 0.");
+          this.editorialChapter = chapter;
+        }
+        if (page === 0 || !this.editorialContext) {
+          this.editorialPagesRead.clear();
+          this.chapterReview = new ChapterReview();
+          this.sceneContext = null;
+          this.editorialContext = null;
+          if (this.editorialChapter) {
+            const dossier = await buildSceneContext(cwd, context, context.codexVersions?.[cwd] ?? {}, this.editorialChapter, this.lastRequest?.text ?? "", context.taskPrompts);
+            await saveSceneContext(cwd, context, dossier, ensureActive, context.configDir);
+            ensureActive();
+            this.sceneContext = dossier;
+            this.editorialContext = Promise.resolve(dossier.pages);
+          } else {
+            this.editorialContext = readEditorialContext(cwd, context, context.codexVersions?.[cwd] ?? {});
+          }
+        }
+        const pages = await this.editorialContext;
+        ensureActive();
+        if (page >= pages.length) throw new Error(`Page introuvable. Consultez les pages 0 à ${pages.length - 1}.`);
+        this.editorialPagesRead.add(page);
+        return pages[page];
+      });
+      this.recording = consultation.then(() => {}, () => {});
+      return consultation;
+    }, args => {
+      const turnId = this.turnId;
+      const preparation = this.recording.then(async () => {
+        ensureCurrent();
+        if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Préparation refusée hors de la tâche active.");
+        const pages = await this.editorialContext;
+        if (!pages || this.editorialPagesRead.size !== pages.length) throw new Error("Lisez toutes les pages de consulter_contexte_editorial avant de préparer le chapitre.");
+        if (!this.sceneContext) throw new Error("Consultez la page 0 de consulter_contexte_editorial avec le chemin du chapitre à préparer.");
+        this.status = "Préparation de la scène…";
+        this.changed();
+        const result = await this.chapterReview.prepare(cwd, this.context(), args, this.sceneContext, () => {
+          ensureCurrent();
+          if (!this.running || turnId !== this.turnId) throw new Error("La tâche a changé pendant la préparation.");
+        }, this.context().configDir);
+        ensureCurrent();
+        if (!this.running || turnId !== this.turnId) throw new Error("La tâche a changé pendant la préparation.");
+        return result;
+      });
+      this.recording = preparation.then(() => {}, () => {});
+      return preparation;
+    }, args => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        const ensureActive = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Tâche inactive."); };
+        ensureActive();
+        if (!this.sceneContext) throw new Error("Consultez le dossier du chapitre avant la méthode.");
+        return consultMethod(cwd, this.context(), args, this.sceneContext, ensureActive, this.context().configDir);
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
+    }, args => {
+      const turnId = this.turnId;
+      const action = this.recording.then(async () => {
+        const ensureActive = () => { ensureCurrent(); if (!this.running || !turnId || turnId !== this.turnId) throw new Error("Tâche inactive."); };
+        ensureActive();
+        if (!this.editorialChapter) throw new Error("Choisissez le chapitre avant son extraction.");
+        return recordNarrativeState(cwd, this.context(), args, this.editorialChapter, ensureActive, this.context().configDir, this.sceneContext ?? undefined);
+      });
+      this.recording = action.then(() => {}, () => {});
+      return action;
     });
     this.files = files;
     const url = await files.start();
@@ -430,7 +519,7 @@ export class ChatSession {
       cwd, sandbox: "read-only", approvalPolicy: "never", approvalsReviewer: "user",
       ...(requestedModel ? { model: requestedModel } : {}),
       developerInstructions: [context.agentInstructions,
-        `Create or modify files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, the Obsidian configuration directory${context.configDir ? ` (${JSON.stringify(context.configDir)})` : ""} or .git. If an edit fails, report it and do not retry through another tool.`].filter(Boolean).join("\n\n"),
+        `Before chapter prose, read consulter_contexte_editorial for that chapter and record its scene preparation with preparer_chapitre. These tools maintain visible manuscript Context files. Create or modify manuscript files only with the Orelius MCP tool ecrire_fichier (chemin, contenu). Provide the complete UTF-8 content. Orelius archives the original before writing. Shell writes, apply_patch, permission extensions, deletions and renames are forbidden. Do not change archive directories, the Obsidian configuration directory${context.configDir ? ` (${JSON.stringify(context.configDir)})` : ""} or .git. If an edit fails, report it and do not retry through another tool.`].filter(Boolean).join("\n\n"),
     });
     ensureCurrent();
     const thread = object(result.thread);

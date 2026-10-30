@@ -18,6 +18,7 @@ export class OreliusView extends ItemView {
   private input!: HTMLTextAreaElement;
   private sendButton!: HTMLButtonElement;
   private reviseButton!: HTMLButtonElement;
+  private rewriteButton!: HTMLButtonElement;
   private acceptButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
   private newButton!: HTMLButtonElement;
@@ -95,6 +96,9 @@ export class OreliusView extends ItemView {
     this.sendButton.onclick = () => { void this.send(); };
     this.reviseButton = buttons.createEl("button", { text: "Réviser", cls: "orelius-revise" });
     this.reviseButton.onclick = () => { void this.send(true); };
+    this.rewriteButton = buttons.createEl("button", { text: "Recommencer" });
+    this.rewriteButton.title = "Reprendre tout le chapitre ouvert, annotations comprises, avec vos précisions éventuelles et archivage de l’original.";
+    this.rewriteButton.onclick = () => { void this.send(true, true); };
     this.acceptButton = buttons.createEl("button", { text: "Accepter", cls: "mod-cta" });
     this.acceptButton.title = "Valider la version actuelle, retirer le surlignage et joindre le message éventuel comme retour positif dans le suivi.";
     this.acceptButton.onclick = () => { void this.accept(); };
@@ -179,7 +183,7 @@ export class OreliusView extends ItemView {
     finally { this.submitting = false; this.update(); }
   }
 
-  private async send(revise = false): Promise<void> {
+  private async send(revise = false, wholeChapterRequested = false): Promise<void> {
     const text = this.input.value;
     const chapter = revise ? this.plugin.revisionChapter : undefined;
     if ((revise ? !chapter || this.plugin.session.busy : !text.trim()) || this.submitting
@@ -187,7 +191,7 @@ export class OreliusView extends ItemView {
     this.submitting = true;
     this.followMessages = true;
     this.update();
-    try { await this.run(() => this.plugin.send(text, chapter ?? undefined)); }
+    try { await this.run(() => this.plugin.send(text, chapter ?? undefined, wholeChapterRequested)); }
     finally { this.submitting = false; this.update(); }
   }
 
@@ -221,6 +225,7 @@ export class OreliusView extends ItemView {
     this.sendButton.setText(this.submitting ? "Envoi…" : session.running ? "Envoyer à la tâche" : "Envoyer");
     const chapter = this.plugin.revisionChapter;
     this.reviseButton.disabled = this.submitting || session.busy || !chapter;
+    this.rewriteButton.disabled = this.reviseButton.disabled;
     this.acceptButton.toggle(Boolean(this.plugin.acceptanceChapter));
     this.acceptButton.disabled = this.submitting || session.busy;
     this.reviseButton.title = !chapter ? "Ouvrez un chapitre du manuscrit pour le réviser."

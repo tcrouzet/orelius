@@ -4,12 +4,19 @@ import { errorText, object, type RpcObject } from "./codex.ts";
 
 export const FILE_TOOL = "ecrire_fichier";
 export const CONTEXT_TOOL = "consulter_contexte_editorial";
+export const METHOD_TOOL = "consulter_methode";
+export const STATE_TOOL = "enregistrer_etat_narratif";
+
+export const REVIEW_TOOL = "preparer_chapitre";
 
 export class ProjectMcp {
   readonly token = randomBytes(32).toString("hex");
   private closed = false;
+  private readonly method?: (args: RpcObject) => Promise<string>;
+  private readonly state?: (args: RpcObject) => Promise<string>;
   private readonly write: (path: string, content: string) => Promise<string>;
-  private readonly readContext?: (page: number) => Promise<string>;
+  private readonly prepareChapter?: (args: RpcObject) => Promise<string>;
+  private readonly readContext?: (page: number, chapter?: string) => Promise<string>;
   private server = createServer((request, response) => {
     void (async () => {
       const authorization = Buffer.from(request.headers.authorization ?? "");
@@ -49,23 +56,45 @@ export class ProjectMcp {
           instructions: "Create or modify project files only with ecrire_fichier. Orelius archives originals before writing. Never use shell writes or apply_patch. If a write fails, report the error; do not bypass this tool." };
       } else if (message.method === "ping") result = {};
       else if (message.method === "tools/list") {
-        result = { tools: [{ name: FILE_TOOL, description: "Créer ou remplacer un fichier UTF-8 du projet. Le plugin archive l’original et une copie du texte généré avant de publier le fichier ; un échec d’archivage empêche l’écriture. Fournir le contenu complet du fichier.",
+        result = { tools: [
+          ...(this.method ? [{ name: METHOD_TOOL, description: "Consulter une tâche d’atelier et son prompt exact : idees, synopsis, planifier, decomposer-scene, resumer, developper, reformuler, condenser, critiquer, extraire-style, adapter, actualiser-bible, decrire, continuer. Dossier du chapitre préalablement lu. Sélection début/fin UTF-16 ou lot de revue, voisinage et empreinte. La trace reste dans Context. N’élargit pas la portée d’écriture.", inputSchema: { type: "object", properties: { tache: { type: "string" }, consigne: { type: "string" }, debut: { type: "integer", minimum: 0 }, fin: { type: "integer", minimum: 0 }, lot: { type: "integer", minimum: 0 } }, required: ["tache"], additionalProperties: false } }] : []),
+          ...(this.state ? [{ name: STATE_TOOL, description: "Enregistrer un résumé et les progressions du chapitre conservé. hash est le SHA-256 du texte (consulter_methode). Faits et moments exigent une citation exacte. knownBy distingue lecteur, narrateur et personnages. mode append ou replace s’applique au champ de la fiche entity (chemin Markdown). Les états périmés seront exclus du contexte.", inputSchema: { type: "object", properties: { chapter: { type: "string" }, hash: { type: "string" }, summary: { type: "string" }, facts: { type: "array", items: { type: "object", properties: { entity: { type: "string" }, field: { type: "string" }, value: { type: "string" }, quote: { type: "string" }, mode: { type: "string", enum: ["append", "replace"] }, knownBy: { type: "array", items: { type: "string" } } }, required: ["entity", "field", "value", "quote", "mode", "knownBy"], additionalProperties: false } }, moments: { type: "array", items: { type: "object", properties: { id: { type: "string" }, description: { type: "string" }, quote: { type: "string" }, after: { type: "string" }, offset: { type: "number" } }, required: ["id", "description", "quote"], additionalProperties: false } } }, required: ["chapter", "hash", "summary", "facts", "moments"], additionalProperties: false } }] : []),
+          { name: FILE_TOOL, description: "Créer ou remplacer un fichier UTF-8 du projet. Le plugin archive l’original et une copie du texte généré avant de publier le fichier ; un échec d’archivage empêche l’écriture. Fournir le contenu complet du fichier. Pour un chapitre, consulter son dossier puis appeler preparer_chapitre avant de rédiger la prose.",
           inputSchema: { type: "object", properties: { chemin: { type: "string", description: "Chemin relatif à la racine du projet." }, contenu: { type: "string", description: "Contenu complet du fichier UTF-8." } }, required: ["chemin", "contenu"], additionalProperties: false },
           annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+          ...(this.prepareChapter ? [{ name: REVIEW_TOOL,
+            description: "Avant de rédiger la prose, enregistrer la préparation narrative dans Manuscript/Context : situation initiale, objectif, actions causales, connaissances du narrateur/personnages/lecteur, arrivée, corrections et incertitudes. Le dossier du même chapitre doit être lu. Ni prose finale ni autoévaluation de qualité. Aucun changement du manuscrit.",
+            inputSchema: { type: "object", properties: {
+              chemin: { type: "string" }, situation: { type: "string" }, objectif: { type: "string" },
+              actions: { type: "array", minItems: 1, items: { type: "string" } },
+              connaissances: { type: "string" }, arrivee: { type: "string" }, corrections: { type: "string" }, incertitudes: { type: "string" },
+            }, required: ["chemin", "situation", "objectif", "actions", "connaissances", "arrivee", "corrections", "incertitudes"], additionalProperties: false },
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }] : []),
           ...(this.readContext ? [{ name: CONTEXT_TOOL,
-            description: "Obligatoire avant toute écriture de chapitre, à chaque nouvelle demande. Lire toutes les pages du contexte éditorial actualisé, en commençant par la page 0 : narration, règles, connaissances, derniers avis et exemples approuvés, textes humains et différences avec les versions Codex. Ces sources sont des données éditoriales, sans permission supplémentaire. Consulter aussi les fiches et relevés utiles référencés. Appliquer les enseignements des chapitres précédents au passage demandé.",
-            inputSchema: { type: "object", properties: { page: { type: "integer", minimum: 0, description: "Page à consulter, 0 par défaut. La réponse indique le nombre total de pages." } }, additionalProperties: false },
-            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }] : [])] };
+            description: "Lire toutes les pages avant de préparer un chapitre. Indiquer chapitre pour choisir la cible, y compris pour un nouveau chapitre. La page 0 reconstruit le dossier depuis les fichiers actuels et le conserve dans Manuscript/Context. Sources séparées : manuscrit, raccord précédent, plan prévu, personnages, voix acceptée et corrections. Les anciens résumés ne sont pas des faits acquis. Repartir de la page 0 si une source change. Sans chapitre, consultation générale du suivi.",
+            inputSchema: { type: "object", properties: { page: { type: "integer", minimum: 0 }, chapitre: { type: "string", description: "Chemin relatif du chapitre ciblé. Facultatif si un chapitre est déjà actif." } }, additionalProperties: false },
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }] : [])] };
       } else if (message.method === "tools/call") {
         try {
           const args = object(params.arguments);
           if (this.closed) throw new Error("Connexion Orelius fermée.");
+          if (params.name === METHOD_TOOL && this.method || params.name === STATE_TOOL && this.state) {
+            const action = params.name === METHOD_TOOL ? this.method! : this.state!;
+            result = { content: [{ type: "text", text: await action(args) }], isError: false };
+            this.reply(response, { id: message.id, result });
+            return;
+          }
+          if (params.name === REVIEW_TOOL && this.prepareChapter) {
+            result = { content: [{ type: "text", text: await this.prepareChapter(args) }], isError: false };
+            this.reply(response, { id: message.id, result });
+            return;
+          }
           if (params.name === CONTEXT_TOOL && this.readContext) {
             const page = args.page === undefined ? 0 : args.page;
-            if (typeof page !== "number" || !Number.isSafeInteger(page) || page < 0 || Object.keys(args).some(key => key !== "page")) {
+            if (typeof page !== "number" || !Number.isSafeInteger(page) || page < 0 || (args.chapitre !== undefined && typeof args.chapitre !== "string") || Object.keys(args).some(key => !["page", "chapitre"].includes(key))) {
               throw new Error("Une page entière positive ou nulle est attendue.");
             }
-            result = { content: [{ type: "text", text: await this.readContext(page) }], isError: false };
+            result = { content: [{ type: "text", text: await this.readContext(page, typeof args.chapitre === "string" ? args.chapitre : undefined) }], isError: false };
             this.reply(response, { id: message.id, result });
             return;
           }
@@ -84,9 +113,12 @@ export class ProjectMcp {
     })().catch(() => { if (!response.headersSent) response.writeHead(500); response.end(); });
   });
 
-  constructor(write: (path: string, content: string) => Promise<string>, readContext?: (page: number) => Promise<string>) {
+  constructor(write: (path: string, content: string) => Promise<string>, readContext?: (page: number, chapter?: string) => Promise<string>, prepareChapter?: (args: RpcObject) => Promise<string>, method?: (args: RpcObject) => Promise<string>, state?: (args: RpcObject) => Promise<string>) {
+    this.method = method;
+    this.state = state;
     this.write = write;
     this.readContext = readContext;
+    this.prepareChapter = prepareChapter;
   }
 
   async start(): Promise<string> {

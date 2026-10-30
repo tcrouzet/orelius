@@ -1,3 +1,4 @@
+import { checkNarrative } from "./check-narrative.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, access, readFile, realpath, readdir, rm, stat, writeFile, mkdir, symlink, link } from "node:fs/promises";
 import { writeFileSync } from "node:fs";
@@ -9,25 +10,31 @@ import { CodexClient, codexVersion, findCodex, object } from "../plugin/src/code
 import { ChatSession, codexFailure } from "../plugin/src/session.ts";
 import { applySettings, associatedFolder, DEFAULT_PROJECT_FOLDERS, loadSettings, projectPaths, visibleFolder } from "../plugin/src/settings.ts";
 import { archiveChanges, archiveGenerated, prepareProject } from "../plugin/src/archives.ts";
-import { generateAgent, renderAgent } from "../generate-agent.ts";
+import { generateAgent, renderAgent } from "../plugin/src/generate-agent.ts";
 import { archiveWithCorrections, captureCodexVersions, correctionReport, prepareCorrections, refreshCorrections, revisionPrompt, revisionRequest } from "../plugin/src/corrections.ts";
 import { readProjectFile, writeProjectFile } from "../plugin/src/project-files.ts";
 import { contextRemaining, modelOptions } from "../plugin/src/models.ts";
 import { ChatNavigation } from "../plugin/src/navigation.ts";
-import { prepareBible } from "../plugin/src/bible.ts";
+import { EDITORIAL_PRIORITIES, prepareBible } from "../plugin/src/bible.ts";
 import { renderConversation, saveConversation } from "../plugin/src/conversation.ts";
-import { CONTEXT_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
+import { TASK_PROMPT_NAMES, renderTaskPrompts } from "../plugin/src/task-prompts.ts";
+import { buildSceneContext as buildSceneContextRaw, checkSceneContext, saveSceneContext } from "../plugin/src/scene-context.ts";
+import { ChapterReview } from "../plugin/src/chapter-review.ts";
+import { METHOD_TOOL, STATE_TOOL, CONTEXT_TOOL, REVIEW_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
 import { readEditorialContext } from "../plugin/src/editorial-context.ts";
 import { diffToGroups } from "../plugin/src/diff.ts";
-import { checkRevision, planRevision, revisionMarks, revisionPath, revisionFor } from "../plugin/src/revision.ts";
+import { checkRevision, fullRewriteRequested, planRevision, revisionMarks, revisionPath, revisionFor } from "../plugin/src/revision.ts";
 import { Compartment, EditorState, Facet } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorLock } from "../plugin/src/editor-lock.ts";
 import { recordAcceptance } from "../plugin/src/acceptance.ts";
+import { acceptedChanges } from "../plugin/src/editorial-examples.ts";
 import { reactionExchanges, reactionKey, recordReaction } from "../plugin/src/reactions.ts";
 import { checkRelease } from "./check-release.mjs";
 import { checkWeb } from "./web/check.mjs";
 
+const taskPrompts = Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name => [name, await readFile(new URL(`../prompts/${name}.md`, import.meta.url), "utf8")])));
+const buildSceneContext = (cwd, folders, versions, chapter, request = "") => buildSceneContextRaw(cwd, folders, versions, chapter, request, taskPrompts);
 const agentTemplate = await readFile(new URL("../prompts/agent.md", import.meta.url), "utf8");
 let passed = 0;
 const clients = [];
@@ -44,6 +51,7 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("REA : références, progressions, méthodes, chronologie et invalidation", () => checkNarrative());
   await check("Site web : catalogue et publication des livres d’exemple", () => checkWeb());
   await check("Publication : contrôles, commits automatiques, versions et tags", () => checkRelease());
   await check("Réactions : réponses finales terminées, contexte complet et ancien historique", async () => {
@@ -151,6 +159,19 @@ try {
     } finally { await rm(project, { recursive: true }); }
   });
 
+  await check("Exemples : annotation exacte, résultat accepté, coupes et absence de préférence inventée", async () => {
+    const before = "# Scène\n\nElle répond. (((Qui parle ?)))\n\nÀ supprimer.\n";
+    const after = "# Scène\n\nNadia répond.\n";
+    const examples = acceptedChanges(before, after);
+    assert.ok(examples.includes("Elle répond. (((Qui parle ?)))"));
+    assert.ok(examples.includes("Nadia répond."));
+    assert.ok(examples.includes("À supprimer."));
+    assert.ok(examples.includes("n’est pas automatiquement un contre-exemple"));
+    assert.ok(examples.includes("ne suffit pas à établir son intention"));
+    assert.equal(acceptedChanges(after, after), "");
+    assert.ok(acceptedChanges("Un passage supprimé.\n", "").includes("    (vide)"));
+  });
+
   await check("Acceptation : retour exact, exemple positif figé, notes préservées et absence de doublon", async () => {
     const project = join(directory, "acceptance");
     const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers", archiveFolder: "Versions" };
@@ -174,6 +195,7 @@ try {
       assert.ok(accepted.includes(`## Version approuvée\n\n${quoted(snapshot.after)}`));
       assert.ok(accepted.includes("exemple positif"));
       assert.ok(accepted.includes("version produite par Codex"));
+      assert.ok(accepted.includes(acceptedChanges(snapshot.before, snapshot.after)));
       const knowledge = await readFile(join(project, knowledgePath), "utf8");
       assert.ok(knowledge.startsWith(personal));
       assert.ok(knowledge.includes(report.split("/").pop()));
@@ -305,6 +327,68 @@ try {
     } finally { await session.disconnect(); await rm(project, { recursive: true }); }
   });
 
+  await check("Contexte : manuscrit actuel inchangé transmis et hypothèses historiques écartées", async () => {
+    const project = join(directory, "current-manuscript-context");
+    await mkdir(project);
+    try {
+      await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
+      await prepareCorrections(project, DEFAULT_PROJECT_FOLDERS);
+      const path = "Manuscript/Chapitres/002.md";
+      const current = "# 002\n\nUne prise débranchée.\n";
+      const memory = "# Mémoire\n\n## Consignes actives\n\nClarifier qui parle.\n\n## Hypothèses abandonnées\n\nUn tableau de classe récupéré.\n";
+      await writeFile(join(project, path), current);
+      await writeFile(join(project, "Bible/Suivi/Connaissances.md"), memory);
+      const sources = (await readEditorialContext(project, DEFAULT_PROJECT_FOLDERS, { [path]: current }, path)).flatMap(page => JSON.parse(page).sources);
+      assert.deepEqual(sources.filter(source => source.path === path), [{ path, content: current, role: "current-manuscript" }]);
+      const active = sources.find(source => source.path.endsWith("Connaissances.md"));
+      assert.ok(active.content.includes("Clarifier qui parle."));
+      assert.equal(active.content.includes("tableau de classe"), false);
+      assert.equal(await readFile(join(project, "Bible/Suivi/Connaissances.md"), "utf8"), memory);
+      await writeFile(join(project, path), current + "(((Qui parle ?)))\n");
+      const updated = (await readEditorialContext(project, DEFAULT_PROJECT_FOLDERS, { [path]: current }, path)).flatMap(page => JSON.parse(page).sources);
+      assert.equal(updated.filter(source => source.path === path).length, 1);
+      assert.ok(updated.find(source => source.role === "correction-diff").content.includes("Qui parle ?"));
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Contexte éditorial : exemples acceptés distincts des brouillons et derniers avis par échange", async () => {
+    const project = join(directory, "editorial-preferences");
+    const folders = DEFAULT_PROJECT_FOLDERS;
+    const first = "Manuscript/Chapitres/001.md", second = "Manuscript/Chapitres/002.md";
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      await writeFile(join(project, first), "Première version acceptée.\n");
+      const obsolete = await recordAcceptance(project, folders, first, { before: "Avant.", after: "Première version acceptée.\n" }, "Premier avis.");
+      const approved = "Une voix précise.\n".repeat(700);
+      await writeFile(join(project, first), approved);
+      const reference = await recordAcceptance(project, folders, first, { before: "Avant.", after: approved }, "Garde cette voix.");
+      await writeFile(join(project, second), "Autre chapitre accepté.\n");
+      const other = await recordAcceptance(project, folders, second, { before: "Avant.", after: "Autre chapitre accepté.\n" }, "Bon raccord.");
+      const rejected = "Nadia a la main entre ses épaules. (((Les épaules de qui ? Recommence.)))\n";
+      await writeFile(join(project, second), rejected);
+      const exchange = { turnId: "tour", prompts: ["Révise 002."], answer: { id: "réponse", role: "assistant", text: "Version enregistrée.", paths: [] } };
+      const old = await recordReaction(project, folders, "session", exchange, "up", "Premier avis.");
+      const refusal = await recordReaction(project, folders, "session", exchange, "down", "La première phrase est ambiguë.", old);
+      const unrelated = await recordReaction(project, folders, "autre session", exchange, "heart", "Ce plan me convient.");
+      const sources = (await readEditorialContext(project, folders, { [first]: approved, [second]: "Version précédente.\n" })).flatMap(page => JSON.parse(page).sources);
+      const content = path => sources.filter(source => source.path === path).map(source => source.content).join("");
+      assert.equal(content(reference), await readFile(join(project, reference), "utf8"));
+      assert.equal(content(other), await readFile(join(project, other), "utf8"));
+      assert.equal(content(obsolete), "");
+      assert.equal(content(old.report), "");
+      assert.ok(content(refusal.report).includes("La première phrase est ambiguë."));
+      assert.ok(content(unrelated.report).includes("Ce plan me convient."));
+      assert.ok(sources.filter(source => source.path === reference).every(source => source.role === "approved-example"));
+      assert.ok(sources.filter(source => source.path === second).every(source => source.role === "working-draft"));
+      assert.equal(content(second), rejected);
+      assert.ok(sources.findIndex(source => source.path === reference) < sources.findIndex(source => source.path.endsWith("Connaissances.md")));
+      assert.equal(await readFile(join(project, first), "utf8"), approved);
+      assert.equal(await readFile(join(project, second), "utf8"), rejected);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
   await check("Contexte éditorial : corrections du chapitre précédent, avis exacts et sources intégrales paginées", async () => {
     const project = join(directory, "editorial-sources");
     const elsewhere = join(directory, "other-editorial-project");
@@ -320,6 +404,8 @@ try {
       await writeFile(join(project, path), human);
       await writeFile(join(project, "Univers/Style/Narration.md"), "Première personne, présent, rythme nouchi.\n");
       await writeFile(join(project, "Univers/Suivi/Connaissances.md"), knowledge);
+      const examples = "# Exemples\n\nStatut : correction humaine, pas encore acceptée.\nAvant : elle répond.\nAprès : Nadia répond.\n";
+      await writeFile(join(project, "Univers/Suivi/Exemples.md"), examples);
       const approved = "Enfin, voilà ce que je voulais.";
       const accepted = await recordAcceptance(project, folders, path, { before: baseline, after: human }, approved);
       const feedback = await recordReaction(project, folders, "session", { turnId: "tour", prompts: ["Écris 002."],
@@ -332,6 +418,8 @@ try {
         for (const source of page.sources) files.set(source.path, (files.get(source.path) ?? "") + source.content);
       }
       assert.ok(pages.length > 1);
+      assert.equal(files.get("Univers/Suivi/Exemples.md"), examples);
+      assert.equal(pages.flatMap(page => page.sources).find(source => source.path.endsWith("Exemples.md")).role, "correction-examples");
       assert.equal(files.get(path), human);
       assert.ok(files.get(`${path} — comparaison Codex/auteur`).includes(baseline.trim()));
       assert.ok(files.get(`${path} — comparaison Codex/auteur`).includes("Que dit-elle ?"));
@@ -507,6 +595,64 @@ try {
     plan.intentRecorded = true;
     assert.doesNotThrow(() => checkRevision(plan, human, human));
     assert.throws(() => checkRevision(plan, human, baseline), /hors des paragraphes/);
+  });
+
+  await check("Recommencer : chapitre annoté entier autorisé, demandes locales et autres chapitres protégés", async () => {
+    const path = "Manuscript/Chapitres/002.md";
+    const baseline = "# 002\n\nOuverture.\n\nSuite intacte.\n";
+    const human = baseline.replace("Ouverture.", "Ouverture. (((Qui parle ?)))");
+    for (const request of ["Recommence, c’était null", "Recommence.", "Recommence entièrement le chapitre 002.", "Reprends tout le chapitre 2.", "Réécris entièrement ce chapitre."]) {
+      assert.equal(fullRewriteRequested(request, path), true, request);
+      const plan = planRevision(path, human, baseline, request);
+      assert.equal(plan.wholeChapter, true);
+      assert.deepEqual(plan.ranges, [{ from: 0, to: human.length }]);
+      assert.throws(() => checkRevision(plan, human, "# 002\n\nTout repris.\n"), /consignez/);
+      plan.intentRecorded = true;
+      assert.doesNotThrow(() => checkRevision(plan, human, "# 002\n\nTout repris.\n"));
+      assert.throws(() => checkRevision(plan, human + "Correction récente.", "Repris."), /a changé/);
+      assert.throws(() => revisionPath(plan, "/projet", "Bible", "Manuscript/Chapitres/001.md"), /seulement le chapitre ciblé/);
+    }
+    for (const request of ["Ne recommence pas.", "Recommence le premier paragraphe.", "Recommence seulement les dialogues.", "Recommence, mais garde la fin.", "Recommence, ne touche pas aux paragraphes intacts.", "Recommence entièrement le chapitre 003.", "Recommence ce chapitre. Puis reprends le chapitre 3.", "Il a dit : Recommence.", "« Recommence »", "Reprends."]) {
+      assert.equal(fullRewriteRequested(request, path), false, request);
+      const plan = planRevision(path, human, baseline, request);
+      assert.equal(plan.wholeChapter, false, request);
+      plan.intentRecorded = true;
+      assert.throws(() => checkRevision(plan, human, "# 002\n\nTout repris.\n"), /hors des paragraphes/);
+    }
+    const project = join(directory, "restart-annotated");
+    await mkdir(project);
+    try {
+      await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
+      await writeFile(join(project, path), human);
+      const details = "Recommence, c’était null";
+      const plan = planRevision(path, human, baseline, details);
+      const prompt = await revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, { [path]: baseline }, details, plan);
+      assert.deepEqual(revisionRequest(prompt), { path, details });
+      assert.ok(prompt.includes("Le chapitre entier est autorisé"));
+      assert.ok(prompt.includes("elles ne limitent pas cette reprise"));
+      for (const message of ["Recommence chapitre 2 de 0", "Repars de zéro, sans détails sortis de nulle part.", "", "Garde la voix, mais change la construction."]) {
+        const whole = planRevision(path, human, baseline, message, true);
+        assert.equal(whole.wholeChapterRequested, true);
+        assert.deepEqual(whole.ranges, [{ from: 0, to: human.length }]);
+        const generated = await revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, { [path]: baseline }, message, whole);
+        const restored = revisionRequest(generated);
+        assert.deepEqual(restored, { path, details: message, wholeChapterRequested: true });
+        const resumed = planRevision(path, human, baseline, restored.details, restored.wholeChapterRequested);
+        assert.equal(await revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, { [path]: baseline }, restored.details, resumed), generated);
+        resumed.intentRecorded = true;
+        assert.doesNotThrow(() => checkRevision(resumed, human, "# 002\n\nTout repris.\n"));
+        assert.throws(() => checkRevision(resumed, human + "Retouche.", "Repris."), /a changé/);
+        assert.throws(() => revisionPath(resumed, project, "Bible", "Manuscript/Chapitres/001.md"), /seulement le chapitre ciblé/);
+      }
+      const whole = planRevision(path, human, baseline, "Recommence chapitre 2 de 0", true);
+      whole.intentRecorded = true;
+      const archive = (cwd, changes) => archiveWithCorrections(cwd, DEFAULT_PROJECT_FOLDERS, changes, { [path]: baseline }, () => {});
+      const copies = await writeProjectFile(project, path, "# 002\n\nTout repris.\n", await readProjectFile(project, path), "Archives", archive, undefined, true, whole);
+      const original = copies.find(name => name.endsWith("-h.md"));
+      assert.ok(original);
+      assert.equal(await readFile(join(project, original), "utf8"), human);
+      assert.equal(await readFile(join(project, path), "utf8"), "# 002\n\nTout repris.\n");
+    } finally { await rm(project, { recursive: true }); }
   });
 
   await check("Réviser par le chat : texte intact, consigne seule et archivage de la reprise", async () => {
@@ -1042,7 +1188,7 @@ try {
     try {
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
-      const expected = ["Archives", "Manuscript", "Model", "Bible"];
+      const expected = ["Archives", "Manuscript", "Model", "Bible", "Manuscript/Context", "Archives/Manuscript/Context"];
       for (const child of ["Chapitres", "Personnages", "Plan", "Resume"]) {
         expected.push(`Manuscript/${child}`, `Archives/Manuscript/${child}`);
         expected.push(`Model/${child}`, `Archives/Model/${child}`);
@@ -1076,6 +1222,11 @@ try {
       await prepareProject(project, folders);
       await prepareBible(project, folders);
       const path = join(project, "Univers", "Style", "Narration.md");
+      const narration = await readFile(path, "utf8");
+      assert.ok(narration.includes(EDITORIAL_PRIORITIES));
+      const agent = renderAgent(agentTemplate, loadSettings(folders));
+      assert.ok(agent.includes(EDITORIAL_PRIORITIES));
+      assert.equal(agent.includes("{editorialPriorities}"), false);
       const template = await readFile(path, "utf8");
       await assert.rejects(access(join(project, "Univers", "Narration.md")), { code: "ENOENT" });
       for (const text of ["Mode narratif", "Personne", "Point de vue", "Temps du récit", "Style narratif"]) assert.ok(template.includes(text), text);
@@ -1652,6 +1803,153 @@ try {
     } finally { await rm(project, { recursive: true }); }
   });
 
+  await check("Prompts de tâches : fichiers réels, variables résolues et séparation création/révision", async () => {
+    const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Manuscrit", bibleFolder: "Univers" };
+    const rendered = renderTaskPrompts(taskPrompts, folders, "Manuscrit/Chapitres/002.md", "Manuscrit/Context/002/sources.md", "Manuscrit/Context/002/preparation.md");
+    for (const [name, text] of Object.entries(rendered)) {
+      assert.ok(text.length > 100, name);
+      assert.doesNotMatch(text, /\{(?:chapter|contextPath|preparationPath|manuscriptFolder|bibleFolder)\}/);
+    }
+    assert.match(rendered["reviser"], /tout ça pour ça/);
+    assert.match(rendered["preparer-scene"], /microgestes/);
+    assert.throws(() => renderTaskPrompts({ ...taskPrompts, rediger: "{inconnue}" }, folders, "c", "s", "p"), /Variable inconnue/);
+    assert.throws(() => renderTaskPrompts({ ...taskPrompts, rediger: "" }, folders, "c", "s", "p"), /absent/);
+    const project = join(directory, "task-prompts");
+    await mkdir(project);
+    try {
+      await prepareProject(project, folders);
+      const dossier = await buildSceneContext(project, folders, {}, "Manuscrit/Chapitres/002.md", "Écris ce chapitre.");
+      assert.equal(dossier.task, "rediger");
+      assert.equal(dossier.path, "Manuscrit/Context/002/sources.md");
+      await saveSceneContext(project, folders, dossier);
+      assert.equal((await readFile(join(project, dossier.promptsPath), "utf8")).includes("## prompts/rediger.md"), false);
+      assert.ok(dossier.pages.join("").includes("preparer-scene.md"));
+      await mkdir(join(project, "Manuscrit/Context/002"), { recursive: true });
+      const feedback = '« Quel mot ? » — « Tout ça pour ça ». Retours exacts de l’auteur.';
+      await writeFile(join(project, "Manuscrit/Context/002/retours-auteur.md"), feedback);
+      const updated = await buildSceneContext(project, folders, {}, dossier.chapter);
+      assert.equal(updated.sources.find(source => source.path.endsWith("retours-auteur.md")).content, feedback);
+      await assert.rejects(checkSceneContext(project, dossier), /Source modifiée/);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Migration du contexte : fichiers préservés, conflit et liens refusés", async () => {
+    for (const scenario of ["move", "conflict", "link"]) {
+      const project = join(directory, `move-context-${scenario}`);
+      const old = "context/Manuscript/Chapitres/002";
+      await mkdir(join(project, old), { recursive: true });
+      await writeFile(join(project, old, "sources.md"), "Sources existantes.");
+      await writeFile(join(project, old, "preparation.md"), "Préparation existante.");
+      try {
+        if (scenario === "conflict") {
+          await mkdir(join(project, "Manuscript/Context/002"), { recursive: true });
+          await writeFile(join(project, "Manuscript/Context/002/sources.md"), "Autre contenu.");
+          await assert.rejects(prepareProject(project, DEFAULT_PROJECT_FOLDERS), /deux dossiers/);
+          assert.equal(await readFile(join(project, old, "sources.md"), "utf8"), "Sources existantes.");
+          assert.equal(await readFile(join(project, "Manuscript/Context/002/sources.md"), "utf8"), "Autre contenu.");
+        } else if (scenario === "link") {
+          await symlink(join(project, old, "sources.md"), join(project, old, "lien.md"));
+          await assert.rejects(prepareProject(project, DEFAULT_PROJECT_FOLDERS), /lien symbolique/);
+          assert.equal(await readFile(join(project, old, "sources.md"), "utf8"), "Sources existantes.");
+        } else {
+          await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
+          await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
+          assert.equal(await readFile(join(project, "Manuscript/Context/002/sources.md"), "utf8"), "Sources existantes.");
+          assert.equal(await readFile(join(project, "Manuscript/Context/002/preparation.md"), "utf8"), "Préparation existante.");
+          await assert.rejects(access(join(project, "context")), { code: "ENOENT" });
+        }
+      } finally { await rm(project, { recursive: true }); }
+    }
+  });
+
+  await check("Préparation : situation avant prose, dossier visible et sources réactualisées", async () => {
+    const project = join(directory, "scene-preparation");
+    await mkdir(project);
+    try {
+      const folders = DEFAULT_PROJECT_FOLDERS;
+      await prepareProject(project, folders);
+      const path = "Manuscript/Chapitres/002.md", source = "Manuscript/Chapitres/001.md";
+      const original = "Louise pleure. (((Qui parle ?)))";
+      await writeFile(join(project, path), original);
+      await writeFile(join(project, source), "Nadia serre Louise dans ses bras.");
+      const review = new ChapterReview();
+      const args = { chemin: path, situation: "Louise pleure contre Nadia dans la cuisine.", objectif: "Raccorder au présent.",
+        actions: ["Nadia soutient Louise ; Louise reprend son souffle."], connaissances: "Aucune plainte établie pour le lecteur.",
+        arrivee: "Louise peut parler.", corrections: "Nommer les acteurs.", incertitudes: "Ne pas présupposer une plainte." };
+      let dossier = await buildSceneContext(project, folders, {}, path, "Reprends mes annotations.");
+      await saveSceneContext(project, folders, dossier);
+      assert.equal(await readFile(join(project, dossier.path), "utf8"), dossier.document);
+      await assert.rejects(review.check(project, path), /preparer_chapitre/);
+      const result = JSON.parse(await review.prepare(project, folders, args, dossier));
+      assert.equal(result.fichier, dossier.preparationPath);
+      assert.deepEqual(result.consignes.map(item => item.prompt), ["prompts/reviser.md", "prompts/controler-continuite.md", "prompts/actualiser-suivi.md"]);
+      const trace = await readFile(join(project, dossier.promptsPath), "utf8");
+      for (const instruction of result.consignes) assert.ok(trace.includes(instruction.texte));
+      assert.ok(trace.includes(dossier.prompts["preparer-scene"]));
+      assert.equal(trace.includes("## prompts/rediger.md"), false);
+      const preparation = await readFile(join(project, result.fichier), "utf8");
+      assert.match(preparation, /Actions et réactions/);
+      assert.ok(preparation.includes(args.connaissances));
+      assert.equal(await readFile(join(project, path), "utf8"), original);
+      await review.check(project, path);
+      await assert.rejects(review.check(project, source), /preparer_chapitre/);
+      await writeFile(join(project, source), "Nadia sort de la cuisine.");
+      await assert.rejects(review.check(project, path), /Source modifiée/);
+      dossier = await buildSceneContext(project, folders, {}, path);
+      assert.ok(dossier.document.includes("Nadia sort de la cuisine."));
+      await saveSceneContext(project, folders, dossier);
+      assert.ok((await readdir(join(project, "Archives/Manuscript/Context/002"))).some(name => name.startsWith("sources.")));
+      for (const invalid of [{ ...args, actions: [] }, { ...args, actions: [null] }, { ...args, situation: "" }, { ...args, contenu: "Prose déjà écrite" }, { ...args, chemin: source }]) {
+        await review.prepare(project, folders, args, dossier);
+        await assert.rejects(review.prepare(project, folders, invalid, dossier), /Préparez/);
+        await assert.rejects(review.check(project, path), /preparer_chapitre/);
+      }
+      await review.prepare(project, folders, args, dossier);
+      await writeFile(join(project, dossier.preparationPath), preparation + "Correction humaine");
+      await assert.rejects(review.check(project, path), /préparation a été modifiée/);
+      assert.equal(await readFile(join(project, path), "utf8"), original);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
+  await check("Dossier de scène : raccord actuel, plan distinct, voix acceptée et sélection des personnages", async () => {
+    const project = join(directory, "scene-dossier");
+    await mkdir(project);
+    try {
+      const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers", archiveFolder: "Versions" };
+      await prepareProject(project, folders);
+      await prepareCorrections(project, folders);
+      const previous = "Roman/Chapitres/2.md", chapter = "Roman/Chapitres/10.md";
+      await writeFile(join(project, previous), "Jonas guette.\n\nNadia parle.");
+      await recordAcceptance(project, folders, previous, { before: "Avant.", after: "Jonas guette.\n\nNadia parle." }, "Garde cette voix.");
+      await writeFile(join(project, previous), "Jonas écoute Louise. Aucun appel effectué.");
+      await writeFile(join(project, chapter), "Louise écrit. (((Précise ce qu’elle écrit.)))");
+      await writeFile(join(project, "Roman/Chapitres/11.md"), "RÉVÉLATION FUTURE À EXCLURE");
+      await writeFile(join(project, "Roman/Plan/10.md"), "Nadia pourrait appeler demain.");
+      await writeFile(join(project, "Roman/Resume/2.md"), "ANCIEN RÉSUMÉ : une plainte déposée.");
+      await writeFile(join(project, "Roman/Personnages/10.md"), "ANCIENNE NOTE : Jonas est haïtien.");
+      await writeFile(join(project, "Univers/Personnages/Jonas Delva.md"), "Jonas est ivoirien et parle nouchi.");
+      await writeFile(join(project, "Univers/Personnages/Absent.md"), "FICHE INUTILE");
+      await writeFile(join(project, "Univers/Suivi/Connaissances.md"), "## Consignes actives\n\nNommer les acteurs.\n\n## Historique\n\nHYPOTHÈSE ABANDONNÉE");
+      const dossier = await buildSceneContext(project, folders, {}, chapter, "Révise les annotations.");
+      const byRole = role => dossier.sources.filter(source => source.role === role);
+      assert.equal(byRole("previous-manuscript")[0].path, previous);
+      assert.match(byRole("previous-manuscript")[0].content, /Aucun appel/);
+      assert.match(byRole("planned-events")[0].content, /pourrait appeler/);
+      assert.ok(byRole("approved-voice")[0].content.includes("Jonas guette.\n\nNadia parle."));
+      assert.match(byRole("approved-voice")[0].content, /Garde cette voix/);
+      assert.deepEqual(byRole("character-reference").map(source => source.path), ["Univers/Personnages/Jonas Delva.md"]);
+      for (const absent of ["RÉVÉLATION FUTURE", "ANCIEN RÉSUMÉ", "ANCIENNE NOTE", "FICHE INUTILE", "HYPOTHÈSE ABANDONNÉE"]) assert.equal(dossier.document.includes(absent), false);
+      assert.match(dossier.document, /Nommer les acteurs/);
+      await saveSceneContext(project, folders, dossier);
+      await writeFile(join(project, previous), "Une correction humaine récente.");
+      await assert.rejects(checkSceneContext(project, dossier), /Source modifiée/);
+      const updated = await buildSceneContext(project, folders, {}, chapter);
+      assert.equal(updated.sources.find(source => source.path === previous).content, "Une correction humaine récente.");
+      await assert.rejects(buildSceneContext(project, folders, {}, "../ailleurs.md"), /chapitre relatif/);
+      await assert.rejects(saveSceneContext(project, folders, updated, () => {}, "Roman/Context"), /configuration Obsidian/);
+    } finally { await rm(project, { recursive: true }); }
+  });
+
   await check("MCP local : négociation, authentification, requêtes HTTP et arguments contrôlés", async () => {
     const writes = [];
     const server = new ProjectMcp(async (...args) => { writes.push(args); return "Écrit"; });
@@ -1749,14 +2047,14 @@ try {
     const next = "Manuscript/Chapitres/002.md";
     const baseline = "La voix de référence.\n";
     const versions = { [path]: baseline };
-    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, codexVersions: { [project]: versions } }));
+    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, activeChapter: next, taskPrompts, codexVersions: { [project]: versions } }));
     await mkdir(project);
     try {
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
       await writeFile(join(project, path), baseline + "(((Même voix au chapitre suivant.)))\n");
       await writeFile(join(project, "Bible/Style/Narration.md"), "Rythme nouchi.\n");
-      await writeFile(join(project, "Bible/Suivi/Connaissances.md"), "Leçons issues de 001.\n".repeat(600));
+      await writeFile(join(project, "Bible/Suivi/Connaissances.md"), "## Consignes actives\n\n" + "Leçons issues de 001.\n".repeat(600));
       await session.connect(executable, project, "");
       const native = session.client.request.bind(session.client);
       const { thread } = await native("thread/start", { cwd: project, ephemeral: true,
@@ -1772,6 +2070,7 @@ try {
       };
       const call = async (tool, args) => native("mcpServer/tool/call", { threadId, server: "orelius", tool, arguments: args });
       const write = () => call(FILE_TOOL, { chemin: next, contenu: "Chapitre suivant.\n" });
+      const prepare = () => call(REVIEW_TOOL, { chemin: next, situation: "Situation de départ.", objectif: "Continuer.", actions: ["Une action concrète."], connaissances: "Ce que sait le lecteur.", arrivee: "Situation finale.", corrections: "Même voix.", incertitudes: "Aucune." });
       await session.send("Écris le chapitre 002.", executable, project, threadId);
       for (const target of [next, "manuscript/chapitres/002.MD"]) {
         const denied = await call(FILE_TOOL, { chemin: target, contenu: "Interdit.\n" });
@@ -1794,7 +2093,20 @@ try {
       }
       assert.ok(read.join("").includes("Même voix au chapitre suivant."));
       assert.ok(read.join("").includes("Leçons issues de 001."));
-      assert.equal((await write()).isError, false);
+      const unprepared = await write();
+      assert.equal(unprepared.isError, true);
+      assert.match(unprepared.content[0].text, /preparer_chapitre/);
+      await assert.rejects(access(join(project, next)), { code: "ENOENT" });
+      const method = await call(METHOD_TOOL, { tache: "decomposer-scene" });
+      assert.equal(method.isError, false);
+      assert.ok(JSON.parse(method.content[0].text).prompt.includes("étapes causales"));
+      assert.equal((await prepare()).isError, false);
+      const writtenChapter = await write();
+      assert.equal(writtenChapter.isError, false);
+      const chapterHash = JSON.parse(writtenChapter.content[0].text).empreinte;
+      assert.equal((await call(STATE_TOOL, { chapter: next, hash: chapterHash, summary: "Chapitre suivant.", facts: [], moments: [] })).isError, false);
+      assert.ok((await readFile(join(project, "Manuscript/Context/002/etat.md"), "utf8")).includes(chapterHash));
+      assert.equal((await call(FILE_TOOL, { chemin: "./Manuscript/Context/002/etat.md", contenu: "contournement" })).isError, true);
       assert.equal(await readFile(join(project, next), "utf8"), "Chapitre suivant.\n");
       const copies = await readdir(join(project, "Archives/Manuscript/Chapitres"));
       assert.ok(copies.length > 0, "La consultation ne contourne pas l’archivage du texte généré.");
@@ -1817,6 +2129,8 @@ try {
       assert.ok(updated.some(source => source.content.includes("Nouvelle consigne narrative.")));
       assert.ok(updated.some(source => source.content.includes("Cette transition est absurde.")));
       assert.equal(updated.some(source => source.content.includes("Même voix au chapitre suivant.")), false);
+      assert.equal((await write()).isError, true, "La préparation du tour précédent ne suffit pas.");
+      assert.equal((await prepare()).isError, false);
       assert.equal((await write()).isError, false);
       assert.deepEqual(prompts, ["Écris le chapitre 002.", "Reprends avec mes nouvelles remarques."].map(text => [{ type: "text", text, text_elements: [] }]));
       assert.equal(await readFile(join(project, path), "utf8"), baseline + "(((Cette transition est absurde.)))\n");
