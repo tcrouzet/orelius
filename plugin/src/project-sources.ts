@@ -7,7 +7,7 @@ import type { ProjectFolders } from "./settings.ts";
 
 export interface ProjectSource { path: string; content: string; hash: string }
 
-export async function projectSources(cwd: string, folders: ProjectFolders, only?: string[]): Promise<ProjectSource[]> {
+export async function projectSources(cwd: string, folders: ProjectFolders, only?: string[], excluded: ReadonlySet<string> = new Set()): Promise<ProjectSource[]> {
   const root = await realpath(cwd);
   const sources: ProjectSource[] = [];
   async function walk(directory: string): Promise<void> {
@@ -17,8 +17,9 @@ export async function projectSources(cwd: string, folders: ProjectFolders, only?
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     for (const entry of entries) {
       const path = `${directory}/${entry.name}`;
+      if (excluded.has(path)) continue;
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
-      if (path.startsWith(`${folders.bibleFolder}/Suivi/`) && entry.name !== "Connaissances.md") continue;
+      if (path.startsWith(`${folders.bibleFolder}/Tracking/`) && entry.name !== "Connaissances.md") continue;
       if (path === `${folders.bibleFolder}/suivi.md`) continue;
       if (directory === `${folders.manuscriptFolder}/Context` && entry.name !== "configuration.md" && entry.name !== "Prompts") continue;
       if (entry.isDirectory()) await walk(path);

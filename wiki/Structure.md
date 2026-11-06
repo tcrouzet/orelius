@@ -12,7 +12,7 @@ La [vue d’ensemble du roman](Roman.md) permet de parcourir les actes, chapitre
 4. Demandez, par exemple : « Développe cette idée dans le plan du chapitre 3, puis prépare les scènes. Relie les fiches. » Codex enregistre les liens entre graine, plan et scènes.
 5. Demandez la rédaction du chapitre. Après enregistrement, Codex peut relier chaque scène à un passage exact du chapitre. Vous pouvez retrouver la chaîne dans `Manuscript/Context/Structure.md`.
 
-Ces noms de dossiers utilisent les réglages par défaut. Le dossier Manuscript porte le nom choisi dans les paramètres. Plan et Scenes sont au même niveau que Chapitres.
+Ces noms de dossiers utilisent les réglages par défaut. Le dossier Manuscript porte le nom choisi dans les paramètres. Plan et Scenes sont au même niveau que Chapters.
 
 ## Ce que signifie chaque lien
 

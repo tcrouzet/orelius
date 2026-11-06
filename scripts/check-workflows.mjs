@@ -16,7 +16,7 @@ export async function checkWorkflows(){
  const root=await mkdtemp(join(tmpdir(),'orelius-workflows-'));
  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
  const templates=Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name=>[name,await readFile(new URL('../prompts/'+name+'.md',import.meta.url),'utf8')])));
- const chapter='Manuscript/Chapitres/001.md';
+ const chapter='Manuscript/Chapters/001.md';
  try {
   assert.equal(renderConditions('{if:pov}A{if:tense}B{else}C{/if}{else}D{/if}',{pov:'Nora',tense:''}),'AC');
   assert.throws(()=>renderConditions('{if:absent}A{/if}',{}),/inconnue/);
@@ -26,7 +26,7 @@ export async function checkWorkflows(){
   assert.deepEqual(selectReferences(references,'Nora',[]).selected.map(r=>r.path),['Bible/B.md']);
   assert.deepEqual(selectReferences(references,'Nora lettre',[]).selected.map(r=>r.path),['Bible/B.md','Bible/A.md']);
   const first={chapter,hash:'',summary:'',facts:[],moments:[{id:'a',quote:'',description:'',at:10,unit:'hours',duration:2}]};
-  const second={...first,chapter:'Manuscript/Chapitres/002.md',moments:[{id:'b',quote:'',description:'',after:chapter+'#a',offset:30,unit:'minutes'}]};
+  const second={...first,chapter:'Manuscript/Chapters/002.md',moments:[{id:'b',quote:'',description:'',after:chapter+'#a',offset:30,unit:'minutes'}]};
   const timeline=resolveTimeline([first,second]);
   assert.equal(timeline[0].end,43200);assert.equal(timeline[1].start,37800);
   assert.throws(()=>resolveTimeline([{...first,moments:[{...first.moments[0],after:second.chapter+'#b'}]},second]),/Cycle/);

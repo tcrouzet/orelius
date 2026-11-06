@@ -5,7 +5,7 @@ import { authorPrompt } from '../plugin/src/conversation.ts';
 import { withChanges } from '../plugin/src/workshop.ts';
 
 export async function checkSelection() {
- const path='Manuscript/Chapitres/002.md', source='Avant 🖋. Louise parle doucement.\n\nAprès : Louise parle doucement.\n';
+ const path='Manuscript/Chapters/002.md', source='Avant 🖋. Louise parle doucement.\n\nAprès : Louise parle doucement.\n';
  const from=source.indexOf('parle'),to=from+'parle doucement'.length;
  for(const action of SELECTION_ACTIONS) {
   const request=selectionRequest(action.id,path,source,from,to,'Garde les faits.',action.id==='point-de-vue'?'Nadia, première personne':'');

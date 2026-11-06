@@ -5,7 +5,7 @@
 ## Choisir entre plusieurs propositions
 
 1. Sélectionnez un passage du chapitre, puis faites un clic droit → **Orelius : Proposer des variantes**. Ajoutez votre intention et envoyez.
-2. Après la réponse, cliquez sur **Comparer** dans le chat. Vous pouvez aussi utiliser **Orelius : Comparer les versions** depuis le menu de l’éditeur ou la palette de commandes.
+2. Après la réponse, utilisez **Orelius : Comparer les versions** depuis le menu de l’éditeur ou la palette de commandes.
 3. Choisissez les versions à gauche et à droite. Le texte actuel, les propositions enregistrées et les archives du chapitre sont disponibles.
 4. Cochez les changements à prendre dans la version de droite. Les changements non cochés gardent le texte de gauche. Ouvrez **Aperçu du résultat complet**, puis cliquez sur **Appliquer le résultat**.
 
@@ -29,6 +29,6 @@ Si le chapitre change pendant que la comparaison est ouverte, Orelius refuse le 
 
 ## Où sont conservées les propositions ?
 
-Les nouvelles variantes sont enregistrées dans `Manuscript/Context/<chapitre>/Variantes/`, sous forme de fichiers Markdown horodatés. Elles restent des propositions, séparées du texte conservé. Le bloc de données en fin de fichier contient les textes utilisés par le comparateur ; ne modifiez pas seulement leur présentation au-dessus.
+Les nouvelles variantes sont enregistrées dans `Manuscript/Context/<chapitre>/Variants/`, sous forme de fichiers Markdown horodatés. Elles restent des propositions, séparées du texte conservé. Le bloc de données en fin de fichier contient les textes utilisés par le comparateur ; ne modifiez pas seulement leur présentation au-dessus.
 
 Les anciennes réponses du chat, produites avant cette fonctionnalité, ne sont pas converties automatiquement. Les archives existantes du chapitre sont disponibles directement. Les noms de Manuscript et Archives suivent vos réglages.

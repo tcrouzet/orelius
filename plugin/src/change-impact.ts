@@ -9,7 +9,7 @@ export interface ChangeImpact { path: string; certainty: "lien explicite" | "à 
 
 export function changeImpacts(sources: ProjectSource[], folders: ProjectFolders, changedPaths: string[], states: NarrativeState[] = [], structure?: StoryStructure): Map<string, ChangeImpact[]> {
   const paths = new Set([...sources.map(source => source.path), ...changedPaths, ...(structure?.nodes.map(node => node.path) ?? [])]);
-  const chapters = sources.filter(source => source.path.startsWith(`${folders.manuscriptFolder}/Chapitres/`));
+  const chapters = sources.filter(source => source.path.startsWith(`${folders.manuscriptFolder}/Chapters/`));
   const configNote = sources.find(source => source.path === configPath(folders));
   let config = EMPTY_CONFIG;
   let configError = "";
@@ -52,7 +52,7 @@ export function changeImpacts(sources: ProjectSource[], folders: ProjectFolders,
   };
   const escapedPaths = [...paths].sort((a, b) => b.length - a.length).map(path => path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const plainPaths = escapedPaths.length ? new RegExp(`(?<![\\p{L}\\p{N}/_.-])(?:${escapedPaths.join("|")})(?![\\p{L}\\p{N}/_.-])`, "gu") : null;
-  const isWorkshop = (path: string) => [...WORKSHOP_FOLDERS, "Plan", "Personnages"].some(folder => path.startsWith(`${folders.manuscriptFolder}/${folder}/`));
+  const isWorkshop = (path: string) => [...WORKSHOP_FOLDERS, "Plan", "Characters"].some(folder => path.startsWith(`${folders.manuscriptFolder}/${folder}/`));
   for (const source of sources) {
     if (source.path === structurePath(folders)) continue;
     // Code fences are examples, not narrative dependencies.
@@ -65,27 +65,27 @@ export function changeImpacts(sources: ProjectSource[], folders: ProjectFolders,
         const target = resolveLink(link, source.path);
         if (!target) continue;
         edge(target, source.path, "lien", source.path, line.trim());
-        if (isWorkshop(source.path) && !/\/index\.md$/i.test(source.path) && target.startsWith(`${folders.manuscriptFolder}/Chapitres/`)) {
+        if (isWorkshop(source.path) && !/\/index\.md$/i.test(source.path) && target.startsWith(`${folders.manuscriptFolder}/Chapters/`)) {
           edge(source.path, target, "lien", source.path, line.trim());
         }
       }
     }
   }
   for (const chapter of chapters) {
-    const relative = chapter.path.slice(`${folders.manuscriptFolder}/Chapitres/`.length);
+    const relative = chapter.path.slice(`${folders.manuscriptFolder}/Chapters/`.length);
     const link = config.chapters.find(item => item.path === chapter.path);
     if (!configError && link?.previous === undefined) {
-      const order = config.chapters.length ? config.chapters.map(item => item.path) : [...paths].filter(path => path.startsWith(`${folders.manuscriptFolder}/Chapitres/`) && posix.dirname(path) === posix.dirname(chapter.path)).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+      const order = config.chapters.length ? config.chapters.map(item => item.path) : [...paths].filter(path => path.startsWith(`${folders.manuscriptFolder}/Chapters/`) && posix.dirname(path) === posix.dirname(chapter.path)).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
       const position = order.indexOf(chapter.path);
       const previous = order.slice(0, Math.max(0, position)).filter(path => config.chapters.find(item => item.path === path)?.include !== false).pop();
       if (previous) edge(previous, chapter.path, "raccord", configNote?.path ?? "ordre des chapitres", "Chapitre précédent utilisé pour le raccord ; vérifier la continuité sans propager automatiquement aux suivants.");
     }
     for (const source of [...(link?.references ?? []), ...(link?.pov ? [link.pov] : []),
-      link?.plan ?? `${folders.manuscriptFolder}/Plan/${relative}`, link?.model ?? `${folders.modelFolder}/Chapitres/${relative}`,
+      link?.plan ?? `${folders.manuscriptFolder}/Plan/${relative}`, link?.model ?? `${folders.modelFolder}/Chapters/${relative}`,
       ...(link?.previous ? [link.previous] : [])]) {
       if (paths.has(source)) edge(source, chapter.path, "configuration", configNote?.path ?? "correspondance des noms", link ? JSON.stringify(link) : relative);
     }
-    for (const source of paths) if (source.startsWith(`${folders.bibleFolder}/Style/`) || source === `${folders.bibleFolder}/Suivi/Connaissances.md`
+    for (const source of paths) if (source.startsWith(`${folders.bibleFolder}/Style/`) || source === `${folders.bibleFolder}/Tracking/Connaissances.md`
       || source === configPath(folders) || source.startsWith(`${folders.manuscriptFolder}/Context/Prompts/`)) {
       edge(source, chapter.path, "regle", source, source === configPath(folders) && configError ? `Configuration illisible : ${configError}. Corriger avant de reconstruire le contexte.` : "Consigne ou configuration partagée : vérifier son application à ce chapitre.");
     }
@@ -95,7 +95,7 @@ export function changeImpacts(sources: ProjectSource[], folders: ProjectFolders,
     for (const fact of state.facts) edge(fact.entity, state.chapter, "etat", source, `${fact.field} : ${fact.value} ; connu de ${fact.knownBy.join(", ")} ; citation : ${fact.quote}`);
     for (const dependency of Object.keys(state.dependencies ?? {})) edge(dependency, state.chapter, "etat", source, "Ce chapitre a été analysé en utilisant cette source.");
   }
-  const characters = [...paths].filter(path => path.startsWith(`${folders.bibleFolder}/Personnages/`) || path.startsWith(`${folders.manuscriptFolder}/Arcs/`));
+  const characters = [...paths].filter(path => path.startsWith(`${folders.bibleFolder}/Characters/`) || path.startsWith(`${folders.manuscriptFolder}/Arcs/`));
   for (const path of characters) {
     if (/\/index\.md$/i.test(path)) continue;
     const reference = config.references.find(item => item.path === path) ?? { path, name: posix.basename(path, ".md") };

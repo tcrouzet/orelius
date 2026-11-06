@@ -12,7 +12,7 @@ Chaque parcours explique où placer vos matériaux, quand cliquer sur **Peupler*
 
 ## Avant de suivre votre parcours
 
-Dans **Réglages → Orelius**, vérifiez Codex puis choisissez le dossier du projet avec **Parcourir…**. Les dossiers de travail sont créés automatiquement lors de la préparation du projet. Les réglages sont enregistrés à la volée.
+Dans **Réglages → Orelius**, vérifiez Codex. Dans l’explorateur, faites un clic droit sur le dossier parent et choisissez **Nouveau projet Orelius**, puis saisissez son nom. **Parcourir…** permet de choisir un autre emplacement dans le coffre. Copiez vos sources Markdown dans Model avec votre organisation et utilisez **Peupler** ; Model peut rester vide si vous partez de rien. Les réglages sont enregistrés à la volée.
 
 Les guides utilisent les noms par défaut : `Manuscript` pour le texte en cours, `Model` pour un texte source à adapter, `Bible` pour les personnages et les règles d’écriture. Si vous les avez renommés, utilisez vos propres noms.
 

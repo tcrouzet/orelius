@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { editOutline, parseOutline, reconcileOutline, outlineRelations, type NovelOutline, type OutlineAction } from "./novel-outline.ts";
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { projectSources, type ProjectSource } from "./project-sources.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import type { ProjectFolders } from "./settings.ts";
 
-const kinds = { Seeds: "graine", Plan: "plan", Scenes: "scene", Personnages: "personnage", Intrigues: "intrigue", Arcs: "arc", Chapitres: "chapitre" } as const;
+const kinds = { Seeds: "graine", Plan: "plan", Scenes: "scene", Characters: "personnage", Plots: "intrigue", Arcs: "arc", Chapters: "chapitre" } as const;
 export type StoryKind = typeof kinds[keyof typeof kinds];
 export type Decision = "propose" | "retenu" | "abandonne";
 export interface StoryNode { id: string; kind: StoryKind; path: string; hash: string; missing: boolean; decision: Decision }
@@ -16,8 +17,8 @@ export const structurePath = (folders: ProjectFolders) => `${folders.manuscriptF
 export function storyKind(path: string, folders: ProjectFolders): StoryKind | undefined {
   if (!/\.md$/i.test(path) || /\/index\.md$/i.test(path) || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) return;
   for (const [directory, kind] of Object.entries(kinds)) if (path.startsWith(`${folders.manuscriptFolder}/${directory}/`)) return kind;
-  if (path.startsWith(`${folders.bibleFolder}/Personnages/`)) return "personnage";
-  if (path.startsWith(`${folders.bibleFolder}/Intrigues/`)) return "intrigue";
+  if (path.startsWith(`${folders.bibleFolder}/Characters/`)) return "personnage";
+  if (path.startsWith(`${folders.bibleFolder}/Plots/`)) return "intrigue";
 }
 const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -29,7 +30,7 @@ function compatible(link: StoryLink, from: StoryNode, to: StoryNode): boolean {
     || link.relation === "realise" && from.kind === "scene" && to.kind === "chapitre";
 }
 export function parseStructure(value: unknown, folders: ProjectFolders): StoryStructure {
-  const fail = () => { throw new Error("Structure narrative invalide ; registre conservé."); };
+  const fail = () => { throw new Error(t("invalidNarrativeStructureRegistryPreserved")); };
   if (!record(value) || !keys(value, ["version", "nodes", "links", "outline"]) || value.version !== 1 || !Array.isArray(value.nodes) || !Array.isArray(value.links)) return fail();
   const ids = new Set<string>(), paths = new Set<string>();
   for (const node of value.nodes) {
@@ -99,32 +100,32 @@ export async function syncStructure(cwd: string, folders: ProjectFolders, edit: 
     const sources = await projectSources(root, folders);
     reconcile(data, sources, folders, edit.rename);
     if (edit.outline) {
-      if (JSON.stringify(data) !== edit.outline.expected) throw new Error("Le plan ou ses sources ont changé. Actualisez la vue avant de déplacer une scène.");
+      if (JSON.stringify(data) !== edit.outline.expected) throw new Error(t("theOutlineOrItsSourcesChangedRefreshTheView"));
       editOutline(data, edit.outline.action);
     } else if (data.outline) data.outline = reconcileOutline(data);
     if (edit.decision) {
       const node = data.nodes.find(node => node.path === edit.decision!.path && !node.missing);
-      if (!node || !["propose", "retenu", "abandonne"].includes(edit.decision.value)) throw new Error("Fiche ou décision invalide.");
+      if (!node || !["propose", "retenu", "abandonne"].includes(edit.decision.value)) throw new Error(t("invalidNoteOrDecision"));
       node.decision = edit.decision.value;
     }
     if (edit.link !== undefined) {
-      if (!record(edit.link) || !keys(edit.link, ["from", "to", "relation", "fromHash", "toHash", "quote", "at", "remove"])) throw new Error("Arguments de liaison invalides.");
+      if (!record(edit.link) || !keys(edit.link, ["from", "to", "relation", "fromHash", "toHash", "quote", "at", "remove"])) throw new Error(t("invalidLinkArguments"));
       const { remove, ...candidate } = edit.link;
-      if (remove !== undefined && typeof remove !== "boolean") throw new Error("remove doit être un booléen.");
+      if (remove !== undefined && typeof remove !== "boolean") throw new Error(t("removeMustBeABoolean"));
       const link = candidate as unknown as StoryLink;
       const index = data.links.findIndex(other => other.from === link.from && other.to === link.to && other.relation === link.relation);
       const from = data.nodes.find(node => node.id === link.from), to = data.nodes.find(node => node.id === link.to);
-      if (!from || !to || !remove && (from.missing || to.missing) || from.hash !== link.fromHash || to.hash !== link.toHash) throw new Error("Sources modifiées ou absentes ; consultez de nouveau la structure.");
+      if (!from || !to || !remove && (from.missing || to.missing) || from.hash !== link.fromHash || to.hash !== link.toHash) throw new Error(t("sourcesChangedOrMissingReadTheStructureAgain"));
       const proposed = { ...data, links: index < 0 ? [...data.links, link] : data.links.map((previous, i) => i === index ? link : previous) };
       parseStructure(proposed, folders);
       if (remove) {
-        if (index < 0) throw new Error("Lien absent.");
+        if (index < 0) throw new Error(t("missingLink"));
         data.links.splice(index, 1);
       } else {
-        if (linkStatus(proposed, link, sources) !== "valide") throw new Error("Lien abandonné ou passage introuvable à la position indiquée.");
+        if (linkStatus(proposed, link, sources) !== "valide") throw new Error(t("abandonedLinkOrPassageNotFoundAtTheSpecified"));
         if (link.relation === "realise") {
           const text = sources.find(source => source.path === to.path)!.content;
-          if (text.slice(link.at, link.at! + link.quote!.length) !== link.quote) throw new Error("Citation absente à la position UTF-16 indiquée.");
+          if (text.slice(link.at, link.at! + link.quote!.length) !== link.quote) throw new Error(t("quoteMissingAtTheSpecifiedUtfPosition"));
         }
         data.links = proposed.links;
       }

@@ -1,8 +1,9 @@
+import { t } from "./i18n.ts";
 import { randomUUID } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { link, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { archiveChanges, archiveGenerated, checkPath } from "./archives.ts";
+import { archiveChanges, archiveGenerated, checkPath, recoverTemporaryLink } from "./archives.ts";
 import { checkRevision, type RevisionPlan } from "./revision.ts";
 
 export interface ProjectFile { text: string; stat: Stats }
@@ -18,8 +19,9 @@ export async function readProjectFile(cwd: string, path: string): Promise<Projec
     throw error;
   }
   try {
+    await recoverTemporaryLink(target, await source.stat());
     const stat = await source.stat();
-    if (!stat.isFile() || stat.nlink !== 1) throw new Error(`${path} doit être un fichier ordinaire sans lien.`);
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error(t("mustBeARegularFileWithoutLinks", { value1: path }));
     const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await source.readFile());
     return { text, stat };
   } finally { await source.close(); }
@@ -55,7 +57,7 @@ export async function writeProjectFile(cwd: string, path: string, content: strin
       if (!current || current.text !== previous.text || current.stat.ino !== previous.stat.ino
         || current.stat.dev !== previous.stat.dev || current.stat.mtimeMs !== previous.stat.mtimeMs
         || current.stat.ctimeMs !== previous.stat.ctimeMs) {
-        throw new Error(`${path} a changé pendant la préparation. Le fichier a été conservé.`);
+        throw new Error(t("changedDuringPreparationTheFileWasPreserved", { value1: path }));
       }
       ensureCurrent();
       await rename(temporary, target);

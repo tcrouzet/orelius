@@ -14,7 +14,7 @@
 - Choisir une direction, préparer une scène, rédiger puis réviser un chapitre.
 - Contrôler automatiquement les candidats avant publication, avec une évaluation séparée et une seule reprise possible ; [fonctionnement et limites](Controle.md).
 - Utiliser les corrections, annotations, réactions et acceptations comme consignes et exemples pour la suite.
-- Retrouver les versions dans les archives, la conversation dans Bible/Suivi et les sources exactes dans Context.
+- Retrouver les versions dans les archives, la conversation dans Bible/Tracking et les sources exactes dans Context.
 - Actualiser l’état des chapitres et reprendre une revue découpée en lots.
 
 ## Ce que le code vérifie

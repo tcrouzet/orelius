@@ -4,9 +4,9 @@
 
 ## Ouvrir le plan
 
-Cliquez sur **Roman** dans le chat, ou lancez **Orelius : Vue d’ensemble du roman** depuis la palette de commandes. Le plan s’ouvre dans un onglet central, avec les actes, leurs chapitres et leurs scènes. Vous pouvez replier chaque acte ou chapitre. Cliquer sur un titre de note ouvre cette note dans un autre onglet.
+Lancez **Orelius : Vue d’ensemble du roman** depuis la palette de commandes. Le plan s’ouvre dans un onglet central, avec les actes, leurs chapitres et leurs scènes. Vous pouvez replier chaque acte ou chapitre. Cliquer sur un titre de note ouvre cette note dans un autre onglet.
 
-Les chapitres proviennent de `Manuscript/Chapitres`, les scènes de `Manuscript/Scenes`. Une fiche correspond à une scène. Si ces fiches n’existent pas encore, demandez à **Peupler** de les préparer depuis vos textes. La vue ne découpe pas automatiquement les chapitres et ne fabrique pas leurs personnages ou intrigues.
+Les chapitres proviennent de `Manuscript/Chapters`, les scènes de `Manuscript/Scenes`. Une fiche correspond à une scène. Si ces fiches n’existent pas encore, demandez à **Peupler** de les préparer depuis vos textes. La vue ne découpe pas automatiquement les chapitres et ne fabrique pas leurs personnages ou intrigues.
 
 Les noms de Manuscript et Bible suivent vos réglages. Les sous-dossiers sont pris en compte. Les titres affichés sont les noms des notes.
 
@@ -35,7 +35,7 @@ Exemple : vous déplacez une scène du chapitre 2 au chapitre 4. Elle apparaît 
 
 Lors de la première ouverture, une scène possédant un seul lien de réalisation est rangée dans le chapitre correspondant. Les scènes sans lien ou reliées à plusieurs chapitres restent non affectées. Ensuite, vos placements explicites sont conservés.
 
-## Personnages et fils narratifs
+## Characters et fils narratifs
 
 Chaque scène affiche les personnages, intrigues et arcs déjà reliés dans le registre. Leurs titres sont cliquables. **Aucun lien renseigné** signifie que la relation n’a pas encore été enregistrée : demandez à Codex de relier les fiches concernées. Un lien dont les sources ont changé porte la mention **à revalider**.
 

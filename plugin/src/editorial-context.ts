@@ -1,3 +1,6 @@
+import { implementedReaction } from "./reactions.ts";
+import { searchMaterials } from "./material-search.ts";
+import { t } from "./i18n.ts";
 import { configPath, parseConfig, readData, visibleSections } from "./narrative-context.ts";
 import { contextChoice, contextExcluded, validateContextChoice, manualRole, SOURCE_REASONS } from "./request-context.ts";
 import { buildSceneContext } from "./scene-context.ts";
@@ -20,15 +23,16 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
   await add(`${folders.bibleFolder}/Style/Narration.md`, "instructions");
   await add(`${folders.bibleFolder}/Style/rules.md`, "instructions");
   if (chapter && chapterPath(cwd, folders, chapter) === chapter) await add(chapter, "current-manuscript");
-  await add(`${folders.bibleFolder}/Suivi/Exemples.md`, "correction-examples");
+  await add(`${folders.bibleFolder}/Tracking/Exemples.md`, "correction-examples");
   const indexPath = `${folders.bibleFolder}/suivi.md`;
   const index = (await readProjectFile(cwd, indexPath))?.text ?? "";
-  const reports = [...index.matchAll(/\]\(Suivi\/([^/\\\r\n()]+\.md)\)/g)].map(match => match[1]);
+  const reports = [...index.matchAll(/\]\(Tracking\/([^/\\\r\n()]+\.md)\)/g)].map(match => match[1]);
   const acceptedChapters = new Set<string>();
   const ratedResponses = new Set<string>();
+  const ratedVersions = new Map<string, string>();
   for (const name of [...new Set(reports)].reverse()) {
     if (!name.includes("-acceptation-") && !name.includes("-reaction-")) continue;
-    const path = `${folders.bibleFolder}/Suivi/${name}`;
+    const path = `${folders.bibleFolder}/Tracking/${name}`;
     const file = await readProjectFile(cwd, path);
     if (!file) continue;
     let role: SourceRole = "author-feedback";
@@ -39,6 +43,9 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
         if (acceptedChapters.has(key)) continue;
         acceptedChapters.add(key);
         role = "approved-example";
+        const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(file.text)?.[1]?.replace(/^    /gm, "").trim();
+        const versionKey = JSON.stringify([JSON.parse(chapter), prose]);
+        if (prose && !ratedVersions.has(versionKey)) ratedVersions.set(versionKey, "up");
       }
     } else {
       const conversation = /^Conversation : ("(?:[^"\\]|\\.)*")\r?$/m.exec(file.text)?.[1];
@@ -49,7 +56,19 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
         ratedResponses.add(key);
       }
     }
+    const implementation = implementedReaction(file.text);
+    for (const version of implementation?.versions ?? []) {
+      const key = JSON.stringify([version.path, version.content.trim()]);
+      if (!ratedVersions.has(key)) ratedVersions.set(key, implementation!.value);
+    }
     sources.push({ path, content: file.text, role });
+  }
+  for (let index = sources.length - 1; index >= 0; index--) {
+    const source = sources[index]!;
+    if (source.role !== "approved-example") continue;
+    const path = /^Chapitre : \[("(?:[^"\\]|\\.)*")\]/m.exec(source.content)?.[1];
+    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(source.content)?.[1]?.replace(/^    /gm, "").trim();
+    if (path && prose && ratedVersions.get(JSON.stringify([JSON.parse(path), prose])) === "down") sources.splice(index, 1);
   }
   for (const [path, baseline] of Object.entries(versions)) {
     if (chapterPath(cwd, folders, path) !== path) continue;
@@ -58,7 +77,7 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
     if (path !== chapter) sources.push({ path, content: file.text, role: "working-draft" });
     sources.push({ path: `${path} — comparaison Codex/auteur`, content: correctionReport(path, baseline, file.text), role: "correction-diff" });
   }
-  const memoryPath = `${folders.bibleFolder}/Suivi/Connaissances.md`;
+  const memoryPath = `${folders.bibleFolder}/Tracking/Connaissances.md`;
   const memory = await readProjectFile(cwd, memoryPath);
   if (memory) {
     const active = /^## Consignes actives[^\n]*\r?\n[\s\S]*?(?=^## |$(?![\s\S]))/m.exec(memory.text)?.[0];
@@ -73,9 +92,13 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
   const config = configuration ? parseConfig(readData(configuration.text), folders) : null;
   for (const path of choice?.include ?? []) if (!sources.some(source => source.path === path)) {
     const file = await readProjectFile(cwd, path);
-    if (!file) throw new Error(`Note choisie absente : ${path}`);
+    if (!file) throw new Error(t("selectedNoteMissing", { value1: path }));
     const reference = config?.references.find(reference => reference.path === path);
     sources.push({ path, role: reference?.role === "example" ? "example-not-canon" : reference?.role === "style" ? "style-reference" : manualRole(path, folders), content: visibleSections(file.text, config?.references.find(reference => reference.path === path)?.hiddenSections ?? []), reason: "Ajout explicite pour cette demande" });
+  }
+  const research = await searchMaterials(cwd, folders, request);
+  for (const match of research.matches) if (!sources.some(source => source.path === match.path)) {
+    sources.push({ path: match.path, role: match.role, content: match.excerpts.join("\n\n[…]\n\n"), reason: match.reasons.join(" ; ") });
   }
   for (const source of sources) source.reason ??= choice?.include.includes(source.path) ? "Ajout explicite pour cette demande" : SOURCE_REASONS[source.role] ?? source.role;
   // Small pages prevent large histories from being silently cut in tool output.
@@ -90,5 +113,5 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
     }
   }
   return pages.map((sources, page) => JSON.stringify({ page, pages: pages.length,
-    ...(page === 0 ? { usage: "Le current-manuscript est le fichier présent sur disque, pas une preuve d’acceptation. Pour la continuité, partir des fichiers actuels du manuscrit et de la Bible : les variantes, archives et exemples stylistiques ne prouvent pas qu’un fait existe dans le récit conservé. La mémoire fournit seulement Consignes actives lorsque cette rubrique existe ; son historique complet reste consultable au chemin indiqué pour une recherche précise. Les correction-examples relient passages, commentaires exacts et sources avec leur statut. Dans les approved-example, seules la version approuvée et les sections Après sont acceptées ; les sections Avant restent des états antérieurs, sans approbation implicite. Respecter les réserves de l’auteur. Les working-draft sont des textes à examiner, pas des modèles de voix : leurs annotations peuvent rejeter le texte entier. Les correction-diff montrent les interventions humaines sans approuver les passages intacts. Les author-feedback portent sur un échange, pas sur tous les fichiers. La mémoire et l’index conservent aussi des avis historiques ; les derniers avis explicites sur le même objet priment. Relier la demande actuelle aux exemples acceptés et aux défauts signalés avant d’écrire. Consulter toutes les pages pour reconstituer chaque source intégrale." } : {}), raisons: Object.fromEntries(sources.map(source => [source.path, source.reason])), sources: sources.map(({ reason, ...source }) => source) }));
+    ...(page === 0 ? { usage: "Le current-manuscript est le fichier présent sur disque, pas une preuve d’acceptation. Pour la continuité, partir des fichiers actuels du manuscrit et de la Bible : les variantes, archives et exemples stylistiques ne prouvent pas qu’un fait existe dans le récit conservé. La mémoire fournit seulement Consignes actives lorsque cette rubrique existe ; son historique complet reste consultable au chemin indiqué pour une recherche précise. Les correction-examples relient passages, commentaires exacts et sources avec leur statut. Dans les approved-example, seules la version approuvée et les sections Après sont acceptées ; les sections Avant restent des états antérieurs, sans approbation implicite. Respecter les réserves de l’auteur. Les working-draft sont des textes à examiner, pas des modèles de voix : leurs annotations peuvent rejeter le texte entier. Les correction-diff montrent les interventions humaines sans approuver les passages intacts. Les author-feedback peuvent valider, survalider ou invalider les versions figées de la mise en œuvre : les réserves explicites priment. Les anciens avis sans versions figées portent seulement sur l’échange. La mémoire et l’index conservent aussi des avis historiques ; les derniers avis explicites sur le même objet priment. Relier la demande actuelle aux exemples acceptés et aux défauts signalés avant d’écrire. Consulter toutes les pages pour reconstituer chaque source intégrale." } : {}), raisons: Object.fromEntries(sources.map(source => [source.path, source.reason])), sources: sources.map(({ reason, ...source }) => source) }));
 }

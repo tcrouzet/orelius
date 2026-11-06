@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PublicationReview, PublicationError, parsePublicationVerdict, REVIEW_AXES } from '../plugin/src/publication-review.ts';
+import { PublicationReview, PublicationError, parsePublicationVerdict, publicationFeedback, REVIEW_AXES } from '../plugin/src/publication-review.ts';
 import { CodexClient } from '../plugin/src/codex.ts';
 import { evaluatePublication } from '../plugin/src/codex-review.ts';
 import { DEFAULT_PROJECT_FOLDERS as folders } from '../plugin/src/settings.ts';
 
 export function publicationVerdict(input, accepted = true) {
- return {controles:REVIEW_AXES.map(axe=>{
+ return {retours:publicationFeedback(input).map(item=>({id:item.id,conforme:true,constat:'Attente vérifiée.',passage:input.candidat.trim(),correction:''})),controles:REVIEW_AXES.map(axe=>{
   const source=axe==='intention'?{path:input.contexte.preparationPath,content:input.preparation}:axe==='faits'?input.contexte.sources.find(s=>s.role==='current-manuscript')??input.contexte.sources.find(s=>s.role==='previous-manuscript')??input.contexte.sources.find(s=>s.role==='author-request'):input.contexte.sources.find(s=>s.role==='approved-voice')??input.contexte.sources.find(s=>s.role==='instructions');
   assert.ok(source,`Source de test pour ${axe}`);
   return {axe,conforme:accepted || axe!=='faits',constat:'Comparaison contrôlée dans le test.',passage:input.candidat.trim(),source:source.path,preuve:source.content,correction:accepted?'':'Retirer l’antécédent non établi.'};
@@ -16,7 +16,7 @@ export function publicationVerdict(input, accepted = true) {
 }
 export async function checkPublication() {
  const root=await mkdtemp(join(tmpdir(),'orelius-publication-'));
- const chapter='Manuscript/Chapitres/002.md', prep='Manuscript/Context/002/preparation.md';
+ const chapter='Manuscript/Chapters/002.md', prep='Manuscript/Context/002/preparation.md';
  const original='Texte conservé.', preparation='Aucune plainte établie ; voix de Jonas.';
  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
  try {
@@ -55,6 +55,41 @@ export async function checkPublication() {
   assert.throws(()=>parsePublicationVerdict(falseFact,input),/invalide/,'La préparation ne prouve pas un fait.');
   const withVoice={...input,contexte:{...context,sources:[...context.sources,{path:'voix acceptee',role:'approved-voice',content:'Extrait accepté.'}]}};
   assert.throws(()=>parsePublicationVerdict(publicationVerdict(input),withVoice),/invalide/,'Une voix acceptée ne peut être ignorée au profit de consignes génériques.');
+  const invalid=publicationVerdict(input);invalid.controles[1].preuve='Preuve inventée';
+  assert.throws(()=>parsePublicationVerdict(invalid,input),error=>/faits/.test(error.message)&&error.message.includes(chapter));
+  const repairReport=new PublicationReview();let reportCalls=0;
+  await repairReport.check(root,folders,input,async value=>{
+   reportCalls++;assert.equal(value.candidat,input.candidat);
+   if(reportCalls===1)return invalid;
+   assert.match(value.correctionRapport.erreur,/faits/);assert.deepEqual(value.correctionRapport.rapport,invalid);
+   return publicationVerdict(value);
+  });
+  assert.equal(reportCalls,2,'Un rapport invalide est corrigé une seule fois, sans réécrire le candidat.');
+  assert.ok((await readFile(join(root,'Manuscript/Context/002/Publication/controle-1-invalide.md'),'utf8')).includes('Preuve inventée'));
+  const invalidAgain=new PublicationReview();let invalidCalls=0;
+  await assert.rejects(()=>invalidAgain.check(root,folders,input,async()=>{invalidCalls++;return invalid;}),error=>error.terminal&&/faits/.test(error.message));
+  await assert.rejects(()=>invalidAgain.check(root,folders,input,evaluator),error=>error.terminal);
+  assert.equal(invalidCalls,2,'Des preuves toujours invalides arrêtent le contrôle sans boucle ni publication.');
+  assert.equal(await readFile(join(root,chapter),'utf8'),original);
+  const repairRefused=new PublicationReview();let refusedCalls=0;
+  await assert.rejects(()=>repairRefused.check(root,folders,input,async value=>++refusedCalls===1?invalid:publicationVerdict(value,false)),error=>!error.terminal);
+  assert.equal(refusedCalls,2,'Réparer un rapport ne transforme pas un refus éditorial en approbation.');
+  const feedbackInput={...input,contexte:{...context,sources:[...context.sources,
+   {path:chapter,role:'current-manuscript',content:'Lettre. (((Cette voix ressemble à Thierry.)))'},
+   {path:'demande actuelle',role:'author-request',content:'YQ développe son raisonnement.\n\nElle doit rester limpide.'},
+   {path:'Bible/Tracking/Connaissances.md',role:'editorial-memory',content:'## Consignes actives\n\n- Pas de questionnaire final.\n- Référents clairs.'}]}};
+  const feedback=publicationFeedback(feedbackInput);assert.equal(feedback.length,5);
+  assert.match(feedback[0].attente,/ressemble à Thierry/);
+  for(const mutate of [v=>v.retours.pop(),v=>v.retours[1].id=v.retours[0].id,v=>v.retours[0].passage='Citation inventée']) {
+   const verdict=publicationVerdict(feedbackInput);mutate(verdict);
+   assert.throws(()=>parsePublicationVerdict(verdict,feedbackInput),/Chaque retour/);
+  }
+  const ignoredFeedback=new PublicationReview();
+  await assert.rejects(()=>ignoredFeedback.check(root,folders,feedbackInput,async value=>{
+   const verdict=publicationVerdict(value);verdict.retours[0].conforme=false;
+   verdict.retours[0].constat='YQ conserve la voix rejetée.';verdict.retours[0].correction='Revoir son raisonnement et sa syntaxe.';
+   return verdict;
+  }),error=>!error.terminal&&/YQ conserve/.test(error.message));
   const unavailable=new PublicationReview();
   await assert.rejects(()=>unavailable.check(root,folders,input,async()=>{throw new Error('Contrôleur indisponible');}),/Contrôleur indisponible/);
   await assert.rejects(()=>unavailable.check(root,folders,repaired,evaluator),error=>error.terminal);
@@ -71,19 +106,22 @@ export async function checkPublication() {
    async request(method,args){
     if(method==='thread/start'){assert.equal(args.ephemeral,true);assert.equal(args.sandbox,'read-only');assert.equal(args.approvalPolicy,'never');assert.equal(args.model,'chosen-model');return {thread:{id:'review'}};}
     assert.equal(method,'turn/start');assert.equal(args.sandboxPolicy.networkAccess,false);assert.ok(args.outputSchema.properties.controles);
-    assert.ok(args.input[0].text.includes(input.candidat));invoked++;
+    assert.ok(args.input[0].text.includes(input.candidat));
+    assert.deepEqual(JSON.parse(args.input[0].text).correctionRapport,input.correctionRapport);
+    assert.deepEqual(JSON.parse(args.input[0].text).retoursAuteur,publicationFeedback(input));invoked++;
     queueMicrotask(()=>{
      if(mode==='request'){handlers.request({id:1,method:'item/tool/requestUserInput',params:{}});return;}
      if(mode==='exit'){handlers.exit('arrêt inattendu');return;}
      if(mode==='wait') return;
      handlers.notification('item/completed',{threadId:'review',item:{type:'agentMessage',phase:'final_answer',text:mode==='invalid'?'pas du JSON':JSON.stringify(publicationVerdict(input))}});
-     handlers.notification('turn/completed',{threadId:'review',turn:{status:mode==='failed'?'failed':'completed'}});
+     handlers.notification('turn/completed',{threadId:'review',turn:{status:mode==='failed'?'failed':'completed',...(mode==='failed'?{error:{message:'Service indisponible'}}:{})}});
     });return {turn:{id:'review-turn'}};
    }
   });
+  input.correctionRapport={erreur:'Citation absente',rapport:invalid};
   const signal=new AbortController();
   assert.equal((await evaluatePublication('codex',root,'chosen-model',input,signal.signal,factory('ok'))).controles.length,3);
-  for(const mode of ['invalid','failed','request','exit']) await assert.rejects(()=>evaluatePublication('codex',root,'chosen-model',input,signal.signal,factory(mode)));
+  for(const mode of ['invalid','failed','request','exit']) await assert.rejects(()=>evaluatePublication('codex',root,'chosen-model',input,signal.signal,factory(mode)),mode==='failed'?/Service indisponible/:undefined);
   const abort=new AbortController();
   const pending=evaluatePublication('codex',root,'chosen-model',input,abort.signal,factory('wait'));
   abort.abort();await assert.rejects(()=>pending,/interrompu/);

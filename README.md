@@ -4,7 +4,7 @@ Plugin Obsidian desktop pour écrire et réviser avec votre installation locale 
 
 ## Installation
 
-Installez les fichiers `main.js`, `manifest.json` et `styles.css` de la release dans le dossier des plugins de votre coffre, puis activez **Orelius**. Dans les réglages, vérifiez Codex et choisissez votre dossier de travail. Les réglages sont enregistrés à la volée.
+Installez les fichiers `main.js`, `manifest.json` et `styles.css` de la release dans le dossier des plugins de votre coffre, puis activez **Orelius**. Vérifiez Codex dans les réglages, puis créez un **Nouveau projet Orelius** depuis le menu contextuel de l’explorateur. Les réglages sont enregistrés à la volée.
 
 Ouvrez un chapitre et utilisez **Réviser** avec vos annotations ou une demande dans le chat. **Accepter** conserve le résultat comme exemple positif. Le texte et les données de contexte restent visibles dans le projet.
 

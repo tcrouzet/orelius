@@ -13,7 +13,7 @@ import { ProjectMcp, STRUCTURE_TOOL, LINK_TOOL } from '../plugin/src/mcp.ts';
 export async function checkStructure() {
  const root = await mkdtemp(join(tmpdir(), 'orelius-structure-'));
  const put = async (path, text) => { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), text); };
- const paths = { seed: 'Manuscript/Seeds/depart.md', plan: 'Manuscript/Plan/002.md', scene: 'Manuscript/Scenes/cuisine.md', character: 'Bible/Personnages/Louise.md', plot: 'Manuscript/Intrigues/video.md', chapter: 'Manuscript/Chapitres/002.md' };
+ const paths = { seed: 'Manuscript/Seeds/depart.md', plan: 'Manuscript/Plan/002.md', scene: 'Manuscript/Scenes/cuisine.md', character: 'Bible/Characters/Louise.md', plot: 'Manuscript/Plots/video.md', chapter: 'Manuscript/Chapters/002.md' };
  let server;
  try {
   for (const [name,path] of Object.entries(paths)) await put(path, name === 'chapter' ? 'Louise ouvre la porte. Nadia entre.' : name + ' initial');
@@ -65,11 +65,11 @@ export async function checkStructure() {
   data=await syncStructure(root,folders,{rename:{from:paths.scene,to:renamed}});
   assert.equal(node('scene').path,renamed);
   assert.equal(data.links.find(link=>link.relation==='realise').from,ids.scene);
-  const moved='Bible/Personnages/Louise-renommee.md';
+  const moved='Bible/Characters/Louise-renommee.md';
   await rename(join(root,paths.character),join(root,moved));
   data=await syncStructure(root,folders);
   assert.equal(node('character').path,moved,'Renommage hors Obsidian, contenu unique identique.');
-  await put('Bible/Personnages/copie.md',await readFile(join(root,moved),'utf8'));
+  await put('Bible/Characters/copie.md',await readFile(join(root,moved),'utf8'));
   data=await syncStructure(root,folders);
   assert.notEqual(data.nodes.find(node=>node.path.endsWith('/copie.md')).id,ids.character);
   await rm(join(root,moved));

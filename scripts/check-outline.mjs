@@ -12,7 +12,7 @@ import { collectChanges, deliverChanges } from '../plugin/src/workshop.ts';
 export async function checkOutline() {
  const root=await mkdtemp(join(tmpdir(),'orelius-outline-'));
  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
- const chapter='Manuscript/Chapitres/001.md', second='Manuscript/Chapitres/002.md', scene='Manuscript/Scenes/entree.md', next='Manuscript/Scenes/sortie.md', person='Bible/Personnages/Nadia.md', plot='Manuscript/Intrigues/enquete.md';
+ const chapter='Manuscript/Chapters/001.md', second='Manuscript/Chapters/002.md', scene='Manuscript/Scenes/entree.md', next='Manuscript/Scenes/sortie.md', person='Bible/Characters/Nadia.md', plot='Manuscript/Plots/enquete.md';
  try {
   for(const path of [chapter,second,scene,next,person,plot]) await put(path,path===chapter?'Nadia entre.':path);
   let data=await syncStructure(root,folders);

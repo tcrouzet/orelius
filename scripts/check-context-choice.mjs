@@ -15,7 +15,7 @@ import { configPath } from '../plugin/src/narrative-context.ts';
 export async function checkContextChoice() {
  const cwd=await mkdtemp(join(tmpdir(),'orelius-context-choice-'));
  const put=async(path,text)=>{await mkdir(join(cwd,path,'..'),{recursive:true});await writeFile(join(cwd,path),text);};
- const chapter='Manuscript/Chapitres/002.md',previous='Manuscript/Chapitres/001.md',scene='Manuscript/Scenes/cuisine.md',unused='Manuscript/Seeds/bateau.md',person='Bible/Personnages/Nadia.md',other='Bible/Personnages/Secret.md';
+ const chapter='Manuscript/Chapters/002.md',previous='Manuscript/Chapters/001.md',scene='Manuscript/Scenes/cuisine.md',unused='Manuscript/Seeds/bateau.md',person='Bible/Characters/Nadia.md',other='Bible/Characters/Secret.md';
  try {
   for(const [path,text] of [[chapter,'Nadia entre dans la cuisine.'],[previous,'Nadia arrive.'],[scene,'Intention de la scène.'],[unused,'FICHE SANS RAPPORT'],[person,'Nadia est actrice.'],[other,'INFORMATION SECRÈTE'],['Bible/Style/Narration.md','Narration précise.']]) await put(path,text);
   let structure=await syncStructure(cwd,folders);

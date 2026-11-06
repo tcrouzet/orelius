@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { checkPath } from "./archives.ts";
@@ -23,14 +24,14 @@ export async function chapterFiles(cwd: string, folders: ProjectFolders): Promis
       else if (entry.isFile() && /\.md$/i.test(entry.name)) result.push(path);
     }
   }
-  await walk(`${folders.manuscriptFolder}/Chapitres`);
+  await walk(`${folders.manuscriptFolder}/Chapters`);
   return result.sort(new Intl.Collator("fr", { numeric: true }).compare);
 }
 
 export async function pendingStates(cwd: string, folders: ProjectFolders, chapters?: string[]): Promise<PendingState[]> {
   const pending: PendingState[] = [];
   for (const chapter of chapters ?? await chapterFiles(cwd, folders)) {
-    if (chapterPath(cwd, folders, chapter) !== chapter) throw new Error("Chapitre invalide dans le suivi.");
+    if (chapterPath(cwd, folders, chapter) !== chapter) throw new Error(t("invalidChapterInTrackingData"));
     const manuscript = await readProjectFile(cwd, chapter);
     if (!manuscript?.text.trim()) continue;
     const note = await readProjectFile(cwd, statePath(folders, chapter));
@@ -49,10 +50,10 @@ export async function pendingStates(cwd: string, folders: ProjectFolders, chapte
 
 export async function saveWorkflow(cwd: string, folders: ProjectFolders, pending: PendingState[], ensureCurrent: () => void = () => {}, configDir?: string): Promise<void> {
   const path = `${folders.manuscriptFolder}/Context/suivi-etats.md`;
-  const content = `# Suivi des états narratifs\n\n${pending.length ? "États à extraire depuis le texte conservé. Aucun de ces états n’est considéré comme à jour." : "Tous les chapitres examinés disposent d’un état lié au texte conservé. Cela ne valide pas l’interprétation littéraire."}\n\n\`\`\`json\n${JSON.stringify(pending, null, 2)}\n\`\`\`\n`;
+  const content = `# Tracking des états narratifs\n\n${pending.length ? "États à extraire depuis le texte conservé. Aucun de ces états n’est considéré comme à jour." : "Tous les chapitres examinés disposent d’un état lié au texte conservé. Cela ne valide pas l’interprétation littéraire."}\n\n\`\`\`json\n${JSON.stringify(pending, null, 2)}\n\`\`\`\n`;
   await writeProjectFile(cwd, path, content, await readProjectFile(cwd, path), folders.archiveFolder, undefined, ensureCurrent, false, undefined, configDir);
 }
 
 export function maintenancePrompt(pending: PendingState[]): string {
-  return MAINTENANCE_PREFIX + "Actualise uniquement les états narratifs des chapitres listés. Aucun texte du manuscrit, de la Bible, du plan ou des prompts ne doit être modifié. Pour chaque chapitre : consulter_contexte_editorial depuis page 0, lire toutes les pages, puis enregistrer_etat_narratif depuis le texte conservé avec son empreinte, des citations exactes et les détenteurs de connaissance. Ne prépare ni ne rédige de prose. Signale toute impossibilité ; ne prétends pas que le suivi est complet.\n\n" + JSON.stringify(pending);
+  return MAINTENANCE_PREFIX + "Actualise uniquement les états narratifs des chapitres listés. Aucun texte du manuscrit, de la Bible, du plan ou des prompts ne doit être modifié. Pour chaque chapitre : consulter_contexte_editorial depuis page 0, lire toutes les pages, puis enregistrer_etat_narratif depuis le texte conservé avec son empreinte, des citations exactes et les détenteurs de connaissance. Pour chaque état de personnage, précise status (established ou hypothesis), kind (knowledge, intention ou feeling) et target si une autre personne est visée. Ne confonds pas intention et réalisation, croyance et fait, ni sentiment réciproque. La citation établit depuis quel événement cet état est attesté. Ne prépare ni ne rédige de prose. Signale toute impossibilité ; ne prétends pas que le suivi est complet.\n\n" + JSON.stringify(pending);
 }

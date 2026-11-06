@@ -6,7 +6,7 @@
 
 Demandez un passage avec **Envoyer**, **Réviser** ou **Recommencer**. Orelius prépare les sources et laisse Codex rédiger. Quand Codex demande l’enregistrement du chapitre, Orelius fait évaluer ce candidat dans une session séparée, avec le même modèle actif.
 
-Vous n’avez pas à lire les brouillons. Le panneau indique **Contrôle avant publication…**. Le texte dans Chapitres reste en place pendant cette évaluation. Pour un nouveau chapitre, le fichier n’est créé qu’après un contrôle favorable.
+Vous n’avez pas à lire les brouillons. Le panneau indique **Contrôle avant publication…**. Le texte dans Chapters reste en place pendant cette évaluation. Pour un nouveau chapitre, le fichier n’est créé qu’après un contrôle favorable.
 
 ## Ce qui est vérifié
 
@@ -20,7 +20,7 @@ Le plugin refuse une preuve factuelle tirée seulement du plan, de Model, de la 
 
 ## Une seule reprise automatique
 
-Si le premier contrôle signale un défaut, le candidat n’est pas enregistré dans Chapitres. Codex reçoit les problèmes cités et peut soumettre une version corrigée, dans la portée d’écriture déjà autorisée. Orelius contrôle cette seconde version.
+Si le premier contrôle signale un défaut, le candidat n’est pas enregistré dans Chapters. Codex reçoit les problèmes cités et peut soumettre une version corrigée, dans la portée d’écriture déjà autorisée. Orelius contrôle cette seconde version.
 
 Il y a au maximum deux évaluations par chapitre pour une demande : le candidat initial, puis une reprise. Renvoyer à l’identique un candidat refusé arrête la publication sans payer une nouvelle évaluation. Relire le dossier ou refaire la préparation ne remet pas cette limite à zéro. Une nouvelle consigne envoyée par l’auteur invalide le contrôle en cours et ouvre une nouvelle préparation.
 
@@ -34,7 +34,7 @@ Orelius archive l’original et la version générée, puis écrit le chapitre. 
 
 ## Où retrouver les traces
 
-Pour un chapitre `Manuscript/Chapitres/002.md`, les traces sont dans `Manuscript/Context/002/Publication/` :
+Pour un chapitre `Manuscript/Chapters/002.md`, les traces sont dans `Manuscript/Context/002/Publication/` :
 
 - `candidat-1.md` et, si nécessaire, `candidat-2.md` ;
 - `controle-1.md` et, si nécessaire, `controle-2.md`.

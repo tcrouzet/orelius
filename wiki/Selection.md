@@ -4,7 +4,7 @@
 
 ## Lancer une action
 
-1. Ouvrez un chapitre dans le dossier Chapitres de votre manuscrit.
+1. Ouvrez un chapitre dans le dossier Chapters de votre manuscrit.
 2. Sélectionnez un passage dans l’éditeur : quelques mots, une phrase ou plusieurs paragraphes d’un seul tenant.
 3. Faites un clic droit et choisissez une action **Orelius**. Les mêmes actions sont disponibles dans la palette de commandes ; vous pouvez leur attribuer des raccourcis dans Obsidian.
 4. Ajoutez une précision si nécessaire, puis cliquez sur **Envoyer**. Le chat s’ouvre pour suivre la tâche.
@@ -17,7 +17,7 @@ Le passage choisi est capturé à l’ouverture de l’action. Si le chapitre ch
 - **Condenser** : réduire le passage en conservant les faits et sa fonction. Exemple : « Supprime les répétitions, garde la réplique finale. »
 - **Reformuler** : reprendre la formulation selon votre demande. Exemple : « Plus oral et plus sec, sans expliquer le sous-entendu. »
 - **Changer de point de vue** : indiquer le personnage ou le regard souhaité, par exemple « Nadia, à la première personne ». Le changement reste local ; il ne modifie pas les consignes générales de la Bible.
-- **Proposer des variantes** : demander trois versions du passage, conservées pour [comparaison et choix](Comparer.md). Cliquez ensuite sur **Comparer** dans le chat pour retenir une version ou certains changements. Aucun remplacement automatique du manuscrit.
+- **Proposer des variantes** : demander trois versions du passage, conservées pour [comparaison et choix](Comparer.md). Utilisez ensuite **Orelius : Comparer les versions** dans la palette de commandes pour retenir une version ou certains changements. Aucun remplacement automatique du manuscrit.
 
 Les précisions sont facultatives, sauf la cible du changement de point de vue. Votre brouillon déjà saisi dans le chat est conservé ; la fenêtre de l’action possède ses propres précisions.
 

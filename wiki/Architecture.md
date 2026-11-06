@@ -22,7 +22,7 @@ Protocole : [documentation officielle OpenAI App Server](https://learn.chatgpt.c
 
 ## Atelier et file de modifications
 
-Le module workshop.ts lit les notes de projet, prépare l’inventaire paginé de Peupler et vérifie sa fraîcheur avant chaque écriture. La session limite les destinations de Peupler aux fiches d’atelier et aux notes Plan, Resume, Personnages. Les chapitres restent hors de cette autorisation.
+Le module workshop.ts lit les notes de projet, prépare l’inventaire paginé de Peupler et vérifie sa fraîcheur avant chaque écriture. La session autorise Peupler à compléter Bible et Manuscript, hors journaux et contexte interne. Un nouveau chapitre doit correspondre exactement à un texte source de Model ou un passage contigu. Aucun chapitre existant ne peut être remplacé. Model reste intact.
 
 Modifications.md conserve les empreintes des versions transmises et les changements en attente. Le message envoyé reçoit un complément technique, retiré de l’affichage de la conversation. Les changements ne sont acquittés qu’à la fin réussie de la tâche ; les versions générées sont enregistrées séparément. Une correction postérieure à la capture reste détectable.
 

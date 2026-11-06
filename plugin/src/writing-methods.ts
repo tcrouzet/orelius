@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { contextExcluded } from "./request-context.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { checkSceneContext, type SceneContext } from "./scene-context.ts";
@@ -22,20 +23,20 @@ export async function consultMethod(cwd: string, folders: ProjectFolders, args: 
   ensureCurrent: () => void, configDir?: string): Promise<string> {
   if (typeof args.tache !== "string" || !(TASK_PROMPT_NAMES as readonly string[]).includes(args.tache)
     || Object.keys(args).some(key => !["tache", "consigne", "debut", "fin", "lot", "acteur"].includes(key))
-    || args.consigne !== undefined && typeof args.consigne !== "string" || args.acteur !== undefined && typeof args.acteur !== "string") throw new Error("Tâche ou paramètres de méthode invalides.");
+    || args.consigne !== undefined && typeof args.consigne !== "string" || args.acteur !== undefined && typeof args.acteur !== "string") throw new Error(t("invalidTaskOrMethodParameters"));
   await checkSceneContext(cwd, context);
   const task = args.tache as TaskPromptName;
   const prompt = context.prompts?.[task];
-  if (!prompt) throw new Error("Prompt absent du plugin.");
+  if (!prompt) throw new Error(t("promptMissingFromThePlugin"));
   const source = (await readProjectFile(cwd, context.chapter))?.text ?? "";
   let start = args.debut ?? 0;
   let end = args.fin ?? source.length;
   const chunks = reviewChunks(source);
   if (args.lot !== undefined) {
-    if (args.debut !== undefined || args.fin !== undefined || !Number.isSafeInteger(args.lot) || Number(args.lot) < 0 || !chunks[Number(args.lot)]) throw new Error("Lot de revue invalide.");
+    if (args.debut !== undefined || args.fin !== undefined || !Number.isSafeInteger(args.lot) || Number(args.lot) < 0 || !chunks[Number(args.lot)]) throw new Error(t("invalidReviewBatch"));
     ({ start, end } = chunks[Number(args.lot)]);
   }
-  if (typeof start !== "number" || typeof end !== "number" || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end > source.length) throw new Error("Sélection hors du texte conservé.");
+  if (typeof start !== "number" || typeof end !== "number" || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end > source.length) throw new Error(t("selectionOutsideTheRetainedText"));
   const before = source.slice(0, start).match(/\S+\s*/g)?.slice(-200).join("") ?? "";
   const after = source.slice(end).match(/\S+\s*/g)?.slice(0, 200).join("") ?? "";
   let acquired: unknown[] = [];
@@ -48,6 +49,7 @@ export async function consultMethod(cwd: string, folders: ProjectFolders, args: 
       acquired = (Object.keys(parsed.dependencies ?? {}).some(path => contextExcluded(context.choice ?? null, path)) ? [] : parsed.facts)
         .filter(fact => !contextExcluded(context.choice ?? null, fact.entity))
         .filter(fact => !references.some(reference => reference.path === fact.entity && (reference.mode === "hidden" || reference.hiddenSections?.includes(fact.field))))
+        .filter(fact => fact.status !== "hypothesis")
         .filter(fact => (fact.at ?? source.length) <= start && (args.acteur === undefined || fact.knownBy.includes(String(args.acteur))));
     } catch { /* A stale state cannot establish knowledge at the selection. */ }
   }
@@ -63,19 +65,19 @@ export async function consultMethod(cwd: string, folders: ProjectFolders, args: 
 export async function recordNarrativeState(cwd: string, folders: ProjectFolders, args: RpcObject,
   chapter: string, ensureCurrent: () => void, configDir?: string, context?: SceneContext): Promise<string> {
   const manuscript = await readProjectFile(cwd, chapter);
-  if (!manuscript) throw new Error("Le chapitre doit être enregistré avant son extraction.");
-  if (args.dependencies !== undefined) throw new Error("Les dépendances sont calculées par le plugin.");
+  if (!manuscript) throw new Error(t("theChapterMustBeSavedBeforeExtractingItsState"));
+  if (args.dependencies !== undefined) throw new Error(t("dependenciesAreCalculatedByThePlugin"));
   const state = parseState(args, chapter, manuscript.text);
   state.dependencies = {};
   for (const [path, original] of context?.snapshots ?? []) {
-    if (path === chapter || !path.startsWith(`${folders.manuscriptFolder}/Chapitres/`) || original === null) continue;
-    if ((await readProjectFile(cwd, path))?.text !== original) throw new Error(`Source narrative modifiée : ${path}`);
+    if (path === chapter || !path.startsWith(`${folders.manuscriptFolder}/Chapters/`) || original === null) continue;
+    if ((await readProjectFile(cwd, path))?.text !== original) throw new Error(t("narrativeSourceModified", { value1: path }));
     state.dependencies[path] = fingerprint(original);
   }
   const path = statePath(folders, chapter);
   const document = `# État narratif — ${chapter}\n\nAnalyse liée au texte conservé, pas une validation de l’auteur. Les citations sont vérifiées ; leur interprétation peut rester erronée. knownBy nomme les détenteurs de chaque information, notamment lecteur ou narrateur si le texte l’établit.\n\n\`\`\`json\n${JSON.stringify(state, null, 2)}\n\`\`\`\n`;
   const check = () => ensureCurrent();
-  if ((await readProjectFile(cwd, chapter))?.text !== manuscript.text) throw new Error("Chapitre modifié pendant l’extraction.");
+  if ((await readProjectFile(cwd, chapter))?.text !== manuscript.text) throw new Error(t("chapterChangedDuringExtraction"));
   await writeProjectFile(cwd, path, document, await readProjectFile(cwd, path), folders.archiveFolder, undefined, check, false, undefined, configDir);
   return JSON.stringify({ fichier: path, empreinte: state.hash, resultat: "État enregistré ; il sera exclu si le chapitre change." });
 }

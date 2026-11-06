@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 export interface DiffGroup {
   delFrom: number; // offset de début dans le texte original (du tronçon)
   delTo: number; // offset de fin (exclusif) dans le texte original
@@ -72,7 +73,7 @@ function tokenDiff(original: string, revised: string, lines: boolean): DiffOp[] 
   if (n * m > 4_000_000) {
     const sparse = sparseDiff(a, b);
     if (sparse) return sparse;
-    if (lines) throw new Error("Diff trop étendu pour délimiter les corrections avec certitude. Révision refusée.");
+    if (lines) throw new Error(t("theDiffIsTooLargeToIdentifyCorrectionsReliably"));
     return [
       { op: "del", text: original },
       { op: "ins", text: revised },

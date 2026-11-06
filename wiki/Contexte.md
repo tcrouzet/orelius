@@ -1,42 +1,38 @@
 # Organisation et contexte
 
-Pour ajouter ou retirer une note avant un envoi, utilisez le bouton **Contexte** : [guide du choix par demande](Choisir-le-contexte.md).
+Les matériaux utiles sont recherchés automatiquement avant chaque demande : [fonctionnement de la recherche](Choisir-le-contexte.md). Le dernier rapport se trouve dans `Manuscript/Context/Recherche.md`.
 
 [Accueil](Home.md)
 
 Les noms ci-dessous sont les valeurs par défaut ; les réglages peuvent les remplacer.
 
-`Chapitres`, `Plan`, `Resume`, `Personnages` et `Context` sont des dossiers frères, directement dans le manuscrit. `Plan` et `Resume` ne se trouvent jamais sous `Chapitres`.
+`Chapters`, `Plan`, `Summaries`, `Characters` et `Context` sont des dossiers frères, directement dans le manuscrit. `Plan` et `Summaries` ne se trouvent jamais sous `Chapters`.
 
 ```text
 Manuscript/
-├── Chapitres/       Texte conservé
+├── Chapters/       Texte conservé
 ├── Plan/           Intentions et déroulement prévus
-├── Resume/         Notes de résumé
-├── Personnages/    Notes liées au manuscrit
+├── Summaries/         Notes de résumé
+├── Characters/    Notes liées au manuscrit
 ├── Seeds/          Idées initiales et choix
 ├── Synopsis/       Déroulement global
 ├── Scenes/         Objectifs, actions et conséquences
 ├── Arcs/           Évolution des personnages
-├── Intrigues/      Fils narratifs, indices et résolutions
-├── Variantes/      Pistes alternatives
-├── Verification/   Écarts et questions à résoudre
+├── Plots/      Fils narratifs, indices et résolutions
+├── Variants/      Pistes alternatives
+├── Checks/   Écarts et questions à résoudre
 └── Context/        Sources, préparations et analyses du plugin
 
-Model/
-├── Chapitres/
-├── Plan/
-├── Resume/
-└── Personnages/
+Model/             Sources organisées librement
 ```
 
-Si vous avez choisi `Manuscrit` dans les réglages, cette même structure se trouve sous `Manuscrit/`. Les noms de sous-dossiers restent ceux affichés ci-dessus. `Resume/` ne doit pas être confondu avec `Context/<chapitre>/etat.md`, où le plugin enregistre son analyse liée à une version précise du texte.
+Si vous avez choisi `Manuscrit` dans les réglages, cette même structure se trouve sous `Manuscrit/`. Les noms de sous-dossiers restent ceux affichés ci-dessus. `Summaries/` ne doit pas être confondu avec `Context/<chapitre>/etat.md`, où le plugin enregistre son analyse liée à une version précise du texte.
 
-- `Manuscript/Chapitres/` : texte conservé.
-- `Model/` : même structure, texte à adapter ou version antérieure. Une source d’inspiration ne constitue pas un événement du roman.
+- `Manuscript/Chapters/` : texte conservé.
+- `Model/` : organisation libre des sources de démarrage, textes, brouillons, plans et notes. Une source d’inspiration ne constitue pas un événement du roman.
 - `Bible/Style/Narration.md` : voix et mode narratif ; les autres notes de Style apportent règles et exemples.
-- `Bible/Personnages/` : fiches des personnages.
-- `Bible/Suivi/` : conversation, retours, connaissances et relevés horodatés.
+- `Bible/Characters/` : fiches des personnages.
+- `Bible/Tracking/` : conversation, retours, connaissances et relevés horodatés.
 - `Archives/` : versions conservées suivant la structure du projet ; agents archivés dans leur dossier dédié.
 - `Manuscript/Context/configuration.md` : configuration éditable.
 - `Manuscript/Context/002/` : `sources.md`, `prompts.md`, `preparation.md`, `etat.md`, `revue.md` et traces des méthodes. Les sous-dossiers des chapitres sont reproduits.
@@ -49,12 +45,12 @@ La note contient exactement un bloc JSON. Les chemins sont relatifs au projet, a
 ```json
 {
   "chapters": [
-    {"path":"Manuscript/Chapitres/001.md","previous":null},
-    {"path":"Manuscript/Chapitres/002.md","previous":"Manuscript/Chapitres/001.md","pov":"Bible/Personnages/Jonas.md","tense":"présent","references":["Bible/Personnages/Jonas.md"]}
+    {"path":"Manuscript/Chapters/001.md","previous":null},
+    {"path":"Manuscript/Chapters/002.md","previous":"Manuscript/Chapters/001.md","pov":"Bible/Characters/Jonas.md","tense":"présent","references":["Bible/Characters/Jonas.md"]}
   ],
   "references": [
-    {"path":"Bible/Personnages/Jonas.md","name":"Jonas","aliases":["Jason"],"mode":"auto","priority":20},
-    {"path":"Bible/Lieux/Ecole.md","name":"école","secondary":["Louise"],"secondaryMode":"all","priority":5}
+    {"path":"Bible/Characters/Jonas.md","name":"Jonas","aliases":["Jason"],"mode":"auto","priority":20},
+    {"path":"Bible/Places/Ecole.md","name":"école","secondary":["Louise"],"secondaryMode":"all","priority":5}
   ],
   "recursiveReferences":true,
   "referenceBudget":30000,
@@ -74,6 +70,6 @@ Les modes des références sont `auto` (détection du nom et des alias), `always
 
 ## Conception du roman
 
-Les nouveaux dossiers sont créés lors de la préparation du projet, à l’ouverture du chat ou au choix du dossier de travail. [Peupler](Peupler.md) demande au modèle de les remplir depuis les sources disponibles. Les fiches sont modifiables directement ; [la file des modifications](Modifications.md) les signale à la demande suivante.
+Les nouveaux dossiers sont créés lors de la préparation du projet, depuis le menu Nouveau projet Orelius ou à l’ouverture d’un projet existant. [Peupler](Peupler.md) demande au modèle de les remplir depuis les sources disponibles. Les fiches sont modifiables directement ; [la file des modifications](Modifications.md) les signale à la demande suivante.
 
 Commencez par [votre parcours de travail](Home.md) avant de modifier la configuration avancée ci-dessus.

@@ -1,7 +1,8 @@
+import { t } from "./i18n.ts";
 import { randomUUID } from "node:crypto";
 import type { StoryStructure } from "./story-structure.ts";
 
-export const SCENE_STATUSES = { planned: "À écrire", draft: "Brouillon", revise: "À réviser", finished: "Terminé" } as const;
+export const SCENE_STATUSES = { get planned() { return t("toWrite"); }, get draft() { return t("draft"); }, get revise() { return t("toRevise"); }, get finished() { return t("finished"); } } as const;
 export interface NovelOutline {
   acts: { id: string; title: string }[];
   chapters: { id: string; act: string | null }[];
@@ -13,7 +14,7 @@ export type OutlineAction = { type: "initialize" } | { type: "act"; title: strin
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const keys = (value: object, names: string[]) => Object.keys(value).every(key => names.includes(key));
 export function parseOutline(value: unknown, data: StoryStructure): NovelOutline {
-  const fail = () => { throw new Error("Plan du roman invalide ; registre conservé."); };
+  const fail = () => { throw new Error(t("invalidNovelOutlineRegistryPreserved")); };
   if (!record(value) || !keys(value, ["acts", "chapters", "scenes"]) || !Array.isArray(value.acts) || !Array.isArray(value.chapters) || !Array.isArray(value.scenes)) return fail();
   const acts = new Set<string>(), chapters = new Set<string>(), scenes = new Set<string>();
   for (const act of value.acts) {
@@ -49,25 +50,25 @@ export function editOutline(data: StoryStructure, action: OutlineAction): void {
   const outline = reconcileOutline(data);
   const available = (id: string, kind: string) => data.nodes.some(node => node.id === id && node.kind === kind && !node.missing);
   if (action.type === "act") {
-    if (!action.title.trim() || action.title.length > 200) throw new Error("Donnez un titre d’acte de 1 à 200 caractères.");
+    if (!action.title.trim() || action.title.length > 200) throw new Error(t("enterAnActTitleBetweenAndCharacters"));
     if (action.id) {
       const act = outline.acts.find(item => item.id === action.id);
-      if (!act) throw new Error("Acte introuvable.");
+      if (!act) throw new Error(t("actNotFound"));
       act.title = action.title.trim();
     } else outline.acts.push({ id: randomUUID(), title: action.title.trim() });
   } else if (action.type === "chapter") {
     const chapter = outline.chapters.find(item => item.id === action.id);
-    if (!chapter || !available(action.id, "chapitre") || action.act !== null && !outline.acts.some(act => act.id === action.act)) throw new Error("Chapitre ou acte introuvable.");
+    if (!chapter || !available(action.id, "chapitre") || action.act !== null && !outline.acts.some(act => act.id === action.act)) throw new Error(t("chapterOrActNotFound"));
     chapter.act = action.act;
   } else if (action.type === "scene") {
     const scene = outline.scenes.find(item => item.id === action.id);
-    if (!scene || !available(action.id, "scene") || action.chapter !== null && !available(action.chapter, "chapitre")) throw new Error("Scène ou chapitre introuvable.");
-    if (action.before === action.id || action.before !== null && !outline.scenes.some(item => item.id === action.before && item.chapter === action.chapter)) throw new Error("Position de scène invalide.");
+    if (!scene || !available(action.id, "scene") || action.chapter !== null && !available(action.chapter, "chapitre")) throw new Error(t("sceneOrChapterNotFound"));
+    if (action.before === action.id || action.before !== null && !outline.scenes.some(item => item.id === action.before && item.chapter === action.chapter)) throw new Error(t("invalidScenePosition"));
     Object.assign(scene, { chapter: action.chapter, pov: action.pov.trim(), status: action.status });
     outline.scenes = outline.scenes.filter(item => item.id !== scene.id);
     const index = action.before === null ? outline.scenes.length : outline.scenes.findIndex(item => item.id === action.before);
     outline.scenes.splice(index, 0, scene);
-  } else if (action.type !== "initialize") throw new Error("Action de plan inconnue.");
+  } else if (action.type !== "initialize") throw new Error(t("unknownOutlineAction"));
   data.outline = parseOutline(outline, data);
 }
 export function outlineRelations(data: StoryStructure): { from: string; to: string; relation: string; order: number }[] {

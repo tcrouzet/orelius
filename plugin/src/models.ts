@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { object } from "./codex.ts";
 
 export interface ModelOption {
@@ -7,11 +8,11 @@ export interface ModelOption {
 }
 
 export function modelOptions(value: unknown): ModelOption[] {
-  if (!Array.isArray(value)) throw new Error("Liste des modèles Codex invalide.");
+  if (!Array.isArray(value)) throw new Error(t("invalidCodexModelList"));
   return value.map(entry => {
     const model = object(entry);
     if (typeof model.model !== "string" || !model.model || typeof model.displayName !== "string" || !model.displayName) {
-      throw new Error("Modèle Codex invalide.");
+      throw new Error(t("invalidCodexModel"));
     }
     return { model: model.model, name: model.displayName, isDefault: model.isDefault === true };
   });

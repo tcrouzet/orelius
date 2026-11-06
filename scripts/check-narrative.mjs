@@ -13,8 +13,8 @@ export async function checkNarrative() {
   const root=await mkdtemp(join(tmpdir(),'orelius-narrative-'));
   const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
   const templates=Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name=>[name,await readFile(new URL('../prompts/'+name+'.md',import.meta.url),'utf8')])));
-  const chapter='Manuscript/Chapitres/002.md', previous='Manuscript/Chapitres/001.md';
-  const refs=[{path:'Bible/Personnages/Nora.md',aliases:['Archiviste'],children:['Bible/Lieux/Phare.md']},{path:'Bible/Lieux/Phare.md',mode:'manual',children:['Bible/Personnages/Nora.md']},{path:'Bible/Secret.md',mode:'hidden'},{path:'Bible/Global.md',mode:'always'},{path:'Bible/Off.md',track:false}];
+  const chapter='Manuscript/Chapters/002.md', previous='Manuscript/Chapters/001.md';
+  const refs=[{path:'Bible/Characters/Nora.md',aliases:['Archiviste'],children:['Bible/Places/Phare.md']},{path:'Bible/Places/Phare.md',mode:'manual',children:['Bible/Characters/Nora.md']},{path:'Bible/Secret.md',mode:'hidden'},{path:'Bible/Global.md',mode:'always'},{path:'Bible/Off.md',track:false}];
   try {
     const server=new ProjectMcp(async()=>'',undefined,undefined,async()=> 'méthode',async()=>{throw new Error('Citation absente');});
     try {
@@ -50,6 +50,17 @@ export async function checkNarrative() {
     const replacement={...state,facts:[{...state.facts[0],mode:'replace',value:'Autre nom'}]};
     assert.equal(projectStates([state,replacement],refs)[0].value,'Autre nom');
     assert.deepEqual(projectStates([state],[{...refs[0],hiddenSections:['Connaissances']}]),[]);
+    const directed = {...state.facts[0], kind:'feeling', status:'established', target:'Bible/Characters/Louise.md', mode:'replace'};
+    const uncertain = {...directed,status:'hypothesis',value:'Peut-être hostile'};
+    const towardOther = {...directed,target:'Bible/Characters/Nadia.md',value:'Confiance'};
+    const projected = projectStates([{...state,facts:[directed,uncertain,towardOther]}],refs);
+    assert.equal(projected.length,3,'Une hypothèse et deux relations dirigées ne s’écrasent pas.');
+    assert.equal(projected[0].quote,directed.quote);
+    assert.equal(projectStates([{...state,facts:[directed,towardOther]}, {...state,facts:[{...directed,value:'Hostilité explicite'}]}],refs).find(f=>f.target===directed.target).value,'Hostilité explicite');
+    assert.equal(projected[0].chapter,previous);
+    assert.throws(()=>parseState({...state,facts:[{...directed,status:'certain'}]},previous,prose),/Statut/);
+    assert.throws(()=>parseState({...state,facts:[{...directed,target:'../secret.md'}]},previous,prose),/relatif/);
+    assert.equal(parseState({...state,facts:[directed]},previous,prose).facts[0].kind,'feeling');
     await put(previous,prose);await put(chapter,'Nora entre au Phare.\n\nElle attend.');
     await put(refs[0].path,'# Nora\nArchiviste\n## Secret\nFUTUR_INTERDIT\n## Voix\nPrécise');
     await put(refs[1].path,'# Phare\nUn lieu.');await put(refs[3].path,'# Règle\nGlobale');
@@ -73,6 +84,9 @@ export async function checkNarrative() {
     assert.ok(context.prompts.critiquer.includes('Consigne personnelle'));
     const second=await readFile(join(root,chapter),'utf8');
     await recordNarrativeState(root,folders,{chapter,hash:fingerprint(second),summary:'Nora attend.',facts:[],moments:[]},chapter,()=>{},undefined,context);
+    await recordNarrativeState(root,folders,{chapter,hash:fingerprint(second),summary:'Nora attend.',facts:[{...uncertain,quote:'Nora entre au Phare.'}],moments:[]},chapter,()=>{},undefined,context);
+    const atEnd=JSON.parse(await consultMethod(root,folders,{tache:'critiquer',debut:second.length,fin:second.length,acteur:'Nora'},context,()=>{}));
+    assert.deepEqual(atEnd.connaissancesAvantSelection,[],'Une hypothèse citée ne devient pas une connaissance acquise.');
     const secondState=readData(await readFile(join(root,'Manuscript/Context/002/etat.md'),'utf8'));
     assert.equal(secondState.dependencies[previous],fingerprint(prose));
     await put(previous,prose+' Une autre phrase.');

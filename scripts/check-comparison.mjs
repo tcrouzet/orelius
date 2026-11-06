@@ -18,9 +18,9 @@ export async function checkComparison() {
   assert.equal(mergeComparison(a,b,new Set(diffToGroups(a,b).map((_,i)=>i))),b);
  }
  assert.throws(()=>mergeComparison(before,after,new Set([50])),/invalide/);
- const cwd=await mkdtemp(join(tmpdir(),'orelius-comparison-')),chapter='Manuscript/Chapitres/002.md';
+ const cwd=await mkdtemp(join(tmpdir(),'orelius-comparison-')),chapter='Manuscript/Chapters/002.md';
  try {
-  await mkdir(join(cwd,'Manuscript/Chapitres'),{recursive:true});await writeFile(join(cwd,chapter),before);
+  await mkdir(join(cwd,'Manuscript/Chapters'),{recursive:true});await writeFile(join(cwd,chapter),before);
   const request=selectionRequest('variantes',chapter,before,7,12),plan=selectionPlan(request,before);
   const args={variantes:[{titre:'Brève',texte:'crie'},{titre:'Autre',texte:'murmure'}]};
   await assert.rejects(saveVariants(cwd,folders,null,args,()=>{}),/sélection/);

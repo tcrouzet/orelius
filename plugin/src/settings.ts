@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { object } from "./codex.ts";
 import type { RevisionHighlight } from "./revision.ts";
 import type { Reaction, ReactionRating } from "./reactions.ts";
@@ -23,7 +24,7 @@ export function validateFolderName(name: string): void {
   if (typeof name !== "string" || !name || name !== name.trim() || name.startsWith(".")
     || /[<>:"/\\|?*]/.test(name) || [...name].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
     || name.endsWith(".")) {
-    throw new Error("Indiquez un nom de dossier simple, sans chemin ni caractère réservé.");
+    throw new Error(t("enterASimpleFolderNameWithoutAPathOr"));
   }
 }
 
@@ -34,23 +35,25 @@ export function validateProjectFolders(folders: ProjectFolders): void {
   });
   if (new Set(names).size !== names.length || names.slice(1).includes("_archives")
     || names.some(name => name === "agents.md" || name === "agents.override.md" || name === "context")) {
-    throw new Error("Les dossiers doivent avoir des noms distincts ; AGENTS.md, AGENTS.override.md, context et les anciennes archives _Archives sont réservés.");
+    throw new Error(t("foldersMustHaveDistinctNamesAgentsMdAgentsOverride"));
   }
 }
 
-export const WORKSHOP_FOLDERS = ["Seeds", "Synopsis", "Scenes", "Arcs", "Intrigues", "Variantes", "Verification"];
+export const WORKSHOP_FOLDERS = ["Seeds", "Synopsis", "Scenes", "Arcs", "Plots", "Variants", "Checks"];
 
 export function projectPaths(folders: ProjectFolders): string[] {
   validateProjectFolders(folders);
-  const content = [...[folders.manuscriptFolder, folders.modelFolder].flatMap(folder => [folder,
-    ...["Chapitres", "Personnages", "Plan", "Resume"].map(name => `${folder}/${name}`)]),
+  const content = [folders.manuscriptFolder,
+    ...["Chapters", "Characters", "Plan", "Summaries"].map(name => `${folders.manuscriptFolder}/${name}`),
+    folders.modelFolder,
     ...WORKSHOP_FOLDERS.map(name => `${folders.manuscriptFolder}/${name}`),
-    folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Personnages`, `${folders.manuscriptFolder}/Context`];
+    folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Characters`, `${folders.manuscriptFolder}/Context`];
   return [folders.archiveFolder, ...content, ...content.map(path => `${folders.archiveFolder}/${path}`)];
 }
 
 export interface OreliusSettings extends ProjectFolders {
   showActivity: boolean;
+  debugMode: boolean;
   codexPath: string;
   folder: string;
   threadId: string;
@@ -69,6 +72,11 @@ export function associatedFolder(settings: OreliusSettings, path: string): strin
     .sort((a, b) => b.length - a.length)[0];
 }
 
+export function modelProject(settings: OreliusSettings, path: string): string | undefined {
+  return [...Object.keys(settings.sessions), ...(settings.folder ? [settings.folder] : [])]
+    .find(folder => path === `${folder ? `${folder}/` : ""}${settings.modelFolder}`);
+}
+
 export function visibleFolder(settings: OreliusSettings, path: string | null, busy: boolean): string | undefined {
   if (path === null) return undefined;
   const folder = associatedFolder(settings, path);
@@ -83,7 +91,7 @@ function folderSession(settings: OreliusSettings): FolderSession | undefined {
 export function loadSettings(value: unknown): OreliusSettings {
   const saved = object(value);
   const settings: OreliusSettings = {
-    ...DEFAULT_PROJECT_FOLDERS, showActivity: saved.showActivity === true,
+    ...DEFAULT_PROJECT_FOLDERS, debugMode: saved.debugMode === true, showActivity: saved.showActivity === true,
     codexPath: "", folder: "", threadId: "", threadCwd: "", sessions: {}, codexVersions: {}, revisionHighlights: {}, reactions: {},
   };
   for (const key of ["codexPath", "folder", "threadId", "threadCwd"] as const) {
@@ -92,44 +100,44 @@ export function loadSettings(value: unknown): OreliusSettings {
   for (const key of PROJECT_FOLDER_KEYS) {
     if (saved[key] === undefined) continue;
     const name = saved[key];
-    if (typeof name !== "string") throw new Error(`Nom de dossier invalide pour ${DEFAULT_PROJECT_FOLDERS[key]}.`);
+    if (typeof name !== "string") throw new Error(t("invalidFolderNameFor", { value1: DEFAULT_PROJECT_FOLDERS[key] }));
     settings[key] = name;
   }
   if (saved.sessions !== undefined && (saved.sessions === null || typeof saved.sessions !== "object" || Array.isArray(saved.sessions))) {
-    throw new Error("Les associations entre dossiers et sessions Codex sont invalides.");
+    throw new Error(t("invalidAssociationsBetweenFoldersAndCodexSessions"));
   }
   settings.sessions = Object.fromEntries(Object.entries(object(saved.sessions)).map(([folder, value]) => {
     const session = object(value);
     if (typeof session.threadId !== "string" || typeof session.cwd !== "string") {
-      throw new Error(`Association Codex invalide pour le dossier « ${folder || "Racine du coffre"} ».`);
+      throw new Error(t("invalidCodexAssociationForFolder", { value1: folder || t("vaultRoot") }));
     }
     return [folder, { threadId: session.threadId, cwd: session.cwd }];
   }));
   if (saved.codexVersions !== undefined && (saved.codexVersions === null || typeof saved.codexVersions !== "object" || Array.isArray(saved.codexVersions))) {
-    throw new Error("Les références de correction sont invalides.");
+    throw new Error(t("invalidCorrectionReferences"));
   }
   settings.codexVersions = Object.fromEntries(Object.entries(object(saved.codexVersions)).map(([cwd, versions]) => {
-    if (versions === null || typeof versions !== "object" || Array.isArray(versions)) throw new Error("Les références de correction sont invalides.");
+    if (versions === null || typeof versions !== "object" || Array.isArray(versions)) throw new Error(t("invalidCorrectionReferences"));
     return [cwd, Object.fromEntries(Object.entries(object(versions)).map(([path, text]): [string, string] => {
-      if (typeof text !== "string") throw new Error("Les références de correction sont invalides.");
+      if (typeof text !== "string") throw new Error(t("invalidCorrectionReferences"));
       return [path, text];
     }))];
   }));
   if (saved.revisionHighlights !== undefined && (saved.revisionHighlights === null || typeof saved.revisionHighlights !== "object" || Array.isArray(saved.revisionHighlights))) {
-    throw new Error("Les références de surlignage sont invalides.");
+    throw new Error(t("invalidHighlightReferences"));
   }
   settings.revisionHighlights = Object.fromEntries(Object.entries(object(saved.revisionHighlights)).map(([path, value]) => {
     const snapshot = object(value);
-    if (typeof snapshot.before !== "string" || typeof snapshot.after !== "string") throw new Error("Les références de surlignage sont invalides.");
+    if (typeof snapshot.before !== "string" || typeof snapshot.after !== "string") throw new Error(t("invalidHighlightReferences"));
     return [path, { before: snapshot.before, after: snapshot.after }];
   }));
   if (saved.reactions !== undefined && (saved.reactions === null || typeof saved.reactions !== "object" || Array.isArray(saved.reactions))) {
-    throw new Error("Les réactions enregistrées sont invalides.");
+    throw new Error(t("invalidSavedReactions"));
   }
   settings.reactions = Object.fromEntries(Object.entries(object(saved.reactions)).map(([key, value]) => {
     const reaction = object(value);
     if (typeof reaction.value !== "string" || !["heart", "up", "down"].includes(reaction.value) || typeof reaction.message !== "string" || typeof reaction.report !== "string") {
-      throw new Error("Une réaction enregistrée est invalide.");
+      throw new Error(t("aSavedReactionIsInvalid"));
     }
     return [key, { value: reaction.value as Reaction, message: reaction.message, report: reaction.report }];
   }));

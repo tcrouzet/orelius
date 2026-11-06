@@ -107,3 +107,24 @@ body:not(.is-mobile) .workspace.orelius-chat-open .workspace-split:is(.mod-right
 .modal.orelius-context-picker { width: min(900px, 95vw); }
 .orelius-context-notes { max-height: 55vh; overflow-y: auto; }
 .orelius-context-notes .setting-item-name { overflow-wrap: anywhere; }
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder-title > button.orelius-populate {
+  margin-inline-start: var(--size-4-2);
+  padding: 0 var(--size-4-2);
+  height: auto;
+  font-size: var(--font-ui-smaller);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  flex-shrink: 0;
+}
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder-title > button.orelius-populate:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder-title > button.orelius-populate:disabled {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.orelius-file select { display: block; width: 100%; }

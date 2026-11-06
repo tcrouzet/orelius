@@ -1,13 +1,30 @@
+import { t } from "./i18n.ts";
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rename, rmdir } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { lstat, mkdir, open, readdir, realpath, rename, rmdir, rm } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { object } from "./codex.ts";
 import { DEFAULT_PROJECT_FOLDERS, projectPaths, validateFolderName, type ProjectFolders } from "./settings.ts";
 
+export async function recoverTemporaryLink(target: string, stat: Stats): Promise<void> {
+  if (!stat.isFile() || stat.nlink !== 2) return;
+  for (const name of await readdir(dirname(target))) {
+    if (!/^\.orelius-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/.test(name)) continue;
+    const temporary = join(dirname(target), name);
+    if (temporary === target) continue;
+    let candidate;
+    try { candidate = await lstat(temporary); }
+    catch (error) { if (object(error).code === "ENOENT") continue; throw error; }
+    if (candidate.isFile() && candidate.dev === stat.dev && candidate.ino === stat.ino && candidate.nlink === 2) {
+      await rm(temporary, { force: true });
+      return;
+    }
+  }
+}
+
 export async function checkPath(root: string, path: string, configDir?: string): Promise<void> {
   const location = relative(root, path);
-  if (location === ".." || location.startsWith(`..${sep}`) || isAbsolute(location)) throw new Error("Le fichier doit rester dans le projet.");
+  if (location === ".." || location.startsWith(`..${sep}`) || isAbsolute(location)) throw new Error(t("theFileMustStayInsideTheProject"));
   if (configDir) {
     const requested = resolve(root, configDir);
     let ancestor = requested;
@@ -21,7 +38,7 @@ export async function checkPath(root: string, path: string, configDir?: string):
     }
     const configured = relative(configuration.normalize("NFC").toLowerCase(), path.normalize("NFC").toLowerCase());
     if (!configured || configured !== ".." && !configured.startsWith(`..${sep}`) && !isAbsolute(configured)) {
-      throw new Error("Écriture refusée dans le dossier de configuration Obsidian.");
+      throw new Error(t("writingToTheObsidianConfigurationFolderIsNotAllowed"));
     }
   }
   let current = root;
@@ -33,14 +50,14 @@ export async function checkPath(root: string, path: string, configDir?: string):
       if (object(error).code === "ENOENT") return;
       throw error;
     }
-    if (info.isSymbolicLink()) throw new Error("Les liens symboliques ne peuvent pas être modifiés ni servir d’archives.");
+    if (info.isSymbolicLink()) throw new Error(t("symbolicLinksCannotBeModifiedOrUsedAsArchives"));
   }
 }
 
 export async function prepareProject(cwd: string, folders: ProjectFolders, configDir?: string): Promise<void> {
   const paths = projectPaths(folders);
   const root = await realpath(cwd);
-  const legacy = join(root, "context", folders.manuscriptFolder, "Chapitres");
+  const legacy = join(root, "context", folders.manuscriptFolder, "Chapters");
   const destination = join(root, folders.manuscriptFolder, "Context");
   await checkPath(root, legacy, configDir);
   let legacyExists = false;
@@ -51,10 +68,10 @@ export async function prepareProject(cwd: string, folders: ProjectFolders, confi
     let destinationExists = false;
     try { await lstat(destination); destinationExists = true; }
     catch (error) { if (object(error).code !== "ENOENT") throw error; }
-    if (destinationExists) throw new Error(`Les deux dossiers context/${folders.manuscriptFolder}/Chapitres et ${folders.manuscriptFolder}/Context existent. Aucun contexte n’a été déplacé ni écrasé.`);
+    if (destinationExists) throw new Error(t("bothContextChaptersAndContextExistNoContextWas", { value1: folders.manuscriptFolder, value2: folders.manuscriptFolder }));
     const inspect = async (directory: string): Promise<void> => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
-        if (entry.isSymbolicLink()) throw new Error("Le contexte à déplacer contient un lien symbolique. Aucun contexte n’a été déplacé.");
+        if (entry.isSymbolicLink()) throw new Error(t("theContextToMoveContainsASymbolicLinkNo"));
         if (entry.isDirectory()) await inspect(join(directory, entry.name));
       }
     };
@@ -72,13 +89,13 @@ export async function prepareProject(cwd: string, folders: ProjectFolders, confi
     await checkPath(root, target, configDir);
     try { await mkdir(target); }
     catch (error) { if (object(error).code !== "EEXIST") throw error; }
-    if (!(await lstat(target)).isDirectory()) throw new Error(`Un fichier occupe le chemin du dossier ${path}.`);
+    if (!(await lstat(target)).isDirectory()) throw new Error(t("aFileOccupiesTheFolderPath", { value1: path }));
     await checkPath(root, target);
   }
 }
 
 function archiveTarget(root: string, suppliedRoot: string, requestedPath: string, archiveFolder: string): { target: string; path: string } {
-  if (typeof requestedPath !== "string" || !requestedPath || requestedPath.includes("\0")) throw new Error("Chemin de fichier invalide.");
+  if (typeof requestedPath !== "string" || !requestedPath || requestedPath.includes("\0")) throw new Error(t("invalidFilePath"));
   const requested = resolve(suppliedRoot, requestedPath);
   // macOS can expose the same project through /var and /private/var.
   const target = requested.startsWith(`${suppliedRoot}${sep}`) ? resolve(root, relative(suppliedRoot, requested)) : requested;
@@ -86,7 +103,7 @@ function archiveTarget(root: string, suppliedRoot: string, requestedPath: string
   if (!path || path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)
     || [archiveFolder.normalize("NFC").toLowerCase(), "_archives", ".git"]
       .includes(path.split(sep)[0].normalize("NFC").toLowerCase())) {
-    throw new Error(`Écriture refusée : le fichier doit appartenir au projet, hors ${archiveFolder}, _Archives et dossiers internes.`);
+    throw new Error(t("writingRefusedTheFileMustBeInsideTheProject", { value1: archiveFolder }));
   }
   return { target, path };
 }
@@ -118,7 +135,7 @@ export async function archiveChanges(cwd: string, changes: unknown,
   checkEditor: (path: string, content: string) => void = () => {},
   archiveFolder: string = DEFAULT_PROJECT_FOLDERS.archiveFolder, suffix: "" | "-h" = "", configDir?: string): Promise<string[]> {
   validateFolderName(archiveFolder);
-  if (!Array.isArray(changes) || !changes.length) throw new Error("Liste des modifications absente. Écriture refusée.");
+  if (!Array.isArray(changes) || !changes.length) throw new Error(t("missingListOfChangesWritingRefused"));
   const root = await realpath(cwd);
   const suppliedRoot = resolve(cwd);
   const targets = changes.map(value => {
@@ -126,7 +143,7 @@ export async function archiveChanges(cwd: string, changes: unknown,
     const kind = object(change.kind);
     if (typeof change.path !== "string" || !change.path || change.path.includes("\0")
       || !["add", "update"].includes(String(kind.type)) || kind.move_path != null) {
-      throw new Error("Seules la création et la modification de fichiers sont prises en charge.");
+      throw new Error(t("onlyFileCreationAndModificationAreSupported"));
     }
     return { ...archiveTarget(root, suppliedRoot, change.path, archiveFolder), creating: kind.type === "add" };
   });
@@ -140,15 +157,16 @@ export async function archiveChanges(cwd: string, changes: unknown,
       throw error;
     }
     try {
+      await recoverTemporaryLink(target, await source.stat());
       const before = await source.stat();
-      if (!before.isFile() || before.nlink !== 1) throw new Error(`Fichier ordinaire sans lien requis : ${path}`);
+      if (!before.isFile() || before.nlink !== 1) throw new Error(t("aRegularFileWithoutLinksIsRequired", { value1: path }));
       const original = await source.readFile();
       checkEditor(path.split(sep).join("/"), original.toString("utf8"));
       const archive = await writeArchive(root, path, original, before.mode, archiveFolder, suffix, configDir);
       const after = await lstat(target);
       if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size
         || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
-        throw new Error(`Le fichier a changé pendant l’archivage : ${path}. Relancez la demande.`);
+        throw new Error(t("theFileChangedDuringArchivingRetryTheRequest", { value1: path }));
       }
       checkEditor(path.split(sep).join("/"), original.toString("utf8"));
       archives.push(archive);

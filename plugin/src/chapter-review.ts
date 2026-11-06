@@ -1,3 +1,6 @@
+import { documentationSources, preparationSources, type PreparationSource } from "./preparation-sources.ts";
+import { bibleReference, editorialObjectives, type EditorialObjective } from "./editorial-priorities.ts";
+import { t } from "./i18n.ts";
 import { createHash } from "node:crypto";
 import type { RpcObject } from "./codex.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
@@ -5,20 +8,39 @@ import { checkSceneContext, saveTaskPrompts, type SceneContext } from "./scene-c
 import type { ProjectFolders } from "./settings.ts";
 
 export class ChapterReview {
+  objectives: EditorialObjective[] = [];
+  private documentation: PreparationSource[] = [];
   private preparation: { context: SceneContext; document: string } | null = null;
 
   async prepare(cwd: string, folders: ProjectFolders, args: RpcObject, context: SceneContext,
     ensureCurrent: () => void = () => {}, configDir?: string): Promise<string> {
     this.preparation = null;
-    const fields = ["situation", "objectif", "connaissances", "arrivee", "corrections", "incertitudes"];
+    this.objectives = [];
+    this.documentation = [];
+    const fields = ["personnages", "situation", "objectif", "connaissances", "arrivee", "corrections", "incertitudes"];
     if (args.chemin !== context.chapter || fields.some(key => typeof args[key] !== "string" || !(args[key] as string).trim())
       || !Array.isArray(args.actions) || !args.actions.length || args.actions.some(action => typeof action !== "string" || !action.trim())
-      || Object.keys(args).some(key => !["chemin", "actions", ...fields].includes(key))) {
-      throw new Error("Préparez le chapitre ciblé : situation, objectif, actions concrètes ordonnées, connaissances du narrateur et du lecteur, arrivée, corrections et incertitudes. Ne fournissez pas encore de prose.");
+      || Object.keys(args).some(key => !["chemin", "actions", "objectifs", "documentation", ...fields].includes(key))) {
+      throw new Error(t("prepareTheTargetChapterSituationGoalOrderedConcreteActions"));
     }
-    if (!context.prompts) throw new Error("Les prompts de tâches du plugin ne sont pas chargés.");
+    this.documentation = preparationSources(args.documentation, context);
+    if (!context.prompts) throw new Error(t("thePluginSTaskPromptsAreNotLoaded"));
     await checkSceneContext(cwd, context);
-    const document = `# Préparation — ${context.chapter}\n\nPlan de travail avant rédaction, pas un événement acquis ni une validation de l’auteur.\n\nDossier : [sources](sources.md)\n\nEmpreinte du dossier : ${createHash("sha256").update(context.document).digest("hex")}\n\n## Situation initiale\n\n${String(args.situation)}\n\n## Objectif de la scène\n\n${String(args.objectif)}\n\n## Actions et réactions\n\n${args.actions.map((action, index) => `${index + 1}. ${String(action)}`).join("\n")}\n\n## Connaissances du narrateur, des personnages et du lecteur\n\n${String(args.connaissances)}\n\n## Point d’arrivée\n\n${String(args.arrivee)}\n\n## Corrections et référence de voix\n\n${String(args.corrections)}\n\n## Incertitudes et contradictions\n\n${String(args.incertitudes)}\n`;
+    if (args.objectifs === undefined && context.sources.some(source => bibleReference(source.path, folders) && editorialObjectives(source.path, source.content).some(goal => goal.level !== "suspendu"))) {
+      throw new Error(t("priorityDeclareApplied"));
+    }
+    if (args.objectifs !== undefined) {
+      if (!Array.isArray(args.objectifs)) throw new Error(t("priorityListExpected"));
+      for (const value of args.objectifs as unknown[]) {
+        if (!value || typeof value !== "object" || !("fiche" in value) || typeof value.fiche !== "string" || !("objectif" in value) || typeof value.objectif !== "string") throw new Error(t("priorityInvalidObjective"));
+        const source = context.sources.find(source => source.path === value.fiche);
+        const objective = source && bibleReference(source.path, folders) ? editorialObjectives(source.path, source.content).find(goal => goal.goal === value.objectif) : undefined;
+        if (!objective || objective.level === "suspendu") throw new Error(t("priorityMissingObjective"));
+        if (!this.objectives.some(goal => goal.path === objective.path && goal.goal === objective.goal)) this.objectives.push(objective);
+      }
+    }
+
+    const document = `# Préparation — ${context.chapter}\n\nPlan de travail avant rédaction, pas un événement acquis ni une validation de l’auteur.\n\nDossier : [sources](sources.md)\n\nEmpreinte du dossier : ${createHash("sha256").update(context.document).digest("hex")}\n\n## Personnages : motivations et connaissances situées\n\n${String(args.personnages)}\n\n## Documentation externe\n\n${this.documentation.map(source => `### ${source.url}\n\nStatut : ${source.statut} — publication : ${source.publication}\n\n${source.raison}\n\n${source.extrait}`).join("\n\n") || "Aucune source externe nécessaire déclarée ; voir les incertitudes."}\n\n## Situation initiale\n\n${String(args.situation)}\n\n## Objectif de la scène\n\n${String(args.objectif)}\n\n## Actions et réactions\n\n${args.actions.map((action, index) => `${index + 1}. ${String(action)}`).join("\n")}\n\n## Connaissances du narrateur, des personnages et du lecteur\n\n${String(args.connaissances)}\n\n## Point d’arrivée\n\n${String(args.arrivee)}\n\n## Écriture : corrections et référence de voix\n\n${String(args.corrections)}\n\n## Incertitudes et contradictions\n\n${String(args.incertitudes)}\n\n## Objectifs appliqués\n\n${this.objectives.map(goal => `- [${goal.level}] ${goal.goal} — [[${goal.path}]]`).join("\n") || "Aucun objectif structuré déclaré."}\n`;
     await writeProjectFile(cwd, context.preparationPath, document, await readProjectFile(cwd, context.preparationPath), folders.archiveFolder, undefined, ensureCurrent, false, undefined, configDir);
     await saveTaskPrompts(cwd, folders, context, true, ensureCurrent, configDir);
     this.preparation = { context, document };
@@ -27,16 +49,16 @@ export class ChapterReview {
 
   async publicationInput(cwd: string, path: string, candidat: string) {
     await this.check(cwd, path);
-    return { candidat, preparation: this.preparation!.document, contexte: this.preparation!.context };
+    return { candidat, preparation: this.preparation!.document, contexte: { ...this.preparation!.context, sources: [...this.preparation!.context.sources, ...documentationSources(this.documentation)] } };
   }
 
   async check(cwd: string, path: string): Promise<void> {
     if (!this.preparation || this.preparation.context.chapter !== path) {
-      throw new Error("Consultez le dossier du chapitre puis utilisez preparer_chapitre pour établir situation et actions AVANT la prose. Aucun texte n’a été enregistré.");
+      throw new Error(t("readTheChapterContextThenUsePreparerChapitreTo"));
     }
     await checkSceneContext(cwd, this.preparation.context);
     if ((await readProjectFile(cwd, this.preparation.context.preparationPath))?.text !== this.preparation.document) {
-      throw new Error("La préparation a été modifiée. Relisez-la puis actualisez preparer_chapitre avant d’écrire.");
+      throw new Error(t("thePreparationChangedReadItAgainAndUpdatePreparer"));
     }
   }
 }

@@ -1,6 +1,7 @@
+import { t } from "./i18n.ts";
 import type { Decision } from "./story-structure";
 import { visibleMessages } from "./conversation";
-import { Component, ItemView, MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
 import type OreliusPlugin from "./main";
 import { errorText, object, stringValue, type RpcObject, type ServerRequest } from "./codex";
 import type { ChatItem } from "./session";
@@ -9,6 +10,7 @@ import { REACTIONS, reactionExchanges, type Reaction, type ReactionExchange } fr
 export const VIEW_TYPE = "orelius-chat";
 
 export class OreliusView extends ItemView {
+  private resetButton!: HTMLButtonElement;
   private projectTitleEl!: HTMLElement;
   private statusEl!: HTMLElement;
   private modelSelect!: HTMLSelectElement;
@@ -20,16 +22,11 @@ export class OreliusView extends ItemView {
   private input!: HTMLTextAreaElement;
   private decisionLabel!: HTMLLabelElement;
   private decisionSelect!: HTMLSelectElement;
-  private populateButton!: HTMLButtonElement;
-  private changesButton!: HTMLButtonElement;
   private sendButton!: HTMLButtonElement;
   private reviseButton!: HTMLButtonElement;
   private rewriteButton!: HTMLButtonElement;
-  private contextButton!: HTMLButtonElement;
-  private compareButton!: HTMLButtonElement;
   private acceptButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
-  private newButton!: HTMLButtonElement;
   private notice!: HTMLElement;
   private failureEl!: HTMLElement;
   private failureMessageEl!: HTMLElement;
@@ -58,20 +55,16 @@ export class OreliusView extends ItemView {
     root.addClass("orelius-chat");
     const header = root.createDiv({ cls: "orelius-header" });
     this.projectTitleEl = header.createEl("h4", { text: this.getDisplayText() });
-    const modelLabel = header.createEl("label", { cls: "orelius-model", text: "Modèle" });
-    this.modelSelect = modelLabel.createEl("select", { attr: { "aria-label": "Modèle Codex actif" } });
+    this.resetButton = header.createEl("button", { text: t("reset"), attr: { title: t("debugModeDescription") } });
+    this.resetButton.onclick = () => { void this.run(() => this.plugin.resetActiveProject()); };
+    const modelLabel = header.createEl("label", { cls: "orelius-model", text: t("model") });
+    this.modelSelect = modelLabel.createEl("select", { attr: { "aria-label": t("activeCodexModel") } });
     this.modelSelect.onchange = () => { void this.run(() => this.plugin.connect(this.modelSelect.value)); };
     this.contextEl = header.createDiv({ cls: "orelius-context", attr: { role: "status" } });
-    this.contextEl.title = "Place restante dans le contexte de cette conversation, selon la dernière mesure Codex.";
+    setTooltip(this.contextEl, t("remainingContextSpaceInThisConversationAccordingToThe"));
     this.modelKey = "";
-    const actions = header.createDiv({ cls: "orelius-actions" });
-    this.newButton = actions.createEl("button", { text: "Nouvelle conversation" });
-    this.newButton.onclick = () => { void this.run(async () => {
-      await this.plugin.session.newConversation();
-      await this.plugin.connect();
-    }); };
-    this.timelineEl = root.createDiv({ cls: "orelius-timeline", attr: { tabindex: "0", "aria-label": "Conversation et questions de Codex" } });
-    this.messagesEl = this.timelineEl.createDiv({ cls: "orelius-messages", attr: { role: "log", "aria-label": "Conversation avec Codex" } });
+    this.timelineEl = root.createDiv({ cls: "orelius-timeline", attr: { tabindex: "0", "aria-label": t("conversationAndCodexQuestions") } });
+    this.messagesEl = this.timelineEl.createDiv({ cls: "orelius-messages", attr: { role: "log", "aria-label": t("conversationWithCodex") } });
     this.followMessages = true;
     this.lastScrollTop = 0;
     this.requestKey = "";
@@ -86,11 +79,12 @@ export class OreliusView extends ItemView {
     this.statusEl = composer.createDiv({ cls: "orelius-status", attr: { role: "status" } });
     this.failureEl = composer.createDiv({ cls: "orelius-failure", attr: { role: "alert" } });
     this.failureMessageEl = this.failureEl.createEl("p");
-    this.retryButton = this.failureEl.createEl("button", { text: "Relancer", cls: "mod-cta" });
+    this.retryButton = this.failureEl.createEl("button", { text: t("retry"), cls: "mod-cta" });
+    setTooltip(this.retryButton, t("retryHelp"));
     this.retryButton.onclick = () => { void this.retry(); };
     this.notice = composer.createDiv({ cls: "orelius-error", attr: { role: "alert" } });
-    const label = composer.createEl("label", { text: "Votre message" });
-    this.input = label.createEl("textarea", { attr: { rows: "4", placeholder: "Écrire à Codex…" } });
+    const label = composer.createEl("label", { text: t("yourMessage") });
+    this.input = label.createEl("textarea", { attr: { rows: "4", placeholder: t("writeToCodex") } });
     this.input.value = this.plugin.draft;
     this.input.oninput = () => { this.plugin.draft = this.input.value; this.update(); };
     this.input.onkeydown = event => {
@@ -100,32 +94,23 @@ export class OreliusView extends ItemView {
       }
     };
     const buttons = composer.createDiv({ cls: "orelius-actions" });
-    this.sendButton = buttons.createEl("button", { text: "Envoyer", cls: "mod-cta" });
+    this.sendButton = buttons.createEl("button", { text: t("send"), cls: "mod-cta" });
     this.sendButton.onclick = () => { void this.send(); };
-    this.reviseButton = buttons.createEl("button", { text: "Réviser", cls: "orelius-revise" });
+    this.reviseButton = buttons.createEl("button", { text: t("revise"), cls: "orelius-revise" });
     this.reviseButton.onclick = () => { void this.send(true); };
-    this.rewriteButton = buttons.createEl("button", { text: "Recommencer" });
-    this.rewriteButton.title = "Reprendre tout le chapitre ouvert, annotations comprises, avec vos précisions éventuelles et archivage de l’original.";
+    this.rewriteButton = buttons.createEl("button", { text: t("startOver") });
+    setTooltip(this.rewriteButton, t("reworkTheEntireOpenChapterIncludingAnnotationsAndAny"));
     this.rewriteButton.onclick = () => { void this.send(true, true); };
-    this.compareButton = buttons.createEl("button", { text: "Comparer" });
-    this.compareButton.onclick = () => { const chapter = this.plugin.revisionChapter; if (chapter) void this.run(() => this.plugin.compareVersions(chapter)); };
-    this.acceptButton = buttons.createEl("button", { text: "Accepter", cls: "mod-cta" });
-    this.acceptButton.title = "Valider la version actuelle, retirer le surlignage et joindre le message éventuel comme retour positif dans le suivi.";
+    this.acceptButton = buttons.createEl("button", { text: t("accept"), cls: "mod-cta" });
+    setTooltip(this.acceptButton, t("acceptTheCurrentVersionClearHighlightsAndAttachAny"));
     this.acceptButton.onclick = () => { void this.accept(); };
-    this.contextButton = buttons.createEl("button", { text: "Contexte" });
-    this.contextButton.onclick = () => { void this.run(() => this.plugin.chooseContext()); };
-    const novelButton = buttons.createEl("button", { text: "Roman" });
-    novelButton.onclick = () => { void this.run(() => this.plugin.openNovel()); };
-    this.populateButton = buttons.createEl("button", { text: "Peupler" });
-    this.populateButton.title = "Compléter les fiches d’atelier à partir de Manuscript, Model et Bible, sans réécrire les chapitres.";
-    this.populateButton.onclick = () => { void this.run(() => this.plugin.populateWorkshop()); };
-    this.decisionLabel = composer.createEl("label", { text: "Cette fiche : " });
+    this.decisionLabel = composer.createEl("label", { text: t("thisNote") });
     this.decisionSelect = this.decisionLabel.createEl("select");
-    for (const [value, text] of [["propose", "Proposition"], ["retenu", "Retenue"], ["abandonne", "Écartée"]]) this.decisionSelect.createEl("option", { value, text });
+    for (const [value, text] of [["propose", t("proposed")], ["retenu", t("selected")], ["abandonne", t("discarded")]]) this.decisionSelect.createEl("option", { value, text });
+    setTooltip(this.decisionSelect, t("noteDecisionHelp"));
     this.decisionSelect.onchange = () => { const value = this.decisionSelect.value as Decision; void this.run(() => this.plugin.decideStory(value)); };
-    this.changesButton = composer.createEl("button");
-    this.changesButton.onclick = () => { void this.run(() => this.plugin.openFile(`${this.plugin.settings.manuscriptFolder}/Context/Modifications.md`)); };
-    this.stopButton = buttons.createEl("button", { text: "Arrêter" });
+    this.stopButton = buttons.createEl("button", { text: t("stop") });
+    setTooltip(this.stopButton, t("stopHelp"));
     this.stopButton.onclick = () => { void this.run(() => this.plugin.session.interrupt()); };
     this.hintEl = composer.createEl("small");
     this.resize = new ResizeObserver(() => this.scrollMessages());
@@ -222,8 +207,10 @@ export class OreliusView extends ItemView {
     const session = this.plugin.session;
     this.exchanges = reactionExchanges(session.turns);
     this.projectTitleEl.setText(this.getDisplayText());
+    this.resetButton.toggle(this.plugin.settings.debugMode);
+    this.resetButton.disabled = session.busy || this.plugin.resetting;
     if (this.input.value !== this.plugin.draft) this.input.value = this.plugin.draft;
-    this.statusEl.setText(session.failure && !session.busy ? "" : session.status || (session.busy ? "Codex travaille…" : ""));
+    this.statusEl.setText(session.failure && !session.busy ? "" : session.status || (session.busy ? t("codexIsWorking") : ""));
     this.failureEl.hidden = !session.failure;
     this.failureMessageEl.setText(session.failure?.message ?? "");
     this.retryButton.hidden = !session.canRetry;
@@ -233,7 +220,7 @@ export class OreliusView extends ItemView {
     if (modelKey !== this.modelKey) {
       this.modelKey = modelKey;
       this.modelSelect.empty();
-      if (!session.model) this.modelSelect.createEl("option", { value: "", text: "Modèle indisponible" });
+      if (!session.model) this.modelSelect.createEl("option", { value: "", text: t("modelUnavailable") });
       else if (!session.models.some(option => option.model === session.model)) {
         this.modelSelect.createEl("option", { value: session.model, text: session.model });
       }
@@ -241,39 +228,34 @@ export class OreliusView extends ItemView {
     }
     this.modelSelect.value = session.model;
     this.modelSelect.disabled = session.busy || !session.connected || !session.models.length;
-    this.contextEl.setText(session.contextRemaining === null ? "Contexte disponible : —"
-      : `Contexte disponible : ${session.contextRemaining} %`);
+    this.contextEl.setText(session.contextRemaining === null ? t("availableContext")
+      : t("availableContext2", { value1: session.contextRemaining }));
     this.sendButton.disabled = this.submitting || (session.busy && !session.running) || !this.input.value.trim();
-    this.sendButton.setText(this.submitting ? "Envoi…" : session.running ? "Envoyer à la tâche" : "Envoyer");
+    this.sendButton.setText(this.submitting ? t("sending") : session.running ? t("sendToCurrentTask") : t("send"));
+    setTooltip(this.sendButton, session.running ? t("steerHelp") : t("sendHelp"));
     const chapter = this.plugin.revisionChapter;
+    this.reviseButton.toggle(Boolean(chapter));
+    this.rewriteButton.toggle(Boolean(chapter));
     this.reviseButton.disabled = this.submitting || session.busy || !chapter;
     this.rewriteButton.disabled = this.reviseButton.disabled;
-    this.compareButton.toggle(Boolean(chapter));
-    this.compareButton.disabled = this.reviseButton.disabled;
     this.acceptButton.toggle(Boolean(this.plugin.acceptanceChapter));
     this.acceptButton.disabled = this.submitting || session.busy;
-    this.reviseButton.title = !chapter ? "Ouvrez un chapitre du manuscrit pour le réviser."
-      : session.busy ? "Attendez la fin de la tâche pour réviser le chapitre."
-        : `Réviser ${chapter} à partir de vos corrections ou de votre demande dans le message.`;
-    this.populateButton.disabled = this.submitting || session.busy;
-    this.contextButton.disabled = this.submitting || session.busy;
-    this.contextButton.setText(this.plugin.contextChoiceCount ? `Contexte (${this.plugin.contextChoiceCount})` : "Contexte");
+    setTooltip(this.reviseButton, !chapter ? t("openAManuscriptChapterToReviseIt")
+      : session.busy ? t("waitForTheTaskToFinishBeforeRevisingThe")
+        : t("reviseUsingYourCorrectionsOrTheRequestInYour", { value1: chapter }));
     const storyNode = this.plugin.activeStoryNode;
     this.decisionLabel.toggle(Boolean(storyNode));
     this.decisionSelect.value = storyNode?.decision ?? "propose";
     this.decisionSelect.disabled = this.submitting || session.busy;
-    this.changesButton.toggle(session.pendingChanges.length > 0);
-    this.changesButton.setText(`${session.pendingChanges.length} fichier(s) à signaler au prochain envoi`);
-    this.changesButton.title = session.pendingChanges.join("\n");
+    this.stopButton.toggle(session.busy);
     this.stopButton.disabled = !session.busy;
-    this.newButton.disabled = session.busy;
-    this.input.placeholder = session.running ? "Ajouter une consigne à la tâche en cours…" : "Message, précisions pour Réviser ou commentaire à joindre à votre réaction…";
-    this.hintEl.setText(session.running ? "⌘/Ctrl + Entrée pour ajouter une consigne à la tâche en cours"
-      : "⌘/Ctrl + Entrée pour envoyer");
+    this.input.placeholder = session.running ? t("addInstructionsToTheCurrentTask") : t("messageRevisionInstructionsOrACommentToAttachTo");
+    this.hintEl.setText(session.running ? t("ctrlEnterToAddInstructionsToTheCurrentTask")
+      : t("ctrlEnterToSend"));
     const messages = visibleMessages(session.items, session.turns);
     if (!messages.length) {
       this.clearMessages();
-      this.messagesEl.createEl("p", { cls: "orelius-empty", text: `Posez une question ou demandez une modification. Les originaux des fichiers modifiés sont conservés dans ${this.plugin.settings.archiveFolder} à la racine du projet.` });
+      this.messagesEl.createEl("p", { cls: "orelius-empty", text: t("askAQuestionOrRequestAChangeOriginalsOf", { value1: this.plugin.settings.archiveFolder }) });
     } else {
       this.messagesEl.querySelector(".orelius-empty")?.remove();
       const visibleIds = new Set(messages.map(item => item.id));
@@ -331,11 +313,24 @@ export class OreliusView extends ItemView {
     const revision = ++rendered.revision;
     this.addChild(component);
     const element = this.contentEl.ownerDocument.adoptNode(createEl("article", { cls: `orelius-message orelius-${item.role}` }));
-    element.createEl("strong", { cls: "orelius-role", text: item.role === "user" ? "Vous" : item.role === "assistant" ? "Codex" : "Activité" });
+    element.createEl("strong", { cls: "orelius-role", text: item.role === "user" ? t("you") : item.role === "assistant" ? t("codex") : t("activity") });
     const body = element.createDiv({ cls: "orelius-message-body" });
-    for (const path of item.paths) {
+    if (item.paths.length === 1) {
+      const path = item.paths[0];
       const button = element.createEl("button", { text: path, cls: "orelius-file" });
+      setTooltip(button, t("openModifiedNote"));
       button.onclick = () => { void this.run(() => this.plugin.openFile(path)); };
+    } else if (item.paths.length > 1) {
+      const label = element.createEl("label", { cls: "orelius-file" });
+      const select = label.createEl("select", { cls: "dropdown", attr: { "aria-label": t("modifiedNotes", { count: item.paths.length }) } });
+      select.createEl("option", { value: "", text: t("modifiedNotes", { count: item.paths.length }) });
+      for (const path of item.paths) select.createEl("option", { value: path, text: path });
+      setTooltip(select, t("openModifiedNote"));
+      select.onchange = () => {
+        const path = select.value;
+        if (path) void this.run(() => this.plugin.openFile(path));
+        select.value = "";
+      };
     }
     const display = () => {
       if (!this.active || this.rendered.get(item.id) !== rendered || rendered.revision !== revision) {
@@ -353,7 +348,7 @@ export class OreliusView extends ItemView {
     else {
       const folder = this.plugin.settings.folder;
       void MarkdownRenderer.render(this.app, item.text, body, `${folder ? `${folder}/` : ""}.orelius-chat.md`, component)
-        .catch(error => { body.setText(item.text); console.error("Orelius : rendu Markdown", error); })
+        .catch(error => { body.setText(item.text); console.error(t("oreliusMarkdownRendering"), error); })
         .then(display);
     }
   }
@@ -362,28 +357,29 @@ export class OreliusView extends ItemView {
     let controls = element.querySelector<HTMLElement>(".orelius-reactions");
     if (!this.exchanges.has(item.id)) { controls?.remove(); return; }
     if (!controls) {
-      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": "Réactions et surlignage" } });
+      controls = element.createDiv({ cls: "orelius-reactions", attr: { role: "group", "aria-label": t("reactionsAndHighlights") } });
       for (const choice of REACTIONS) {
         const button = controls.createEl("button", { type: "button", attr: { "aria-label": choice.label, "data-reaction": choice.value } });
         setIcon(button, choice.icon);
-        button.title = `${choice.label} — le message éventuel dans le chat sera joint à cette réaction.`;
+        setTooltip(button, `${choice.summary} ${t("anyMessageInTheChatWillBeAttachedTo", { value1: choice.label })}`);
         button.onclick = () => { void this.react(item.id, choice.value); };
       }
-      const clear = controls.createEl("button", { type: "button", attr: { "aria-label": "Effacer le surlignage", "data-action": "clear-highlights" } });
-      setIcon(clear, "eraser");
-      clear.title = "Effacer le surlignage du chapitre ouvert, sans accepter les modifications.";
-      clear.onclick = () => { void this.clearHighlights(); };
     }
     const selected = this.plugin.reactionFor(item.id);
     controls.querySelectorAll<HTMLButtonElement>("button[data-reaction]").forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.reaction === selected));
       button.disabled = this.submitting || this.plugin.session.busy;
     });
-    const clear = controls.querySelector<HTMLButtonElement>('[data-action="clear-highlights"]');
-    if (clear) {
-      clear.hidden = !this.plugin.acceptanceChapter;
-      clear.disabled = this.submitting || this.plugin.session.busy;
+    let clear = controls.querySelector<HTMLButtonElement>('[data-action="clear-highlights"]');
+    const chapter = this.plugin.acceptanceChapter;
+    if (!chapter || !item.paths.includes(chapter)) { clear?.remove(); return; }
+    if (!clear) {
+      clear = controls.createEl("button", { type: "button", attr: { "aria-label": t("clearHighlights"), "data-action": "clear-highlights" } });
+      setIcon(clear, "eraser");
+      setTooltip(clear, t("clearTheOpenChapterSHighlightsWithoutAcceptingThe"));
+      clear.onclick = () => { void this.clearHighlights(); };
     }
+    clear.disabled = this.submitting || this.plugin.session.busy;
   }
 
   private renderRequest(request: ServerRequest): void {
@@ -394,11 +390,11 @@ export class OreliusView extends ItemView {
       for (const value of request.params.questions) {
         const question = object(value);
         const field = card.createEl("fieldset");
-        field.createEl("legend", { text: stringValue(question.question, "Question de Codex") });
+        field.createEl("legend", { text: stringValue(question.question, t("codexQuestion")) });
         if (Array.isArray(question.options)) {
           for (const option of question.options.map(object)) {
             const button = field.createEl("button", { type: "button", text: stringValue(option.label) });
-            if (typeof option.description === "string") button.title = option.description;
+            if (typeof option.description === "string") setTooltip(button, option.description);
             button.onclick = () => {
               const input = inputs.get(stringValue(question.id));
               if (input) { input.value = stringValue(option.label); input.focus(); }
@@ -406,11 +402,11 @@ export class OreliusView extends ItemView {
           }
         }
         const input = field.createEl("input", { type: question.isSecret === true ? "password" : "text",
-          attr: { "aria-label": stringValue(question.question, "Votre réponse") } });
+          attr: { "aria-label": stringValue(question.question, t("yourAnswer")) } });
         input.required = true;
         inputs.set(stringValue(question.id), input);
       }
-      card.createEl("button", { type: "submit", text: "Répondre", cls: "mod-cta" });
+      card.createEl("button", { type: "submit", text: t("reply"), cls: "mod-cta" });
       card.onsubmit = event => {
         event.preventDefault();
         const answers = Object.fromEntries([...inputs].map(([id, input]) => [id, { answers: [input.value] }]));
@@ -418,22 +414,22 @@ export class OreliusView extends ItemView {
       };
       return;
     }
-    card.createEl("strong", { text: "Autorisation demandée" });
+    card.createEl("strong", { text: t("permissionRequested") });
     const params = request.params;
     if (typeof params.reason === "string") card.createEl("p", { text: params.reason });
     if (typeof params.message === "string") card.createEl("p", { text: params.message });
     if (typeof params.command === "string") card.createEl("pre", { text: params.command });
-    if (typeof params.cwd === "string") card.createEl("p", { text: `Dossier : ${params.cwd}` });
-    if (typeof params.grantRoot === "string") card.createEl("p", { text: `Écriture : ${params.grantRoot}` });
+    if (typeof params.cwd === "string") card.createEl("p", { text: t("folder", { value1: params.cwd }) });
+    if (typeof params.grantRoot === "string") card.createEl("p", { text: t("writing", { value1: params.grantRoot }) });
     const permissions = object(params.permissions);
     const fileSystem = object(permissions.fileSystem);
-    for (const [key, label] of [["read", "Lecture"], ["write", "Écriture"]]) {
+    for (const [key, label] of [["read", t("read")], ["write", "Écriture"]]) {
       const paths = fileSystem[key];
-      if (Array.isArray(paths)) for (const path of paths) card.createEl("p", { text: `${label} : ${String(path)}` });
+      if (Array.isArray(paths)) for (const path of paths) card.createEl("p", { text: t("formattedText", { value1: label, value2: String(path) }) });
     }
-    if (permissions.network) card.createEl("p", { text: "Accès au réseau demandé." });
-    card.createEl("p", { text: "Les modifications passent par l’archivage automatique d’Orelius. Les commandes d’écriture et les extensions de permissions sont refusées." });
-    card.createEl("button", { type: "button", text: "Refuser et poursuivre" }).onclick = () => {
+    if (permissions.network) card.createEl("p", { text: t("networkAccessRequested") });
+    card.createEl("p", { text: t("changesGoThroughOreliusAutomaticArchivingWriteCommandsAnd") });
+    card.createEl("button", { type: "button", text: t("declineAndContinue") }).onclick = () => {
       respond(request.method === "item/permissions/requestApproval" ? { permissions: {}, scope: "turn" }
         : request.method === "mcpServer/elicitation/request" ? { action: "decline", content: null }
           : { decision: "decline" });

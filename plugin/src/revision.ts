@@ -1,3 +1,5 @@
+import { bibleReference } from "./editorial-priorities.ts";
+import { t } from "./i18n.ts";
 import { diffToGroups } from "./diff.ts";
 import { relative, resolve, sep } from "node:path";
 
@@ -26,11 +28,13 @@ export function revisionFor(plans: readonly RevisionPlan[], cwd: string, request
   return plans.find(plan => pathKey(plan.path) === key);
 }
 
-export function revisionPath(plan: RevisionPlan, cwd: string, bibleFolder: string, requested: string): string {
+export function revisionPath(plan: RevisionPlan, cwd: string, bibleFolder: string, requested: string, references: readonly string[] = []): string {
   const key = revisionKey(cwd, requested);
-  const knowledge = `${bibleFolder}/Suivi/Connaissances.md`;
+  const knowledge = `${bibleFolder}/Tracking/Connaissances.md`;
   for (const allowed of [plan.path, knowledge]) if (key === pathKey(allowed)) return allowed;
-  throw new Error("Cette révision autorise seulement le chapitre ciblé et la base de connaissances éditoriales.");
+  const reference = references.find(path => revisionKey(cwd, path) === key);
+  if (reference && bibleReference(reference, { bibleFolder })) return reference;
+  throw new Error(t("thisRevisionOnlyPermitsChangesToTheTargetChapter"));
 }
 
 function paragraphs(text: string): TextRange[] {
@@ -74,27 +78,27 @@ export function planRevision(path: string, source: string, baseline?: string, de
     || !ranges.length && (baseline === undefined || baseline === source) && !!details.trim();
   if (wholeChapter) ranges.splice(0, ranges.length, { from: 0, to: source.length });
   if (!ranges.length && (baseline === undefined || baseline === source)) throw new Error(baseline === undefined
-    ? "Aucune référence Codex ni annotation ne permet de délimiter une révision. Annotez les passages à reprendre ou indiquez votre demande dans le chat."
-    : "Aucun paragraphe corrigé ou annoté à réviser. Les passages intacts sont protégés ; indiquez votre demande dans le chat pour reprendre le chapitre.");
+    ? t("noCodexReferenceOrAnnotationCanDelimitARevision")
+    : t("noCorrectedOrAnnotatedParagraphsToReviseUntouchedPassages"));
   return { path, source, expected: source, ranges, wholeChapter, intentRecorded: false,
     ...(wholeChapterRequested ? { wholeChapterRequested: true } : {}) };
 }
 
 export function checkRevision(plan: RevisionPlan, current: string | undefined, proposed: string): void {
-  if (current !== plan.expected) throw new Error("Le chapitre a changé depuis la demande de révision. Votre texte est conservé ; relancez Réviser.");
-  if (!plan.intentRecorded) throw new Error("Révision refusée : consignez d’abord l’intention des corrections dans la base de connaissances éditoriales.");
+  if (current !== plan.expected) throw new Error(t("theChapterChangedSinceTheRevisionRequestYourText"));
+  if (!plan.intentRecorded) throw new Error(t("revisionRefusedFirstRecordTheIntentionBehindTheCorrections"));
   if (plan.selection) {
-    if (plan.selection.readOnly) throw new Error("Les variantes sont proposées dans le chat ; aucun remplacement du manuscrit n’est autorisé.");
+    if (plan.selection.readOnly) throw new Error(t("alternativesAreProposedInTheChatReplacingTheManuscript"));
     const before = plan.source.slice(0, plan.selection.from), after = plan.source.slice(plan.selection.to);
-    if (proposed.length < before.length + after.length || !proposed.startsWith(before) || !proposed.endsWith(after)) throw new Error("Modification hors de la sélection : le chapitre est conservé.");
+    if (proposed.length < before.length + after.length || !proposed.startsWith(before) || !proposed.endsWith(after)) throw new Error(t("changeOutsideTheSelectionChapterPreserved"));
   } else for (const change of diffToGroups(plan.source, proposed, true)) {
     if (!plan.ranges.some(range => change.delFrom >= range.from && change.delTo <= range.to)) {
       const line = plan.source.slice(0, change.delFrom).split("\n").length;
-      throw new Error(`Révision refusée : modification hors des paragraphes corrigés par l’auteur, vers la ligne ${line}. Cette écriture n’a pas été publiée.`);
+      throw new Error(t("revisionRefusedChangeOutsideTheAuthorSCorrectedParagraphs", { value1: line }));
     }
   }
   for (const change of diffToGroups(plan.source, proposed)) {
-    if (change.insText && /==|<\/?mark\b/i.test(change.insText)) throw new Error("Révision refusée : le surlignage doit rester visuel, sans balise dans le manuscrit.");
+    if (change.insText && /==|<\/?mark\b/i.test(change.insText)) throw new Error(t("revisionRefusedHighlightsMustRemainVisualWithoutMarkupIn"));
   }
 }
 

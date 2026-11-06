@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,writeFile,readdir,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {prepareProject} from '../plugin/src/archives.ts';
+import {DEFAULT_PROJECT_FOLDERS as folders} from '../plugin/src/settings.ts';
+import {editorialObjectives,introducedObjectives,rateEditorialObjectives,preservePriorityHistory} from '../plugin/src/editorial-priorities.ts';
+import {recordReaction,reactionExchanges} from '../plugin/src/reactions.ts';
+import {toChatItem} from '../plugin/src/session.ts';
+import {buildSceneContext} from '../plugin/src/scene-context.ts';
+import {ChapterReview} from '../plugin/src/chapter-review.ts';
+import {revisionPath,planRevision} from '../plugin/src/revision.ts';
+
+export async function checkEditorialPriorities(prompts){
+ const root=await mkdtemp(join(tmpdir(),'orelius-priorities-'));
+ const path='Bible/Style/Narration.md',chapter='Manuscript/Chapters/001.md';
+ const personal='# Narration\n\nNote personnelle intacte.\n';
+ const source=personal+'\n- [essentiel] YQ développe un raisonnement limpide.\n- [secondaire] Varier la longueur des phrases.\n- [a-eviter] Aucune question sans enjeu.\n- [suspendu] Multiplier les citations.\n';
+ const goals=editorialObjectives(path,source);
+ assert.equal(goals.length,4);
+ assert.deepEqual(introducedObjectives(path,source,source,folders),[]);
+ assert.deepEqual(introducedObjectives(path,personal,source,folders),goals);
+ assert.deepEqual(introducedObjectives(chapter,'',source,folders),[]);
+ try {
+  await prepareProject(root,folders);
+  await writeFile(join(root,path),source);
+  await writeFile(join(root,chapter),'La lettre de YQ.');
+  const context=await buildSceneContext(root,folders,{},chapter,'Clarifie sa pensée.',prompts);
+  const preparation=new ChapterReview();
+  const args={chemin:chapter,personnages:'Une correspondante veut convaincre son lecteur.',documentation:[],situation:'Lettre.',objectif:'Clarté.',actions:['Développer une idée.'],connaissances:'Faits établis.',arrivee:'Idée développée.',corrections:'Clarté.',incertitudes:'Aucune.'};
+  await assert.rejects(()=>preparation.prepare(root,folders,args,context),/objectifs/);
+  await assert.rejects(()=>preparation.prepare(root,folders,{...args,objectifs:[{fiche:path,objectif:'Invention'}]},context),/absent ou suspendu/);
+  await assert.rejects(()=>preparation.prepare(root,folders,{...args,objectifs:[{fiche:path,objectif:goals[3].goal}]},context),/absent ou suspendu/);
+  await preparation.prepare(root,folders,{...args,objectifs:[{fiche:path,objectif:goals[0].goal}]},context);
+  assert.deepEqual(preparation.objectives,[goals[0]]);
+  assert.ok((await readFile(join(root,context.preparationPath),'utf8')).includes(goals[0].goal));
+  const receipt=toChatItem({id:'write',type:'mcpToolCall',server:'orelius',tool:'ecrire_fichier',status:'completed',arguments:{chemin:chapter,contenu:'Une pensée limpide.'},result:{content:[{type:'text',text:JSON.stringify({fichier:chapter,modifie:true,objectifs:preparation.objectives})}]}});
+  const exchange=reactionExchanges([{id:'turn',completed:true,date:null,messages:[receipt,{id:'answer',role:'assistant',phase:'final_answer',text:'Enregistré.',paths:[]}]}]).get('answer');
+  assert.deepEqual(exchange.objectives,[goals[0]]);
+  const up=await recordReaction(root,folders,'thread',exchange,'up','Voilà la clarté attendue.');
+  let text=await readFile(join(root,path),'utf8');assert.ok(text.startsWith(source));assert.match(text,/\+1 — YQ/);
+  assert.equal(text.includes('+1 — Varier'),false,'Les objectifs seulement consultés ne gagnent aucun point.');
+  assert.deepEqual(await recordReaction(root,folders,'thread',exchange,'up','Voilà la clarté attendue.',up),up);
+  assert.equal(await readFile(join(root,path),'utf8'),text);
+  const heart=await recordReaction(root,folders,'thread',exchange,'heart','Référence forte.',up);
+  text=await readFile(join(root,path),'utf8');assert.match(text,/\+2 — YQ/);assert.equal(text.includes('+3 — YQ'),false);
+  await recordReaction(root,folders,'thread',exchange,'down','La pensée reste obscure.',heart);
+  text=await readFile(join(root,path),'utf8');assert.match(text,/-1 — YQ/);assert.match(text,/retour négatif à examiner/);assert.ok(text.includes('La pensée reste obscure.'));
+  assert.ok(text.includes('- [a-eviter] Aucune question sans enjeu.'));
+  assert.ok((await readdir(join(root,'Archives/Bible/Style'))).length>0);
+  preservePriorityHistory(text,text.replace('Note personnelle intacte.','Une autre note personnelle.'));
+  assert.throws(()=>preservePriorityHistory(text,source),/Préservez exactement/);
+  await writeFile(join(root,path),text.replace('## Retours sur les priorités','## Modification humaine'));
+  await assert.rejects(()=>rateEditorialObjectives(root,folders,[goals[0]],{subject:'autre',value:'up',report:'rapport.md',message:''}),/modifiée manuellement/);
+  assert.ok((await readFile(join(root,path),'utf8')).includes('Modification humaine'));
+  await assert.rejects(()=>rateEditorialObjectives(root,folders,[{...goals[0],path:'../externe.md'}],{subject:'autre',value:'up',report:'rapport.md',message:''}),/fiche de la Bible/);
+  const plan=planRevision(chapter,'Texte','Texte','Révise.');
+  assert.equal(revisionPath(plan,root,'Bible','Bible/Monde.md',['Bible/Monde.md']),'Bible/Monde.md');
+  assert.throws(()=>revisionPath(plan,root,'Bible','Bible/Tracking/Conversation.md',['Bible/Tracking/Conversation.md']),/seulement le chapitre/);
+ } finally {await rm(root,{recursive:true,force:true});}
+}

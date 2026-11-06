@@ -8,9 +8,9 @@ import {fingerprint} from '../plugin/src/narrative-context.ts';
 import {collectChanges,deliverChanges,withChanges,withoutChanges} from '../plugin/src/workshop.ts';
 
 export async function checkImpact(){
- const arc='Manuscript/Arcs/Jonas.md',scene='Manuscript/Scenes/cuisine.md',chapter='Manuscript/Chapitres/002.md';
+ const arc='Manuscript/Arcs/Jonas.md',scene='Manuscript/Scenes/cuisine.md',chapter='Manuscript/Chapters/002.md';
  const source=(path,content)=>({path,content,hash:fingerprint(content)});
- const sources=[source(arc,'Il veut provoquer la publication.'),source(scene,`Motivation : [[${arc}]]. Chapitre : [002](../Chapitres/002.md).`),source(chapter,'Jonas ouvre la vidéo.'),source('Manuscript/Chapitres/003.md','Jonas attend.'),source('Manuscript/Chapitres/004.md','Nadia parle.'),source('Manuscript/Scenes/index.md',`[[${scene}]]`),source('Manuscript/Scenes/autre.md','[[index]]\n[[Manuscript/Chapitres/004.md]]')];
+ const sources=[source(arc,'Il veut provoquer la publication.'),source(scene,`Motivation : [[${arc}]]. Chapitre : [002](../Chapters/002.md).`),source(chapter,'Jonas ouvre la vidéo.'),source('Manuscript/Chapters/003.md','Jonas attend.'),source('Manuscript/Chapters/004.md','Nadia parle.'),source('Manuscript/Scenes/index.md',`[[${scene}]]`),source('Manuscript/Scenes/autre.md','[[index]]\n[[Manuscript/Chapters/004.md]]')];
  let impacts=changeImpacts(sources,folders,[arc]).get(arc);
  assert.equal(impacts.find(item=>item.path===scene).certainty,'lien explicite');
  const linked=impacts.find(item=>item.path===chapter);
@@ -21,7 +21,7 @@ export async function checkImpact(){
  assert.equal(impacts.some(item=>item.path.endsWith('/004.md')),false,'Un index ne diffuse pas le changement partout.');
  impacts=changeImpacts(sources.filter(item=>item.path!==arc),folders,[arc]).get(arc);
  assert.ok(impacts.some(item=>item.path===chapter),'Une source supprimée reste identifiable dans les liens.');
- const ambiguous=[...sources,source('Bible/Personnages/Jonas.md','Autre fiche'),source('Manuscript/Scenes/ambigu.md','[[Jonas]]'),source('Manuscript/Scenes/exemple.md','```md\n[[Manuscript/Arcs/Jonas.md]]\n```'),source('Manuscript/Scenes/faux.md','Manuscript/Arcs/Jonas.md.bak')];
+ const ambiguous=[...sources,source('Bible/Characters/Jonas.md','Autre fiche'),source('Manuscript/Scenes/ambigu.md','[[Jonas]]'),source('Manuscript/Scenes/exemple.md','```md\n[[Manuscript/Arcs/Jonas.md]]\n```'),source('Manuscript/Scenes/faux.md','Manuscript/Arcs/Jonas.md.bak')];
  impacts=changeImpacts(ambiguous,folders,[arc]).get(arc);
  for(const name of ['ambigu','exemple','faux']) assert.equal(impacts.some(item=>item.path.endsWith('/'+name+'.md')),false,name);
  const continuity=changeImpacts(sources,folders,[chapter]).get(chapter);
@@ -31,11 +31,11 @@ export async function checkImpact(){
  assert.ok(deletedContinuity.some(item=>item.path.endsWith('/003.md')));
  const narration='Bible/Style/Narration.md';
  const global=changeImpacts([...sources,source(narration,'Nouvelle voix')],folders,[narration]).get(narration);
- assert.deepEqual(global.map(item=>item.path),sources.filter(item=>item.path.includes('/Chapitres/')).map(item=>item.path));
+ assert.deepEqual(global.map(item=>item.path),sources.filter(item=>item.path.includes('/Chapters/')).map(item=>item.path));
  assert.ok(global.every(item=>item.certainty==='à vérifier'));
- const entity='Bible/Personnages/La sœur.md';
+ const entity='Bible/Characters/La sœur.md';
  const config={chapters:[{path:chapter,references:[entity]}],references:[{path:entity,name:'Louise',aliases:['Loulou']}]};
- const configured=[source(entity,'Fiche'),source(chapter,'Elle ouvre la vidéo.'),source('Manuscript/Chapitres/003.md','Loulou attend.'),source('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```')];
+ const configured=[source(entity,'Fiche'),source(chapter,'Elle ouvre la vidéo.'),source('Manuscript/Chapters/003.md','Loulou attend.'),source('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```')];
  const configuredImpacts=changeImpacts(configured,folders,[entity]).get(entity);
  assert.equal(configuredImpacts.find(item=>item.path===chapter).chain[0].kind,'configuration');
  assert.equal(configuredImpacts.find(item=>item.path.endsWith('/003.md')).chain[0].kind,'mention');

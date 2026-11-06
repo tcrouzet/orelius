@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { EDITORIAL_PRIORITIES } from "./bible.ts";
 import { type OreliusSettings, validateProjectFolders } from "./settings.ts";
@@ -12,10 +13,10 @@ export function renderAgent(template: string, settings: AgentSettings): string {
     manuscriptFolder: settings.manuscriptFolder, modelFolder: settings.modelFolder, bibleFolder: settings.bibleFolder,
     editorialPriorities: EDITORIAL_PRIORITIES };
   const result = template.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_match, key: string) => {
-    if (!Object.prototype.hasOwnProperty.call(variables, key)) throw new Error(`Variable d’agent inconnue : {${key}}.`);
+    if (!Object.prototype.hasOwnProperty.call(variables, key)) throw new Error(t("unknownAgentVariable", { value1: key }));
     return variables[key as keyof typeof variables];
   }).trimEnd();
-  if (!result.trim() || result.includes(START) || result.includes(END)) throw new Error("Modèle d’agent vide ou contenant des marqueurs réservés.");
+  if (!result.trim() || result.includes(START) || result.includes(END)) throw new Error(t("agentTemplateIsEmptyOrContainsReservedMarkers"));
   return result;
 }
 
@@ -28,7 +29,7 @@ function updateAgent(original: string, instructions: string): string {
     return `${original}${separator}${block}\n`;
   }
   if (start === -1 || end < start || start !== original.lastIndexOf(START) || end !== original.lastIndexOf(END)) {
-    throw new Error("Les marqueurs Orelius de AGENTS.md sont incomplets ou dupliqués. Le fichier a été conservé.");
+    throw new Error(t("oreliusMarkersInAgentsMdAreIncompleteOrDuplicated"));
   }
   return original.slice(0, start) + block + original.slice(end + END.length);
 }
