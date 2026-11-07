@@ -73,3 +73,19 @@ Les modes des références sont `auto` (détection du nom et des alias), `always
 Les nouveaux dossiers sont créés lors de la préparation du projet, depuis le menu Nouveau projet Orelius ou à l’ouverture d’un projet existant. [Peupler](Peupler.md) demande au modèle de les remplir depuis les sources disponibles. Les fiches sont modifiables directement ; [la file des modifications](Modifications.md) les signale à la demande suivante.
 
 Commencez par [votre parcours de travail](Home.md) avant de modifier la configuration avancée ci-dessus.
+
+## Dossiers documentaires externes
+
+À la racine du projet, à côté d’`AGENTS.md`, `config.md` définit les sources accessibles en lecture seule. Modifiez son en-tête YAML :
+
+```yaml
+---
+sources:
+  - "/Users/votre-nom/Documents/Documentation"
+  - "/Users/votre-nom/Documents/Autres textes"
+---
+```
+
+Utilisez les chemins absolus de vos dossiers. La liste est transmise à Codex à chaque demande ; il parcourt ensuite les dossiers et lit les documents utiles avec `consulter_sources_documentaires`. Les changements de configuration prennent effet sans nouvelle session. Codex ne peut pas modifier cette configuration ni écrire dans ces sources. Les documents consultés sont aussi transmis au contrôle de publication.
+
+Les formats texte Markdown, TXT, RST, CSV, JSON et YAML sont accessibles, par pages, jusqu’à 5 Mo par document. Les fichiers cachés et les liens symboliques dans les dossiers sont exclus. Les PDF et documents bureautiques doivent être convertis en texte pour cette première version. `Model` conserve son rôle de source de peuplement ; les dossiers externes servent à documenter les demandes sans importer tous leurs fichiers.

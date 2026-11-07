@@ -1,3 +1,4 @@
+import { EDITORIAL_PRIORITIES } from "./bible.ts";
 import { t } from "./i18n.ts";
 import type { ProjectFolders } from "./settings.ts";
 
@@ -6,7 +7,7 @@ export type TaskPromptName = typeof TASK_PROMPT_NAMES[number];
 export type TaskPrompts = Record<TaskPromptName, string>;
 
 export function renderTaskPrompts(templates: TaskPrompts, folders: ProjectFolders, chapter: string, contextPath: string, preparationPath: string, metadata: { pov?: string; tense?: string } = {}): TaskPrompts {
-  const variables: Record<string, string> = { chapter, contextPath, preparationPath, manuscriptFolder: folders.manuscriptFolder, bibleFolder: folders.bibleFolder, modelFolder: folders.modelFolder, pov: metadata.pov ?? "", tense: metadata.tense ?? "" };
+  const variables: Record<string, string> = { editorialPriorities: EDITORIAL_PRIORITIES, chapter, contextPath, preparationPath, manuscriptFolder: folders.manuscriptFolder, bibleFolder: folders.bibleFolder, modelFolder: folders.modelFolder, pov: metadata.pov ?? "", tense: metadata.tense ?? "" };
   const expand = (name: TaskPromptName, ancestors: string[] = []): string => {
     if (ancestors.includes(name)) throw new Error(t("promptInclusionCycle", { value1: name }));
     const template = templates[name];

@@ -655,5 +655,10 @@
   "preparationSourcesInvalid": "Documentez les sources avec URL, statut, motif, date de publication (ou inconnue) et extrait exact seulement si consultées.",
   "preparationLinksMissing": "La préparation omet des liens fournis : consultez-les ou indiquez pour chacun pourquoi il est indisponible ou hors sujet.",
   "projectBriefSources": "Cadrage du projet et liens documentaires fournis",
-  "worldReferenceSources": "Référence sur le monde ; connaissances des personnages à établir séparément"
+  "worldReferenceSources": "Référence sur le monde ; connaissances des personnages à établir séparément",
+  "projectMoveConflict": "Le nouvel emplacement est déjà associé à un projet Orelius. Les associations ont été conservées pour éviter de les écraser.",
+  "projectMovedDuringTask": "Projet déplacé : la tâche en cours a été interrompue. La conversation est conservée ; renvoyez votre demande dans le nouvel emplacement.",
+  "externalSourcesInvalid": "Sources documentaires invalides : chaque entrée de sources dans config.md doit contenir path (chemin absolu) ou url (HTTP/HTTPS), et une description non vide. Chemins locaux sans fichier caché ni lien, page existante ; documents texte, 5 Mo maximum.",
+  "externalSourcesAuthorOnly": "config.md définit les accès documentaires. Seul l’auteur peut le modifier.",
+  "externalSourceDescriptionPlaceholder": "À préciser : contenu de cette source et situations où la consulter."
 }

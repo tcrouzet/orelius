@@ -1,3 +1,5 @@
+import { externalSources, prepareSourceConfig } from "./external-sources";
+import { moveProjects, movedPath } from "./project-move";
 import { ResetProjectModal } from "./reset-project-modal";
 import { resetProject } from "./reset-project";
 import { ExplorerActions } from "./explorer-actions";
@@ -27,7 +29,7 @@ import { syncStructure, type StoryStructure, type Decision } from "./story-struc
 import { POPULATE_PREFIX, collectChanges } from "./workshop";
 import populateTemplate from "../../prompts/peupler.md";
 import { maintenancePrompt, pendingStates } from "./editorial-workflow";
-import { addIcon, getLanguage, requireApiVersion, type Editor, editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { parseYaml, addIcon, getLanguage, requireApiVersion, type Editor, editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
 import oreliusIcon from "../icon.svg";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -95,6 +97,7 @@ export default class OreliusPlugin extends Plugin {
   private codexTest: CodexClient | null = null;
   private highlights = revisionHighlights(() => this.settings.revisionHighlights);
   private lockedNotes = new Set<string>();
+  private pendingProjectMoves: { from: string; to: string }[] = [];
 
   async onload(): Promise<void> {
     setLocale(requireApiVersion("1.8.7") ? getLanguage() : window.localStorage.getItem("language") ?? "en");
@@ -113,6 +116,7 @@ export default class OreliusPlugin extends Plugin {
       (path, content) => this.checkEditor(path, content), this.configurationDirectory()),
     () => ({ ...this.settings, agentInstructions: renderAgent(agentTemplate, this.settings),
       activeChapter: this.revisionChapter, taskPrompts,
+      externalSources: (cwd, args) => externalSources(cwd, args, parseYaml),
       configDir: this.configurationDirectory(),
       checkEditor: (path, content) => this.checkEditor(path, content), lockNote: path => this.lockNote(path) }),
     async (cwd, changes, highlight) => {
@@ -183,6 +187,7 @@ export default class OreliusPlugin extends Plugin {
     this.addRibbonIcon("orelius", t("openOrelius"), () => { void this.openChat(); });
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       if (this.resetting) return;
+      if (file instanceof TFolder && this.moveProjectFolders(oldPath, file.path)) return;
       const folders = { ...this.settings };
       const prefix = folders.folder ? `${folders.folder}/` : "";
       if (!oldPath.startsWith(prefix) || !file.path.startsWith(prefix)) return;
@@ -307,6 +312,42 @@ export default class OreliusPlugin extends Plugin {
     this.app.workspace.containerEl.toggleClass("orelius-chat-open", this.views.size > 0);
   }
 
+  private moveProjectFolders(from: string, to: string): boolean {
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) return false;
+    const projected = this.pendingProjectMoves.reduce((settings, move) => moveProjects(settings, move.from, move.to, adapter.getBasePath()) ?? settings, this.settings);
+    const affected = [projected.folder, ...Object.keys(projected.sessions)]
+      .some(path => path && movedPath(path, from, to) !== path);
+    if (!affected) return false;
+    const active = movedPath(projected.folder, from, to) !== projected.folder;
+    const move = { from, to };
+    this.pendingProjectMoves.push(move);
+    const wasBusy = active && this.session.busy;
+    const stopped = active ? this.session.disconnect() : Promise.resolve();
+    const path = this.navigation.path === null ? null : movedPath(this.navigation.path, from, to);
+    void this.navigation.run(path, async () => {});
+    const write = this.settingsWrite.then(async () => {
+      await stopped;
+      const root = await realpath(adapter.getBasePath());
+      const next = moveProjects(this.settings, from, to, root);
+      if (!next) return;
+      await this.saveData(next);
+      this.settings = next;
+      this.app.workspace.iterateAllLeaves(leaf => {
+        if (leaf.view instanceof NovelView) leaf.view.projectFolder = movedPath(leaf.view.projectFolder, from, to);
+      });
+      if (active) { this.structure = null; this.requestContext = null; this.lockedNotes.clear(); }
+      this.highlights.refresh();
+      this.explorerActions?.refresh();
+      for (const view of this.views) view.update();
+      if (wasBusy) new Notice(t("projectMovedDuringTask"));
+    });
+    const finished = write.finally(() => { this.pendingProjectMoves = this.pendingProjectMoves.filter(item => item !== move); });
+    this.settingsWrite = finished.catch(() => {});
+    void finished.then(() => this.navigate(this.navigation.path)).catch(error => new Notice(errorText(error)));
+    return true;
+  }
+
   saveSettings(changes: SettingsChanges): Promise<void> {
     const write = this.settingsWrite.then(async () => {
       const previous = this.settings;
@@ -400,6 +441,7 @@ export default class OreliusPlugin extends Plugin {
     const preparation = this.projectWrite.then(async () => {
       const cwd = await this.workingDirectory(folder);
       await prepareProject(cwd, folders, this.configurationDirectory());
+      await prepareSourceConfig(cwd, folders.archiveFolder, parseYaml);
       await prepareBible(cwd, folders);
       await generateAgent(cwd, { ...folders, folder }, agentTemplate);
       await this.correctionTask(() => prepareCorrections(cwd, folders));

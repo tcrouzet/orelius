@@ -655,5 +655,10 @@
   "preparationSourcesInvalid": "Document sources with URL, status, reason, publication date (or unknown), and an exact excerpt only when consulted.",
   "preparationLinksMissing": "The preparation omits supplied links: consult them or explain why each is unavailable or irrelevant.",
   "projectBriefSources": "Project brief and supplied documentary links",
-  "worldReferenceSources": "World reference; character knowledge must be established separately"
+  "worldReferenceSources": "World reference; character knowledge must be established separately",
+  "projectMoveConflict": "The destination already belongs to an Orelius project. Associations were preserved to avoid overwriting them.",
+  "projectMovedDuringTask": "Project moved: the running task was interrupted. The conversation is preserved; send your request again from the new location.",
+  "externalSourcesInvalid": "Invalid documentary sources: each sources entry in config.md must contain path (absolute path) or url (HTTP/HTTPS), and a nonempty description. Local paths must have no hidden file or link; choose an existing page. Text documents, maximum 5 MB.",
+  "externalSourcesAuthorOnly": "config.md defines documentary access. Only the author may modify it.",
+  "externalSourceDescriptionPlaceholder": "Specify the content of this source and when to consult it."
 }

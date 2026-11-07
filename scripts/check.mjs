@@ -1,3 +1,5 @@
+import { checkExternalSources } from "./check-external-sources.mjs";
+import { checkProjectMove } from "./check-project-move.mjs";
 import { checkPreparationSources } from "./check-preparation-sources.mjs";
 import { checkResetConfirmation } from "./check-reset-confirmation.mjs";
 import { checkEditorialPriorities } from "./check-editorial-priorities.mjs";
@@ -71,6 +73,8 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("Sources externes : config, lecture seule, pagination, confinement et MCP", checkExternalSources);
+  await check("Déplacement des projets : sessions, parents, réactions, corrections et collisions", checkProjectMove);
   await check("Préparation : personnages, sources externes, liens et réactions séparés", () => checkPreparationSources(taskPrompts));
   await check("Traductions FR/EN : catalogues, paramètres, personnalisation et noms des dossiers", checkI18n);
   await check("Reset projet : confirmation explicite, annulation et dossiers personnalisés", checkResetConfirmation);
@@ -149,7 +153,7 @@ try {
       assert.equal(restored.reactions[reactionKey(project, "autre session", exchange.answer.id)], undefined);
       assert.equal(restored.reactions[reactionKey("/autre projet", "session", exchange.answer.id)], undefined);
       assert.deepEqual(applySettings(restored, { folder: "Autre" }).reactions, restored.reactions);
-      const agent = renderAgent(agentTemplate, loadSettings(folders));
+      const agent = renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
       for (const text of ["reproduire ou éviter", "ne devine pas la cause", "sans réentraîner"]) assert.ok(agent.includes(text), text);
     } finally { await rm(project, { recursive: true }); }
   });
@@ -247,7 +251,7 @@ try {
       assert.equal(after.ino, before.ino);
       assert.equal(after.mtimeMs, before.mtimeMs);
       assert.equal(await readFile(join(project, path), "utf8"), snapshot.after);
-      const agent = renderAgent(agentTemplate, loadSettings(folders));
+      const agent = renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
       for (const text of ["exemples positifs", "Enfin, voilà ce que je voulais", "retouches humaines", "Univers/suivi.md"]) assert.ok(agent.includes(text), text);
     } finally { await rm(project, { recursive: true }); }
   });
@@ -845,7 +849,7 @@ try {
       const denied = (...args) => archiveWithCorrections(args[0], folders, args[1], {}, () => { throw new Error("Éditeur modifié"); });
       await assert.rejects(writeProjectFile(project, path, "À refuser", await readProjectFile(project, path), folders.archiveFolder, denied, undefined, true), /Éditeur modifié/);
       assert.equal(await readFile(join(project, path), "utf8"), enriched);
-      const instructions = renderAgent(agentTemplate, loadSettings(folders));
+      const instructions = renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
       for (const text of [path, "Consignes explicites", "Hypothèses", "Contradictions", "source", "portée", "demande actuelle"])
         assert.ok(instructions.includes(text), text);
     } finally { await rm(project, { recursive: true }); }
@@ -1316,7 +1320,7 @@ try {
       await prepareBible(project, folders);
       await assert.rejects(access(path), { code: "ENOENT" });
       const agent = renderAgent(agentTemplate, loadSettings(folders));
-      assert.ok(agent.includes(EDITORIAL_PRIORITIES));
+      assert.ok(renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["preparer-scene"].includes(EDITORIAL_PRIORITIES));
       assert.equal(agent.includes("{editorialPriorities}"), false);
       await assert.rejects(access(join(project, "Univers", "Narration.md")), { code: "ENOENT" });
       const personal = "\ufeff# Narration\r\n\r\nNarration à la première personne, au présent.\r\n";
@@ -1403,6 +1407,10 @@ try {
       assert.ok(instructions.includes(text), text);
     }
     assert.equal(instructions.includes("{archiveFolder}"), false);
+    assert.ok(instructions.includes("Ce projet sert à écrire"));
+    assert.ok(instructions.includes("ecrire_fichier"));
+    assert.ok(instructions.includes("preparer_chapitre"));
+    assert.equal(instructions.includes("bouton Contexte"), false);
     assert.equal(renderAgent("Projet {folder}", loadSettings(undefined)), "Projet .");
     assert.equal(renderAgent("{manuscriptFolder}", { ...settings, manuscriptFolder: "Texte $& {bibleFolder}" }), "Texte $& {bibleFolder}");
     for (const variable of ["inconnue", "constructor", "__proto__"]) {
@@ -2202,6 +2210,9 @@ try {
       }
       assert.ok(read.join("").includes("Même voix au chapitre suivant."));
       assert.ok(read.join("").includes("Leçons issues de 001."));
+      const configWrite = await call(FILE_TOOL, { chemin: "./config.md", contenu: "---\nsources: []\n---\n" });
+      assert.equal(configWrite.isError, true);
+      assert.match(configWrite.content[0].text, /Seul l’auteur/);
       const unprepared = await write();
       assert.equal(unprepared.isError, true);
       assert.match(unprepared.content[0].text, /preparer_chapitre/);

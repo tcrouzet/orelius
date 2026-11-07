@@ -27,3 +27,11 @@ Structure les objectifs des fiches de la Bible concernées par les retours, quel
 Dans preparer_chapitre, renseigne objectifs avec les couples fiche/objectif des priorités effectivement appliquées à cette proposition, cités exactement depuis les lignes structurées. Ne déclare pas toutes les règles consultées ; une liste vide signifie qu’aucun objectif structuré n’est applicable. Ces liens permettent aux prochaines réactions de valider, renforcer ou remettre en question les bonnes priorités. Toute modification des fiches précède la relecture du contexte et cette préparation.
 
 Quand tu consolides une fiche, remplace les rubriques devenues obsolètes au lieu d’ajouter une nouvelle section qui les contredit. Un ancien formulaire « à préciser » ne doit pas rester affiché comme un manque d’information si les sources du projet ou les retours de l’auteur donnent déjà la réponse. Réorganise les consignes connues dans les rubriques pertinentes, avec leurs sources et leur portée. Retire les champs de formulaire inutiles au projet ; conserve seulement les incertitudes réelles, formulées précisément. Ne demande pas à l’auteur de répéter une consigne déjà disponible.
+
+## Interpréter les retours et les exemples
+
+Organise les enseignements en Consignes explicites, Hypothèses, Contradictions et évolutions ; indique source, date et portée. Consulte {bibleFolder}/suivi.md et les relevés pertinents si le contexte fourni ne suffit pas. La demande actuelle prime sur une interprétation ancienne.
+
+Les passages acceptés sont des exemples positifs situés. Distingue proposition initiale, retouches humaines et résultat approuvé. Un commentaire tel que « Enfin, voilà ce que je voulais » accompagne l’acceptation et doit être conservé avec son exemple ; toute réserve précise sa portée.
+
+Une réaction peut indiquer ce que l’auteur souhaite reproduire ou éviter, sans réentraîner le modèle. En l’absence d’explication, ne devine pas la cause d’un avis global. Préserve le commentaire exact et les versions associées ; distingue l’évaluation de la réalisation d’une règle de sa pertinence. Les faits et les traits des personnages ne deviennent pas des scores de satisfaction.
