@@ -35,7 +35,7 @@ export async function checkI18n() {
   assert.equal(files.get('locales/fr.json'),'{broken');
   assert.throws(()=>t('chapterNotFound'),/Paramètre/);
   const paths=projectPaths(DEFAULT_PROJECT_FOLDERS);
-  assert.ok(paths.includes('Manuscript/Chapters')&&paths.includes('Manuscript/Seeds')&&paths.includes('Manuscript/Characters')&&paths.includes('Manuscript/Summaries'));
+  assert.ok(paths.includes('Manuscript')&&paths.includes('Bible/Seeds')&&paths.includes('Bible/Characters')&&paths.includes('Bible/Summaries'));
   assert.ok(!paths.some(path=>/Chapitres|Personnages|Resume|Intrigues|Variantes|Verification/.test(path)));
   assert.deepEqual(paths.filter(path=>path.startsWith('Model/')),[]);
   setLocale('en');assert.deepEqual(projectPaths(DEFAULT_PROJECT_FOLDERS),paths);

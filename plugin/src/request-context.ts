@@ -1,5 +1,6 @@
+import { brainstormFolder } from "./brainstorm.ts";
 import { t } from "./i18n.ts";
-import type { ProjectFolders } from "./settings.ts";
+import { WORKSHOP_FOLDERS, type ProjectFolders } from "./settings.ts";
 import type { StoryStructure } from "./story-structure.ts";
 
 export interface ContextChoice { chapter: string | null; include: string[]; exclude: string[] }
@@ -33,9 +34,9 @@ export function validateContextChoice(choice: ContextChoice | null, folders: Pro
   if (!choice) return;
   contextChoice(withContext("", choice));
   if (choice.chapter && chapter && choice.chapter !== chapter) throw new Error(t("theseContextChoicesBelongToAnotherChapterReopenContext"));
-  const required = [chapter, `${folders.manuscriptFolder}/Context/Structure.md`, `${folders.manuscriptFolder}/Context/configuration.md`];
+  const required = [chapter, `Tracking/Structure.md`, `Tracking/configuration.md`];
   for (const path of [...choice.include, ...choice.exclude]) {
-    if (![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder].some(folder => path.startsWith(folder + "/"))) throw new Error(t("noteOutsideTheWritingProject", { value1: path }));
+    if (![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Tracking"].some(folder => path.startsWith(folder + "/"))) throw new Error(t("noteOutsideTheWritingProject", { value1: path }));
     if (choice.exclude.includes(path) && required.includes(path)) throw new Error(t("requiredSource", { value1: path }));
   }
 }
@@ -68,11 +69,13 @@ export function relatedWorkshop(data: StoryStructure, chapter: string): Set<stri
 }
 
 export function manualRole(path: string, folders: ProjectFolders): string {
+  if (brainstormFolder(path, folders)) return "workshop-intentions-not-canon";
   if (path.startsWith(folders.modelFolder + "/")) return "adaptation-source-not-canon";
-  if (path.startsWith(`${folders.manuscriptFolder}/Chapters/`)) return "current-manuscript";
+  if (path.startsWith(`${folders.manuscriptFolder}/`)) return "current-manuscript";
   if (path.startsWith(`${folders.bibleFolder}/Style/`)) return "style-reference";
-  if (path.startsWith(`${folders.bibleFolder}/Tracking/`) || path.endsWith("/suivi.md")) return "author-feedback";
+  if (path.startsWith(`Tracking/`) || path.endsWith("/suivi.md")) return "author-feedback";
   if (path.startsWith(`${folders.bibleFolder}/Characters/`)) return "character-reference";
+  if ([...WORKSHOP_FOLDERS, "Plan", "Summaries", "Brainstorm"].some(folder => path.startsWith(`${folders.bibleFolder}/${folder}/`))) return "workshop-intentions-not-canon";
   if (path.startsWith(folders.bibleFolder + "/")) return "world-reference";
   return "workshop-intentions-not-canon";
 }

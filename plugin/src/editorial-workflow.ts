@@ -8,6 +8,8 @@ import { chapterPath } from "./corrections.ts";
 import type { ProjectFolders } from "./settings.ts";
 
 export const MAINTENANCE_PREFIX = "[Orelius : actualisation interne du suivi]\n";
+export const INPUT_REVIEW_PREFIX = "[Orelius : intégration des apports de l’auteur]\n";
+export const internalPrompt = (text: string): boolean => text.startsWith(MAINTENANCE_PREFIX) || text.startsWith(INPUT_REVIEW_PREFIX);
 export interface PendingState { chapter: string; hash: string; reason: "absent" | "perime" }
 
 export async function chapterFiles(cwd: string, folders: ProjectFolders): Promise<string[]> {
@@ -19,12 +21,13 @@ export async function chapterFiles(cwd: string, folders: ProjectFolders): Promis
     try { entries = await readdir(join(root, directory), { withFileTypes: true }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
       const path = `${directory}/${entry.name}`;
       if (entry.isDirectory()) await walk(path);
-      else if (entry.isFile() && /\.md$/i.test(entry.name)) result.push(path);
+      else if (entry.isFile() && chapterPath(cwd, folders, path)) result.push(path);
     }
   }
-  await walk(`${folders.manuscriptFolder}/Chapters`);
+  await walk(`${folders.manuscriptFolder}`);
   return result.sort(new Intl.Collator("fr", { numeric: true }).compare);
 }
 
@@ -49,7 +52,7 @@ export async function pendingStates(cwd: string, folders: ProjectFolders, chapte
 }
 
 export async function saveWorkflow(cwd: string, folders: ProjectFolders, pending: PendingState[], ensureCurrent: () => void = () => {}, configDir?: string): Promise<void> {
-  const path = `${folders.manuscriptFolder}/Context/suivi-etats.md`;
+  const path = `Tracking/suivi-etats.md`;
   const content = `# Tracking des états narratifs\n\n${pending.length ? "États à extraire depuis le texte conservé. Aucun de ces états n’est considéré comme à jour." : "Tous les chapitres examinés disposent d’un état lié au texte conservé. Cela ne valide pas l’interprétation littéraire."}\n\n\`\`\`json\n${JSON.stringify(pending, null, 2)}\n\`\`\`\n`;
   await writeProjectFile(cwd, path, content, await readProjectFile(cwd, path), folders.archiveFolder, undefined, ensureCurrent, false, undefined, configDir);
 }

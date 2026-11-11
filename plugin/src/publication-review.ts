@@ -1,3 +1,4 @@
+import { editorialObjectives } from "./editorial-priorities.ts";
 import { t } from "./i18n.ts";
 import { dirname } from "node:path";
 import { fingerprint } from "./narrative-context.ts";
@@ -12,19 +13,22 @@ export interface PublicationVerdict { controles: PublicationCheck[]; retours: Fe
 export function publicationFeedback(input: PublicationInput): { id: string; source: string; attente: string }[] {
   const feedback: { id: string; source: string; attente: string }[] = [];
   for (const source of input.contexte.sources) {
-    const parts = source.role === "current-manuscript"
+    const parts = ["instructions", "style-reference"].includes(source.role)
+      ? editorialObjectives(source.path, source.content).filter(goal => goal.level === "essentiel" || goal.level === "a-eviter").map(goal => `[${goal.level}] ${goal.goal}`)
+      : source.role === "current-manuscript"
       ? [...source.content.matchAll(/\(\(\(([\s\S]*?)\)\)\)/g)].map(match => match[1]!)
-      : (["author-request", "author-feedback"].includes(source.role) || source.role === "editorial-memory" && source.path.endsWith("/Tracking/Connaissances.md"))
+      : (["author-request", "author-feedback"].includes(source.role) || source.role === "editorial-memory" && source.path === "Tracking/Connaissances.md")
         ? source.content.split(/\n\s*\n|\n(?=- )/) : [];
     for (const part of parts) {
       const attente = part.trim();
+      if (feedback.some(item => item.source === source.path && item.attente === attente)) continue;
       if (!attente || /^#{1,6} [^\n]+$/.test(attente)) continue;
       feedback.push({ id: `retour-${feedback.length + 1}`, source: source.path, attente });
     }
   }
   return feedback;
 }
-export interface PublicationInput { candidat: string; preparation: string; contexte: SceneContext; precedent?: PublicationVerdict; correctionRapport?: { erreur: string; rapport: unknown } }
+export interface PublicationInput { candidat: string; preparation: string; contexte: SceneContext; precedent?: PublicationVerdict; correctionRapport?: { erreur: string; rapport: unknown }; deadline?: number }
 export type PublicationEvaluator = (input: PublicationInput, signal: AbortSignal) => Promise<unknown>;
 export class PublicationError extends Error {
   readonly terminal: boolean;
@@ -59,12 +63,12 @@ export function parsePublicationVerdict(value: unknown, input: PublicationInput)
     if (!input.candidat.includes(check.passage)) return fail(t("reviewCandidateQuoteMissing", { axis: check.axe }));
     let sources = [...input.contexte.sources, { path: input.contexte.preparationPath, role: "preparation", content: input.preparation }];
     if (check.axe === "faits") {
-      sources = sources.filter(source => ["current-manuscript", "previous-manuscript", "character-reference", "world-reference", "external-documentation", "verified-summary", "narrative-state", "author-request"].includes(source.role));
+      sources = sources.filter(source => ["current-manuscript", "previous-manuscript", "character-reference", "world-reference", "external-documentation", "verified-summary", "narrative-state", "narrative-date", "author-request"].includes(source.role));
       if (!sources.length) sources = [{ path: "candidat", role: "internal-consistency-only", content: input.candidat }];
     }
     if (check.axe === "voix") {
       const approved = sources.filter(source => source.role === "approved-voice");
-      sources = approved.length ? approved : sources.filter(source => ["instructions", "style-reference", "task-instructions", "author-request"].includes(source.role));
+      sources = approved.length ? [...approved, ...sources.filter(source => ["style-example-not-canon", "author-request"].includes(source.role))] : sources.filter(source => ["instructions", "style-reference", "style-example-not-canon", "task-instructions", "author-request"].includes(source.role));
     }
     const source = sources.find(source => source.path === check.source);
     if (!source) return fail(t("reviewSourceUnavailable", { axis: check.axe, path: check.source }));
@@ -89,6 +93,7 @@ interface Attempt { count: number; hashes: Set<string>; verdict?: PublicationVer
 export class PublicationReview {
   private attempts = new Map<string, Attempt>();
   private controller = new AbortController();
+  get signal(): AbortSignal { return this.controller.signal; }
   cancel(): void { this.controller.abort(); }
   published(path: string): void { const attempt = this.attempts.get(path); if (attempt) attempt.published = true; }
   get incomplete(): boolean { return [...this.attempts.values()].some(attempt => !attempt.published); }
@@ -115,7 +120,7 @@ export class PublicationReview {
     attempt.count++;
     attempt.hashes.add(key);
     attempt.published = false;
-    const directory = `${dirname(context.path)}/Publication`;
+    const directory = `${dirname(context.path).replace(/^Tracking\//, "Tracking/Chapters/")}/Publication`;
     const save = async (name: string, content: string) => {
       await ensure();
       const destination = `${directory}/${name}.md`;
@@ -124,7 +129,7 @@ export class PublicationReview {
     await save(`candidat-${attempt.count}`, input.candidat);
     let verdict: PublicationVerdict;
     try {
-      const request: PublicationInput = { ...input, precedent: attempt.verdict };
+      const request: PublicationInput = { ...input, precedent: attempt.verdict, deadline: Math.min(input.deadline ?? Infinity,Date.now()+180_000) };
       let raw = await evaluate(request, this.controller.signal);
       await ensure();
       try { verdict = parsePublicationVerdict(raw, request); }

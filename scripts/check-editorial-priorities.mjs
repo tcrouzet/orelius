@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {prepareProject} from '../plugin/src/archives.ts';
 import {DEFAULT_PROJECT_FOLDERS as folders} from '../plugin/src/settings.ts';
-import {editorialObjectives,introducedObjectives,rateEditorialObjectives,preservePriorityHistory} from '../plugin/src/editorial-priorities.ts';
+import {editorialObjectives,priorityHistoryPath,introducedObjectives,rateEditorialObjectives,preservePriorityHistory} from '../plugin/src/editorial-priorities.ts';
 import {recordReaction,reactionExchanges} from '../plugin/src/reactions.ts';
 import {toChatItem} from '../plugin/src/session.ts';
 import {buildSceneContext} from '../plugin/src/scene-context.ts';
@@ -13,7 +13,8 @@ import {revisionPath,planRevision} from '../plugin/src/revision.ts';
 
 export async function checkEditorialPriorities(prompts){
  const root=await mkdtemp(join(tmpdir(),'orelius-priorities-'));
- const path='Bible/Style/Narration.md',chapter='Manuscript/Chapters/001.md';
+ const path='Bible/Style/Narration.md',chapter='Manuscript/001.md';
+ const historyPath=priorityHistoryPath(path,folders);
  const personal='# Narration\n\nNote personnelle intacte.\n';
  const source=personal+'\n- [essentiel] YQ développe un raisonnement limpide.\n- [secondaire] Varier la longueur des phrases.\n- [a-eviter] Aucune question sans enjeu.\n- [suspendu] Multiplier les citations.\n';
  const goals=editorialObjectives(path,source);
@@ -38,24 +39,27 @@ export async function checkEditorialPriorities(prompts){
   const exchange=reactionExchanges([{id:'turn',completed:true,date:null,messages:[receipt,{id:'answer',role:'assistant',phase:'final_answer',text:'Enregistré.',paths:[]}]}]).get('answer');
   assert.deepEqual(exchange.objectives,[goals[0]]);
   const up=await recordReaction(root,folders,'thread',exchange,'up','Voilà la clarté attendue.');
-  let text=await readFile(join(root,path),'utf8');assert.ok(text.startsWith(source));assert.match(text,/\+1 — YQ/);
+  assert.equal(await readFile(join(root,path),'utf8'),source,'Les réactions ne chargent pas la fiche de leur historique.');
+  let text=await readFile(join(root,historyPath),'utf8');assert.match(text,/\+1 — YQ/);
   assert.equal(text.includes('+1 — Varier'),false,'Les objectifs seulement consultés ne gagnent aucun point.');
   assert.deepEqual(await recordReaction(root,folders,'thread',exchange,'up','Voilà la clarté attendue.',up),up);
-  assert.equal(await readFile(join(root,path),'utf8'),text);
+  assert.equal(await readFile(join(root,historyPath),'utf8'),text);
   const heart=await recordReaction(root,folders,'thread',exchange,'heart','Référence forte.',up);
-  text=await readFile(join(root,path),'utf8');assert.match(text,/\+2 — YQ/);assert.equal(text.includes('+3 — YQ'),false);
+  text=await readFile(join(root,historyPath),'utf8');assert.match(text,/\+2 — YQ/);assert.equal(text.includes('+3 — YQ'),false);
   await recordReaction(root,folders,'thread',exchange,'down','La pensée reste obscure.',heart);
-  text=await readFile(join(root,path),'utf8');assert.match(text,/-1 — YQ/);assert.match(text,/retour négatif à examiner/);assert.ok(text.includes('La pensée reste obscure.'));
-  assert.ok(text.includes('- [a-eviter] Aucune question sans enjeu.'));
-  assert.ok((await readdir(join(root,'Archives/Bible/Style'))).length>0);
+  text=await readFile(join(root,historyPath),'utf8');assert.match(text,/-1 — YQ/);assert.match(text,/retour négatif à examiner/);assert.ok(text.includes('La pensée reste obscure.'));
+  assert.ok((await readFile(join(root,path),'utf8')).includes('- [a-eviter] Aucune question sans enjeu.'));
+  assert.ok((await readdir(join(root,'Archives/Tracking/Priorities/Style'))).length>0);
   preservePriorityHistory(text,text.replace('Note personnelle intacte.','Une autre note personnelle.'));
   assert.throws(()=>preservePriorityHistory(text,source),/Préservez exactement/);
-  await writeFile(join(root,path),text.replace('## Retours sur les priorités','## Modification humaine'));
+  await writeFile(join(root,historyPath),text.replace('## Retours sur les priorités','## Modification humaine'));
   await assert.rejects(()=>rateEditorialObjectives(root,folders,[goals[0]],{subject:'autre',value:'up',report:'rapport.md',message:''}),/modifiée manuellement/);
-  assert.ok((await readFile(join(root,path),'utf8')).includes('Modification humaine'));
+  assert.ok((await readFile(join(root,historyPath),'utf8')).includes('Modification humaine'));
   await assert.rejects(()=>rateEditorialObjectives(root,folders,[{...goals[0],path:'../externe.md'}],{subject:'autre',value:'up',report:'rapport.md',message:''}),/fiche de la Bible/);
   const plan=planRevision(chapter,'Texte','Texte','Révise.');
+  assert.equal(revisionPath(plan,root,'Bible','Tracking/Provenance.md',[],'Tracking/Provenance.md'),'Tracking/Provenance.md');
+  assert.throws(()=>revisionPath(plan,root,'Bible','Tracking/configuration.md',[],'Tracking/Provenance.md'),/seulement le document/);
   assert.equal(revisionPath(plan,root,'Bible','Bible/Monde.md',['Bible/Monde.md']),'Bible/Monde.md');
-  assert.throws(()=>revisionPath(plan,root,'Bible','Bible/Tracking/Conversation.md',['Bible/Tracking/Conversation.md']),/seulement le chapitre/);
+  assert.throws(()=>revisionPath(plan,root,'Bible','Tracking/Conversation.md',['Tracking/Conversation.md']),/seulement le document/);
  } finally {await rm(root,{recursive:true,force:true});}
 }

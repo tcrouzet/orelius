@@ -6,9 +6,9 @@ import { reactionKey } from '../plugin/src/reactions.ts';
 export function checkProjectMove() {
   const original = loadSettings({folder:'Romans/Alpha',threadId:'thread-a',threadCwd:'/vault/Romans/Alpha',
     sessions:{'Romans/Alpha':{threadId:'thread-a',cwd:'/vault/Romans/Alpha'},'Romans/Beta':{threadId:'thread-b',cwd:'/vault/Romans/Beta'},'RomansBis':{threadId:'other',cwd:'/vault/RomansBis'}},
-    codexVersions:{'/vault/Romans/Alpha':{'Manuscript/Chapters/01.md':'Texte humain'},'/vault/Romans/Beta':{'a.md':'Beta'}},
-    revisionHighlights:{'Romans/Alpha/Manuscript/Chapters/01.md':{before:'Avant',after:'Après'}},
-    reactions:{[reactionKey('/vault/Romans/Alpha','thread-a','answer')]:{value:'heart',message:'À conserver',report:'Bible/Tracking/avis.md'}}});
+    codexVersions:{'/vault/Romans/Alpha':{'Manuscript/01.md':'Texte humain'},'/vault/Romans/Beta':{'a.md':'Beta'}},
+    revisionHighlights:{'Romans/Alpha/Manuscript/01.md':{before:'Avant',after:'Après'}},
+    reactions:{[reactionKey('/vault/Romans/Alpha','thread-a','answer')]:{value:'heart',message:'À conserver',report:'Tracking/avis.md'}}});
   const before=JSON.stringify(original);
   for(const [from,to] of [['Romans/Alpha','Romans/Nouveau'],['Romans','Livres/Projets']]) {
     const moved=moveProjects(original,from,to,'/vault');
@@ -17,9 +17,9 @@ export function checkProjectMove() {
     assert.deepEqual(moved.sessions[folder],{threadId:'thread-a',cwd});
     assert.equal(moved.sessions['RomansBis'].cwd,'/vault/RomansBis');
     assert.deepEqual(moved.codexVersions[cwd],original.codexVersions['/vault/Romans/Alpha']);
-    assert.deepEqual(moved.revisionHighlights[folder+'/Manuscript/Chapters/01.md'],{before:'Avant',after:'Après'});
+    assert.deepEqual(moved.revisionHighlights[folder+'/Manuscript/01.md'],{before:'Avant',after:'Après'});
     assert.equal(moved.reactions[reactionKey(cwd,'thread-a','answer')].message,'À conserver');
-    assert.equal(associatedFolder(moved,folder+'/Manuscript/Chapters/01.md'),folder);
+    assert.equal(associatedFolder(moved,folder+'/Manuscript/01.md'),folder);
     assert.equal(modelProject(moved,folder+'/Model'),folder);
     assert.deepEqual(loadSettings(JSON.parse(JSON.stringify(moved))),moved,'Le déplacement survit au redémarrage.');
   }

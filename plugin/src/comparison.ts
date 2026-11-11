@@ -11,7 +11,7 @@ import type { RevisionPlan } from "./revision.ts";
 import { validateProjectFolders, type ProjectFolders } from "./settings.ts";
 
 export interface ComparisonVersion { label: string; text: string; archive?: string; base?: string }
-const proposalDirectory = (folders: ProjectFolders, chapter: string) => `${dirname(statePath(folders, chapter))}/Variants`;
+const proposalDirectory = (folders: ProjectFolders, chapter: string) => `${dirname(statePath(folders, chapter)).replace(/^Tracking\//, "Tracking/Chapters/")}/Variants`;
 export function mergeComparison(before: string, after: string, selected: ReadonlySet<number>): string {
   const changes = diffToGroups(before, after);
   if ([...selected].some(index => !Number.isSafeInteger(index) || index < 0 || index >= changes.length)) throw new Error(t("invalidChangeSelection"));

@@ -1,5 +1,16 @@
+import { checkBrainstorm } from "./check-brainstorm.mjs";
+import { checkReadiness, readinessVerdict } from "./check-readiness.mjs";
+import { checkAuthorInputs } from "./check-author-inputs.mjs";
+import { checkDocumentTracking } from "./check-document-tracking.mjs";
+import { checkProjectLayout } from "./check-project-layout.mjs";
+import { checkVoiceProcess } from "./check-voice-process.mjs";
+import { checkChatSelection } from "./check-chat-selection.mjs";
+import { checkLazyCodex } from "./check-lazy-codex.mjs";
 import { checkExternalSources } from "./check-external-sources.mjs";
 import { checkProjectMove } from "./check-project-move.mjs";
+import { checkProjectSessions } from "./check-project-sessions.mjs";
+import { checkModelSelection } from "./check-model-selection.mjs";
+import { checkDocumentRevision, checkDocumentRevisionProtocol } from "./check-document-revision.mjs";
 import { checkPreparationSources } from "./check-preparation-sources.mjs";
 import { checkResetConfirmation } from "./check-reset-confirmation.mjs";
 import { checkEditorialPriorities } from "./check-editorial-priorities.mjs";
@@ -19,6 +30,7 @@ import { checkStructure } from "./check-structure.mjs";
 import { checkImpact } from "./check-impact.mjs";
 import { checkWorkshop } from "./check-workshop.mjs";
 import { POPULATE_PREFIX, withoutChanges } from "../plugin/src/workshop.ts";
+import { newModelSources } from "../plugin/src/populate-state.ts";
 import { checkWorkflows } from "./check-workflows.mjs";
 import { checkNarrative } from "./check-narrative.mjs";
 import assert from "node:assert/strict";
@@ -42,7 +54,7 @@ import { authorPrompt, visibleMessages, renderConversation, saveConversation } f
 import { TASK_PROMPT_NAMES, renderTaskPrompts } from "../plugin/src/task-prompts.ts";
 import { buildSceneContext as buildSceneContextRaw, checkSceneContext, saveSceneContext } from "../plugin/src/scene-context.ts";
 import { ChapterReview } from "../plugin/src/chapter-review.ts";
-import { STRUCTURE_TOOL, LINK_TOOL, BATCH_TOOL, WORKFLOW_TOOL, WORKSHOP_TOOL, METHOD_TOOL, STATE_TOOL, CONTEXT_TOOL, REVIEW_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
+import { INPUTS_TOOL, SOURCES_TOOL, STRUCTURE_TOOL, LINK_TOOL, BATCH_TOOL, WORKFLOW_TOOL, WORKSHOP_TOOL, METHOD_TOOL, STATE_TOOL, CONTEXT_TOOL, REVIEW_TOOL, FILE_TOOL, ProjectMcp } from "../plugin/src/mcp.ts";
 import { readEditorialContext } from "../plugin/src/editorial-context.ts";
 import { diffToGroups } from "../plugin/src/diff.ts";
 import { checkRevision, fullRewriteRequested, planRevision, revisionMarks, revisionPath, revisionFor } from "../plugin/src/revision.ts";
@@ -66,6 +78,8 @@ const client = handlers => {
   clients.push(value);
   return value;
 };
+const correctionReportNames = async project => (await readdir(join(project, "Tracking"))).filter(name => /^\d{4}-\d{2}-\d{2}T/.test(name));
+
 const check = async (name, action) => {
   await action();
   passed++;
@@ -73,8 +87,17 @@ const check = async (name, action) => {
 };
 
 try {
+  await check("Tracking : versions, fichiers binaires, peuplement différentiel et reset de l’explorateur", checkDocumentTracking);
+  await check("Architecture : chapitres seuls, parties, atelier dans Bible et suivi hors manuscrit", checkProjectLayout);
+  await check("Voix : exemples explicites intégraux, exclusions, budgets et exigences bloquantes", checkVoiceProcess);
+  await check("Textes du chat : sélection préservée, diagnostic intégral et défilement suspendu", checkChatSelection);
+  await check("Codex à la demande : réglages sans recherche, hors projet et navigation interrompue", checkLazyCodex);
+  await check("Projets parallèles : tâches, archives, conversations, brouillons et verrous isolés", checkProjectSessions);
+  await check("Modèle et raisonnement : catalogue dynamique, changement pendant une tâche et conversation conservée", checkModelSelection);
   await check("Sources externes : config, lecture seule, pagination, confinement et MCP", checkExternalSources);
   await check("Déplacement des projets : sessions, parents, réactions, corrections et collisions", checkProjectMove);
+  await check("Prérequis : refus avant prose, questions, preuves, résolution et contrôle indépendant", () => checkReadiness(taskPrompts));
+  await check("Inputs : messages intégraux, reprise, preuves d’intégration, oubli détecté et absence de boucle", () => checkAuthorInputs(taskPrompts));
   await check("Préparation : personnages, sources externes, liens et réactions séparés", () => checkPreparationSources(taskPrompts));
   await check("Traductions FR/EN : catalogues, paramètres, personnalisation et noms des dossiers", checkI18n);
   await check("Reset projet : confirmation explicite, annulation et dossiers personnalisés", checkResetConfirmation);
@@ -86,6 +109,7 @@ try {
   await check("Vue du roman : ordre, déplacements, relations, concurrence et transmission", checkOutline);
   await check("Comparaison : choix partiels, variantes périmées, archivage et restauration", checkComparison);
   await check("Actions sur sélection : bornes exactes, Unicode, variantes et conservation du reste", checkSelection);
+  await check("Révision des notes : Bible, discussions, sources, diffs, suivi et archives humaines", checkDocumentRevision);
   await check("Publication : contrôle séparé, reprise bornée, preuves, interruption et sources modifiées", checkPublication);
   await check("Structure narrative : identités, décisions, citations et outils MCP", checkStructure);
   await check("Conséquences des modifications : liens, mentions, connaissances et absence de réécriture", checkImpact);
@@ -119,10 +143,10 @@ try {
     try {
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
-      const knowledgePath = "Univers/Tracking/Connaissances.md";
+      const knowledgePath = "Tracking/Connaissances.md";
       const personal = "# Connaissances\n\nMa note personnelle.\n";
       await writeFile(join(project, knowledgePath), personal);
-      await writeFile(join(project, "Manuscript/Chapters/1.md"), "Manuscrit à conserver.\n");
+      await writeFile(join(project, "Manuscript/1.md"), "Manuscrit à conserver.\n");
       const heart = await recordReaction(project, folders, "session", exchange, "heart", comment);
       const report = await readFile(join(project, heart.report), "utf8");
       assert.ok(report.includes(comment.split("\n").map(line => `    ${line}`).join("\n")));
@@ -140,10 +164,10 @@ try {
       const current = await readFile(join(project, knowledgePath), "utf8");
       assert.ok(current.includes(back.report.split("/").pop()));
       assert.equal(current.includes(down.report.split("/").pop()), false);
-      const index = await readFile(join(project, "Univers/suivi.md"), "utf8");
+      const index = await readFile(join(project, "Tracking/suivi.md"), "utf8");
       for (const value of [heart, down, back]) assert.ok(index.includes(value.report.split("/").pop()));
-      assert.equal((await readdir(join(project, "Univers/Tracking"))).filter(name => name.includes("-reaction-")).length, 3);
-      assert.equal(await readFile(join(project, "Manuscript/Chapters/1.md"), "utf8"), "Manuscrit à conserver.\n");
+      assert.equal((await readdir(join(project, "Tracking"))).filter(name => name.includes("-reaction-")).length, 3);
+      assert.equal(await readFile(join(project, "Manuscript/1.md"), "utf8"), "Manuscrit à conserver.\n");
       const key = reactionKey(project, "session", exchange.answer.id);
       const snapshot = { before: "Avant", after: "Après" };
       const settings = applySettings(loadSettings({ revisionHighlights: { "Roman/1.md": snapshot } }), { reactions: { [key]: back } });
@@ -153,7 +177,7 @@ try {
       assert.equal(restored.reactions[reactionKey(project, "autre session", exchange.answer.id)], undefined);
       assert.equal(restored.reactions[reactionKey("/autre projet", "session", exchange.answer.id)], undefined);
       assert.deepEqual(applySettings(restored, { folder: "Autre" }).reactions, restored.reactions);
-      const agent = renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
+      const agent = renderTaskPrompts(taskPrompts, folders, "Manuscript/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
       for (const text of ["reproduire ou éviter", "ne devine pas la cause", "sans réentraîner"]) assert.ok(agent.includes(text), text);
     } finally { await rm(project, { recursive: true }); }
   });
@@ -179,14 +203,14 @@ try {
     try {
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
-      const path = "Bible/Tracking/Connaissances.md";
+      const path = "Tracking/Connaissances.md";
       await writeFile(join(project, path), "Mes notes.\n");
-      await writeFile(join(project, "Archives/Bible/Tracking"), "Obstacle.");
+      await writeFile(join(project, "Archives/Tracking"), "Obstacle.");
       await assert.rejects(recordReaction(project, folders, "session", exchange, "up", "Utile."));
       assert.equal(await readFile(join(project, path), "utf8"), "Mes notes.\n");
-      await rm(join(project, "Archives/Bible/Tracking"));
+      await rm(join(project, "Archives/Tracking"));
       const rating = await recordReaction(project, folders, "session", exchange, "up", "Utile.");
-      assert.equal((await readdir(join(project, "Bible/Tracking"))).filter(name => name.includes("-reaction-")).length, 1);
+      assert.equal((await readdir(join(project, "Tracking"))).filter(name => name.includes("-reaction-")).length, 1);
       const original = await readFile(join(project, path), "utf8");
       const edited = original.replace("## Réaction de l’auteur", "Ma précision personnelle.\n\n## Réaction de l’auteur");
       await writeFile(join(project, path), edited);
@@ -215,7 +239,7 @@ try {
   await check("Acceptation : retour exact, exemple positif figé, notes préservées et absence de doublon", async () => {
     const project = join(directory, "acceptance");
     const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers", archiveFolder: "Versions" };
-    const path = "Roman/Chapters/Été.md";
+    const path = "Roman/Été.md";
     const snapshot = { before: "Il parle.\n", after: "« Djo, viens ici ! »\n" };
     const message = "  Enfin, voilà ce que je voulais.\n\nGarde cette voix, surtout le rythme.  ";
     await mkdir(project);
@@ -223,12 +247,12 @@ try {
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
       await writeFile(join(project, path), snapshot.after);
-      const knowledgePath = "Univers/Tracking/Connaissances.md";
+      const knowledgePath = "Tracking/Connaissances.md";
       const personal = "# Connaissances\n\nMes notes personnelles, à conserver.\n";
       await writeFile(join(project, knowledgePath), personal);
       const before = await stat(join(project, path));
       const report = await recordAcceptance(project, folders, path, snapshot, message);
-      assert.match(report, /^Univers\/Tracking\/\d{4}-\d{2}-\d{2}T.+-acceptation-[a-f0-9]{64}\.md$/);
+      assert.match(report, /^Tracking\/\d{4}-\d{2}-\d{2}T.+-acceptation-[a-f0-9]{64}\.md$/);
       const accepted = await readFile(join(project, report), "utf8");
       const quoted = value => value.split("\n").map(line => `    ${line}`).join("\n");
       assert.ok(accepted.includes(quoted(message)));
@@ -239,27 +263,27 @@ try {
       const knowledge = await readFile(join(project, knowledgePath), "utf8");
       assert.ok(knowledge.startsWith(personal));
       assert.ok(knowledge.includes(report.split("/").pop()));
-      assert.ok((await readFile(join(project, "Univers/suivi.md"), "utf8")).includes(report.split("/").pop()));
-      const copies = await readdir(join(project, "Versions/Univers/Tracking"));
+      assert.ok((await readFile(join(project, "Tracking/suivi.md"), "utf8")).includes(report.split("/").pop()));
+      const copies = (await readdir(join(project, "Versions/Tracking"))).filter(name => name.startsWith("Connaissances."));
       assert.equal(copies.length, 1);
-      assert.equal(await readFile(join(project, "Versions/Univers/Tracking", copies[0]), "utf8"), personal);
+      assert.equal(await readFile(join(project, "Versions/Tracking", copies[0]), "utf8"), personal);
       const again = await recordAcceptance(project, folders, path, snapshot, message);
       assert.equal(again, report);
       assert.equal(await readFile(join(project, knowledgePath), "utf8"), knowledge);
-      assert.equal((await readdir(join(project, "Univers/Tracking"))).filter(name => name.includes("-acceptation-")).length, 1);
+      assert.equal((await readdir(join(project, "Tracking"))).filter(name => name.includes("-acceptation-")).length, 1);
       const after = await stat(join(project, path));
       assert.equal(after.ino, before.ino);
       assert.equal(after.mtimeMs, before.mtimeMs);
       assert.equal(await readFile(join(project, path), "utf8"), snapshot.after);
-      const agent = renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
-      for (const text of ["exemples positifs", "Enfin, voilà ce que je voulais", "retouches humaines", "Univers/suivi.md"]) assert.ok(agent.includes(text), text);
+      const agent = renderTaskPrompts(taskPrompts, folders, "Manuscript/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
+      for (const text of ["exemples positifs", "Enfin, voilà ce que je voulais", "retouches humaines", "Tracking/suivi.md"]) assert.ok(agent.includes(text), text);
     } finally { await rm(project, { recursive: true }); }
   });
 
   await check("Acceptation : la version relue avec retouches humaines est celle approuvée", async () => {
     const project = join(directory, "human-acceptance");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const path = "Manuscript/Chapters/1.md";
+    const path = "Manuscript/1.md";
     const snapshot = { before: "Original.\n", after: "Révision Codex.\n" };
     const human = "Ma retouche de la révision.\n";
     await mkdir(project);
@@ -282,26 +306,26 @@ try {
   await check("Acceptation : échec d’archive ou éditeur modifié, données préservées et reprise sans doublon", async () => {
     const project = join(directory, "failed-acceptance");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const path = "Manuscript/Chapters/1.md";
+    const path = "Manuscript/1.md";
     const snapshot = { before: "Original.\n", after: "Version à accepter.\n" };
     await mkdir(project);
     try {
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
       await writeFile(join(project, path), snapshot.after);
-      const knowledge = "Bible/Tracking/Connaissances.md";
+      const knowledge = "Tracking/Connaissances.md";
       await writeFile(join(project, knowledge), "Notes personnelles.\n");
-      await writeFile(join(project, "Archives/Bible/Tracking"), "Obstacle à l’archive.");
+      await writeFile(join(project, "Archives/Tracking"), "Obstacle à l’archive.");
       await assert.rejects(recordAcceptance(project, folders, path, snapshot, "Enfin !"));
       assert.equal(await readFile(join(project, knowledge), "utf8"), "Notes personnelles.\n");
       assert.equal(await readFile(join(project, path), "utf8"), snapshot.after);
-      assert.equal((await readFile(join(project, "Bible/suivi.md"), "utf8")).includes("orelius:acceptance:"), false);
-      await rm(join(project, "Archives/Bible/Tracking"));
+      assert.equal((await readFile(join(project, "Tracking/suivi.md"), "utf8")).includes("orelius:acceptance:"), false);
+      await rm(join(project, "Archives/Tracking"));
       const report = await recordAcceptance(project, folders, path, snapshot, "Enfin !");
       assert.ok((await readFile(join(project, knowledge), "utf8")).includes(report.split("/").pop()));
-      assert.equal((await readdir(join(project, "Bible/Tracking"))).filter(name => name.includes("-acceptation-")).length, 1);
+      assert.equal((await readdir(join(project, "Tracking"))).filter(name => name.includes("-acceptation-")).length, 1);
       await assert.rejects(recordAcceptance(project, folders, path, snapshot, "Autre retour", () => { throw new Error("Corrections non enregistrées."); }), /Corrections non enregistrées/);
-      assert.equal((await readdir(join(project, "Bible/Tracking"))).filter(name => name.includes("-acceptation-")).length, 1);
+      assert.equal((await readdir(join(project, "Tracking"))).filter(name => name.includes("-acceptation-")).length, 1);
     } finally { await rm(project, { recursive: true }); }
   });
 
@@ -315,7 +339,7 @@ try {
       for (const path of ["Bible/Style/Narration.md", "../1.md", "Model/Chapters/1.md"]) {
         await assert.rejects(recordAcceptance(project, folders, path, snapshot, ""), /Ouvrez un chapitre/);
       }
-      const path = "Manuscript/Chapters/1.md";
+      const path = "Manuscript/1.md";
       await assert.rejects(recordAcceptance(project, folders, path, { before: "Identique", after: "Identique" }, ""), /Aucune modification/);
       await assert.rejects(recordAcceptance(project, folders, path, snapshot, ""), /Chapitre introuvable/);
       await writeFile(join(project, "source.md"), snapshot.after);
@@ -375,17 +399,17 @@ try {
     try {
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
       await prepareCorrections(project, DEFAULT_PROJECT_FOLDERS);
-      const path = "Manuscript/Chapters/002.md";
+      const path = "Manuscript/002.md";
       const current = "# 002\n\nUne prise débranchée.\n";
       const memory = "# Mémoire\n\n## Consignes actives\n\nClarifier qui parle.\n\n## Hypothèses abandonnées\n\nUn tableau de classe récupéré.\n";
       await writeFile(join(project, path), current);
-      await writeFile(join(project, "Bible/Tracking/Connaissances.md"), memory);
+      await writeFile(join(project, "Tracking/Connaissances.md"), memory);
       const sources = (await readEditorialContext(project, DEFAULT_PROJECT_FOLDERS, { [path]: current }, path)).flatMap(page => JSON.parse(page).sources);
       assert.deepEqual(sources.filter(source => source.path === path), [{ path, content: current, role: "current-manuscript" }]);
       const active = sources.find(source => source.path.endsWith("Connaissances.md"));
       assert.ok(active.content.includes("Clarifier qui parle."));
       assert.equal(active.content.includes("tableau de classe"), false);
-      assert.equal(await readFile(join(project, "Bible/Tracking/Connaissances.md"), "utf8"), memory);
+      assert.equal(await readFile(join(project, "Tracking/Connaissances.md"), "utf8"), memory);
       await writeFile(join(project, path), current + "(((Qui parle ?)))\n");
       const updated = (await readEditorialContext(project, DEFAULT_PROJECT_FOLDERS, { [path]: current }, path)).flatMap(page => JSON.parse(page).sources);
       assert.equal(updated.filter(source => source.path === path).length, 1);
@@ -396,7 +420,7 @@ try {
   await check("Contexte éditorial : exemples acceptés distincts des brouillons et derniers avis par échange", async () => {
     const project = join(directory, "editorial-preferences");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const first = "Manuscript/Chapters/001.md", second = "Manuscript/Chapters/002.md";
+    const first = "Manuscript/001.md", second = "Manuscript/002.md";
     await mkdir(project);
     try {
       await prepareProject(project, folders);
@@ -435,7 +459,7 @@ try {
     const project = join(directory, "editorial-sources");
     const elsewhere = join(directory, "other-editorial-project");
     const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers" };
-    const path = "Roman/Chapters/001.md";
+    const path = "Roman/001.md";
     const baseline = "Une voix sans intention.\n";
     const human = "Une voix. (((Que dit-elle ? Garde la voix du narrateur au chapitre suivant.)))\n";
     const knowledge = "# Connaissances\n\n" + "Exemple de l’auteur 🖋.\n".repeat(3000) + "Dernière remarque à conserver.\n";
@@ -445,9 +469,9 @@ try {
       await prepareCorrections(project, folders);
       await writeFile(join(project, path), human);
       await writeFile(join(project, "Univers/Style/Narration.md"), "Première personne, présent, rythme nouchi.\n");
-      await writeFile(join(project, "Univers/Tracking/Connaissances.md"), knowledge);
+      await writeFile(join(project, "Tracking/Connaissances.md"), knowledge);
       const examples = "# Exemples\n\nStatut : correction humaine, pas encore acceptée.\nAvant : elle répond.\nAprès : Nadia répond.\n";
-      await writeFile(join(project, "Univers/Tracking/Exemples.md"), examples);
+      await writeFile(join(project, "Tracking/Exemples.md"), examples);
       const approved = "Enfin, voilà ce que je voulais.";
       const accepted = await recordAcceptance(project, folders, path, { before: baseline, after: human }, approved);
       const feedback = await recordReaction(project, folders, "session", { turnId: "tour", prompts: ["Écris 002."],
@@ -460,12 +484,12 @@ try {
         for (const source of page.sources) files.set(source.path, (files.get(source.path) ?? "") + source.content);
       }
       assert.ok(pages.length > 1);
-      assert.equal(files.get("Univers/Tracking/Exemples.md"), examples);
+      assert.equal(files.get("Tracking/Exemples.md"), examples);
       assert.equal(pages.flatMap(page => page.sources).find(source => source.path.endsWith("Exemples.md")).role, "correction-examples");
       assert.equal(files.get(path), human);
       assert.ok(files.get(`${path} — comparaison Codex/auteur`).includes(baseline.trim()));
       assert.ok(files.get(`${path} — comparaison Codex/auteur`).includes("Que dit-elle ?"));
-      assert.equal(files.get("Univers/Tracking/Connaissances.md"), await readFile(join(project, "Univers/Tracking/Connaissances.md"), "utf8"));
+      assert.equal(files.get("Tracking/Connaissances.md"), await readFile(join(project, "Tracking/Connaissances.md"), "utf8"));
       assert.ok(files.get(accepted).includes(approved));
       assert.ok(files.get(feedback.report).includes("La transition ne signifie rien."));
       assert.ok(!files.has("../externe.md"));
@@ -480,7 +504,7 @@ try {
 
   await check("Relance après réouverture : erreur retrouvée, demande et zones protégées récupérées", async () => {
     const project = join(directory, "restored-retry");
-    const path = "Manuscript/Chapters/Été.md";
+    const path = "Manuscript/Été.md";
     const baseline = "Début intact.\n\nUne voix.\n\nFin intacte.\n";
     const human = baseline.replace("Une voix.", "Une voix. (((Sa réplique.)))");
     const versions = { [path]: baseline };
@@ -514,7 +538,7 @@ try {
       session.restoreFailure(project, session.threadId, [{ ...failed, id: "échec suivant" }]);
       await writeFile(join(project, path), baseline);
       await assert.rejects(session.prepareRetry(project, session.threadId), /Le chapitre ou les consignes ont changé depuis l’échec\. Utilisez Réviser/);
-      session.restoreFailure(project, session.threadId, [{ ...failed, id: "ancien format", messages: [{ id: "prompt", role: "user", text: 'Révise le chapitre "Manuscript/Chapters/Été.md" avec un ancien format.', paths: [] }] }]);
+      session.restoreFailure(project, session.threadId, [{ ...failed, id: "ancien format", messages: [{ id: "prompt", role: "user", text: 'Révise le chapitre "Manuscript/Été.md" avec un ancien format.', paths: [] }] }]);
       await assert.rejects(session.prepareRetry(project, session.threadId), /ancienne demande de révision.*Réviser/);
       const selectionSource=await readFile(join(project,path),"utf8");
       const start=selectionSource.indexOf("Une voix"),end=start+"Une voix".length;
@@ -614,19 +638,19 @@ try {
     const baseline = "# Chapitre\n\nUn homme parle.\n\nIntact,  vraiment.\n\nUne notification.\n\nFin intacte.\n";
     const human = baseline.replace("Un homme parle.", "Un homme parle. (((Sa réplique exacte.)))")
       .replace("Une notification.", "Une notification. (((Le commentaire précis.)))");
-    const plan = planRevision("Manuscript/Chapters/1.md", human, baseline);
+    const plan = planRevision("Manuscript/1.md", human, baseline);
     assert.equal(plan.ranges.length, 2);
-    assert.equal(revisionFor([plan], "/projet", "MANUSCRIPT/Chapters/1.md"), plan);
-    assert.equal(revisionFor([plan], "/projet", "Manuscript/Chapters/autre.md"), undefined);
-    assert.equal(revisionFor([plan], "/projet", "../Manuscript/Chapters/1.md"), undefined);
-    assert.equal(revisionPath(plan, "/projet", "Univers", "MANUSCRIPT/Chapters/1.md"), plan.path);
-    assert.equal(revisionPath(plan, "/projet", "Univers", "/projet/Univers/Tracking/Connaissances.md"), "Univers/Tracking/Connaissances.md");
-    for (const path of ["Manuscript/Chapters/2.md", "Univers/Style/Narration.md", "Univers/Tracking/Conversation.md", "../Manuscript/Chapters/1.md", "AGENTS.md"])
-      assert.throws(() => revisionPath(plan, "/projet", "Univers", path), /seulement le chapitre ciblé/);
-    const references = ["Univers/Characters/YQ.md", "Univers/Style/Lettres.md", "Manuscript/Chapters/2.md", "Univers/Tracking/Conversation.md"];
+    assert.equal(revisionFor([plan], "/projet", "MANUSCRIPT/1.md"), plan);
+    assert.equal(revisionFor([plan], "/projet", "Manuscript/autre.md"), undefined);
+    assert.equal(revisionFor([plan], "/projet", "../Manuscript/1.md"), undefined);
+    assert.equal(revisionPath(plan, "/projet", "Univers", "MANUSCRIPT/1.md"), plan.path);
+    assert.equal(revisionPath(plan, "/projet", "Univers", "/projet/Tracking/Connaissances.md"), "Tracking/Connaissances.md");
+    for (const path of ["Manuscript/2.md", "Univers/Style/Narration.md", "Tracking/Conversation.md", "../Manuscript/1.md", "AGENTS.md"])
+      assert.throws(() => revisionPath(plan, "/projet", "Univers", path), /seulement le document ciblé/);
+    const references = ["Univers/Characters/YQ.md", "Univers/Style/Lettres.md", "Manuscript/2.md", "Tracking/Conversation.md"];
     for (const path of references.slice(0,2)) assert.equal(revisionPath(plan,"/projet","Univers",path,references),path);
     for (const path of [...references.slice(2),"Univers/Characters/Autre.md","Univers/Style/../../AGENTS.md"])
-      assert.throws(()=>revisionPath(plan,"/projet","Univers",path,references),/seulement le chapitre ciblé/);
+      assert.throws(()=>revisionPath(plan,"/projet","Univers",path,references),/seulement le document ciblé/);
     const proposed = human.replace("Un homme parle. (((Sa réplique exacte.)))", "Un homme crie : « Djo, viens. »")
       .replace("Une notification. (((Le commentaire précis.)))", "Pseudo77 écrit : « Arrête. »");
     assert.throws(() => checkRevision(plan, human, proposed), /consignez d’abord l’intention/);
@@ -656,7 +680,7 @@ try {
   });
 
   await check("Recommencer : chapitre annoté entier autorisé, demandes locales et autres chapitres protégés", async () => {
-    const path = "Manuscript/Chapters/002.md";
+    const path = "Manuscript/002.md";
     const baseline = "# 002\n\nOuverture.\n\nSuite intacte.\n";
     const human = baseline.replace("Ouverture.", "Ouverture. (((Qui parle ?)))");
     for (const request of ["Recommence, c’était null", "Recommence.", "Recommence entièrement le chapitre 002.", "Reprends tout le chapitre 2.", "Réécris entièrement ce chapitre."]) {
@@ -668,7 +692,7 @@ try {
       plan.intentRecorded = true;
       assert.doesNotThrow(() => checkRevision(plan, human, "# 002\n\nTout repris.\n"));
       assert.throws(() => checkRevision(plan, human + "Correction récente.", "Repris."), /a changé/);
-      assert.throws(() => revisionPath(plan, "/projet", "Bible", "Manuscript/Chapters/001.md"), /seulement le chapitre ciblé/);
+      assert.throws(() => revisionPath(plan, "/projet", "Bible", "Manuscript/001.md"), /seulement le document ciblé/);
     }
     for (const request of ["Ne recommence pas.", "Recommence le premier paragraphe.", "Recommence seulement les dialogues.", "Recommence, mais garde la fin.", "Recommence, ne touche pas aux paragraphes intacts.", "Recommence entièrement le chapitre 003.", "Recommence ce chapitre. Puis reprends le chapitre 3.", "Il a dit : Recommence.", "« Recommence »", "Reprends."]) {
       assert.equal(fullRewriteRequested(request, path), false, request);
@@ -700,7 +724,7 @@ try {
         resumed.intentRecorded = true;
         assert.doesNotThrow(() => checkRevision(resumed, human, "# 002\n\nTout repris.\n"));
         assert.throws(() => checkRevision(resumed, human + "Retouche.", "Repris."), /a changé/);
-        assert.throws(() => revisionPath(resumed, project, "Bible", "Manuscript/Chapters/001.md"), /seulement le chapitre ciblé/);
+        assert.throws(() => revisionPath(resumed, project, "Bible", "Manuscript/001.md"), /seulement le document ciblé/);
       }
       const whole = planRevision(path, human, baseline, "Recommence chapitre 2 de 0", true);
       whole.intentRecorded = true;
@@ -716,7 +740,7 @@ try {
   await check("Réviser par le chat : texte intact, consigne seule et archivage de la reprise", async () => {
     const project = join(directory, "revision-chat");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const path = "Manuscript/Chapters/1.md";
+    const path = "Manuscript/1.md";
     const text = "# Chapitre\n\nUn homme parle.\n\nUne notification.\n";
     const details = "Ça ne va pas du tout. Recommence avec des répliques concrètes et les sonorités nouchi.";
     const proposed = "# Nouveau chapitre\n\n« Djo, viens ici ! »\n\nPseudo77 écrit : « Y’a pas drap. »\n";
@@ -733,7 +757,7 @@ try {
         assert.doesNotThrow(() => checkRevision(plan, text, proposed));
         assert.throws(() => checkRevision(plan, `${text}Retouche.`, proposed), /a changé depuis/);
         assert.throws(() => checkRevision(plan, text, `==${proposed}==`), /sans balise/);
-        assert.throws(() => revisionPath(plan, project, folders.bibleFolder, "Manuscript/Chapters/2.md"), /seulement le chapitre ciblé/);
+        assert.throws(() => revisionPath(plan, project, folders.bibleFolder, "Manuscript/2.md"), /seulement le document ciblé/);
         const prompt = await revisionPrompt(project, folders, path, baseline === undefined ? {} : { [path]: baseline }, details);
         assert.equal(await revisionPrompt(project, folders, path, baseline === undefined ? {} : { [path]: baseline }, details, plan), prompt);
         assert.ok(prompt.includes("Le chapitre entier est autorisé à la révision"));
@@ -786,7 +810,7 @@ try {
     try {
       const folders = DEFAULT_PROJECT_FOLDERS;
       await prepareProject(project, folders);
-      const path = "Manuscript/Chapters/1.md";
+      const path = "Manuscript/1.md";
       const baseline = "Début intact.\n\nUn homme parle.\n\nFin intacte.\n";
       const human = baseline.replace("Un homme parle.", "Un homme parle. (((Quoi ?)))");
       await writeFile(join(project, path), human);
@@ -822,7 +846,7 @@ try {
   await check("Connaissances : création et enrichissement archivés, autres fichiers du suivi protégés", async () => {
     const project = join(directory, "knowledge");
     const folders = { ...DEFAULT_PROJECT_FOLDERS, bibleFolder: "Univers", archiveFolder: "Versions" };
-    const path = "Univers/Tracking/Connaissances.md";
+    const path = "Tracking/Connaissances.md";
     await mkdir(project);
     try {
       await prepareProject(project, folders);
@@ -843,13 +867,13 @@ try {
       assert.equal(await readFile(join(project, copies[0]), "utf8"), personal);
       assert.equal(await readFile(join(project, copies[1]), "utf8"), enriched);
       assert.equal(await readFile(join(project, path), "utf8"), enriched);
-      assert.ok(copies.every(copy => copy.startsWith("Versions/Univers/Tracking/Connaissances.")));
-      for (const blocked of ["Univers/suivi.md", "UNIVERS/SUIVI.MD", "Univers/Tracking/Conversation.md", "Univers/Tracking/2026-10-26.md", "Univers/Tracking/Connaissances.md/autre.md"])
+      assert.ok(copies.every(copy => copy.startsWith("Versions/Tracking/Connaissances.")));
+      for (const blocked of ["Tracking/suivi.md", "TRACKING/SUIVI.MD", "Tracking/Conversation.md", "Tracking/2026-10-26.md", "Tracking/Connaissances.md/autre.md"])
         await assert.rejects(archiveWithCorrections(project, folders, [{ path: blocked, kind: { type: "add" } }], {}, () => {}), /relevés/);
       const denied = (...args) => archiveWithCorrections(args[0], folders, args[1], {}, () => { throw new Error("Éditeur modifié"); });
       await assert.rejects(writeProjectFile(project, path, "À refuser", await readProjectFile(project, path), folders.archiveFolder, denied, undefined, true), /Éditeur modifié/);
       assert.equal(await readFile(join(project, path), "utf8"), enriched);
-      const instructions = renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
+      const instructions = renderTaskPrompts(taskPrompts, folders, "Manuscript/1.md", "sources.md", "preparation.md")["actualiser-suivi"];
       for (const text of [path, "Consignes explicites", "Hypothèses", "Contradictions", "source", "portée", "demande actuelle"])
         assert.ok(instructions.includes(text), text);
     } finally { await rm(project, { recursive: true }); }
@@ -858,7 +882,7 @@ try {
   await check("Réviser : chapitre ciblé, diff humain, consignes et précisions facultatives", async () => {
     const project = join(directory, "revision");
     const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers", archiveFolder: "Versions" };
-    const path = "Roman/Chapters/Été.md";
+    const path = "Roman/Été.md";
     const codex = "# Été\nContexte avant.\nUne longue description.\nUn passage coupé.\nContexte après.\n";
     const human = "# Été\nContexte avant.\nMa réécriture. ~~À retirer.~~ (((Resserre la tension.\nGarde mon point de vue.)))\nContexte après.\n";
     await mkdir(project);
@@ -870,7 +894,7 @@ try {
       const prompt = await revisionPrompt(project, folders, path, versions, "");
       for (const text of [JSON.stringify(path), "Une longue description.", "Un passage coupé.", "Ma réécriture.",
         "Resserre la tension.", "Garde mon point de vue.", "À retirer.", "chapitre complet", "passages voisins", "plan",
-        "Univers/Style/Narration.md", "Univers/suivi.md", "Univers/Tracking/Connaissances.md", "Univers/Tracking/", "ecrire_fichier", "ne réintroduis pas les passages supprimés"])
+        "Univers/Style/Narration.md", "Tracking/suivi.md", "Tracking/Connaissances.md", "Tracking/", "ecrire_fichier", "ne réintroduis pas les passages supprimés"])
         assert.ok(prompt.includes(text), text);
       assert.equal(prompt.includes("## Précisions supplémentaires"), false);
       assert.ok(prompt.includes('"Univers/Characters"'));
@@ -890,7 +914,7 @@ try {
   await check("Réviser : référence absente ou texte inchangé sans faux diff", async () => {
     const project = join(directory, "revision-reference");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const path = "Manuscript/Chapters/1.md";
+    const path = "Manuscript/1.md";
     await mkdir(project);
     try {
       await prepareProject(project, folders);
@@ -906,14 +930,14 @@ try {
     } finally { await rm(project, { recursive: true }); }
   });
 
-  await check("Réviser : refus des autres notes, chapitres absents et liens symboliques", async () => {
+  await check("Réviser : refus des chemins invalides, archives, journaux et liens symboliques", async () => {
     const project = join(directory, "revision-invalid");
     await mkdir(project);
     try {
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
-      for (const path of ["../autre.md", "Bible/Style/Narration.md", "Model/Chapters/1.md", "Manuscript/Chapters", "Manuscript/Chapters/../../Bible/note.md"])
-        await assert.rejects(revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, {}, ""), /Ouvrez un chapitre/);
-      const path = "Manuscript/Chapters/absent.md";
+      for (const path of ["../autre.md", "Archives/Style/Narration.md", "Tracking/Conversation.md", "Manuscript", "Manuscript/../../Bible/note.md"])
+        await assert.rejects(revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, {}, ""), /Ouvrez une note/);
+      const path = "Manuscript/absent.md";
       await assert.rejects(revisionPrompt(project, DEFAULT_PROJECT_FOLDERS, path, {}, ""), /Chapitre introuvable/);
       await writeFile(join(project, "note.md"), "Conserver");
       await symlink(join(project, "note.md"), join(project, path));
@@ -924,8 +948,8 @@ try {
 
   await check("Chat lisible : demande originale, réponse finale et raccords demandés", async () => {
     const project = join(directory, "chat-readable");
-    await mkdir(join(project, "Manuscript/Chapters"), { recursive: true });
-    const path = "Manuscript/Chapters/002.md";
+    await mkdir(join(project, "Manuscript"), { recursive: true });
+    const path = "Manuscript/002.md";
     const source = "Je voudrais lui dire de ne rien envoyer.\n\nPassage (((à revoir))).\n\nLouise efface, exactement ce que je voulais.";
     const details = "Jonas veut la faire souffrir : dans sa tête il lui ordonne de publier.";
     try {
@@ -983,7 +1007,7 @@ try {
     try {
       await prepareProject(project, folders);
       await saveConversation(project, folders, "session-a", []);
-      const path = join(project, "Univers", "Tracking", "Conversation.md");
+      const path = join(project, "Tracking", "Conversation.md");
       await assert.rejects(access(path), { code: "ENOENT" });
       await saveConversation(project, folders, "session-a", [first]);
       const original = await readFile(path, "utf8");
@@ -1003,10 +1027,10 @@ try {
       await saveConversation(project, folders, "session-a", [first]);
       const refreshed = await readFile(path, "utf8");
       assert.ok(refreshed.lastIndexOf("Mon prompt") > refreshed.lastIndexOf("Une autre session"));
-      const archives = await readdir(join(project, "Versions", "Univers", "Tracking"));
-      const copies = await Promise.all(archives.map(name => readFile(join(project, "Versions", "Univers", "Tracking", name), "utf8")));
+      const archives = await readdir(join(project, "Versions", "Tracking"));
+      const copies = await Promise.all(archives.map(name => readFile(join(project, "Versions", "Tracking", name), "utf8")));
       assert.ok(copies.includes(personal + original));
-      await assert.rejects(archiveWithCorrections(project, folders, [{ path: "Univers/Tracking/Conversation.md", kind: { type: "update" } }], {}, () => {}), /relevés/);
+      await assert.rejects(archiveWithCorrections(project, folders, [{ path: "Tracking/Conversation.md", kind: { type: "update" } }], {}, () => {}), /relevés/);
       const damaged = original.replace(/<!-- orelius:conversation:[a-f0-9]+:end -->/, "");
       await writeFile(path, damaged);
       await assert.rejects(saveConversation(project, folders, "session-a", [first]), /marqueurs/);
@@ -1068,15 +1092,15 @@ try {
     try {
       await prepareProject(project, legacy);
       await prepareProject(project, legacy);
-      for (const child of ["Chapters", "Characters", "Plan", "Summaries"]) {
-        for (const prefix of ["Manuscript"]) {
+      for (const child of ["Characters", "Plan", "Summaries"]) {
+        for (const prefix of ["Bible"]) {
           assert.equal((await stat(join(project, prefix, child))).isDirectory(), true);
         }
       }
       assert.equal(await readFile(source, "utf8"), "Version antérieure à adapter.");
       await prepareProject(project, customized);
       assert.deepEqual(await readdir(join(project, "Sources")), []);
-      assert.deepEqual(await readdir(join(project, "Archives", "Sources")), []);
+      await assert.rejects(access(join(project, "Archives", "Sources")), {code:"ENOENT"});
       assert.equal(await readFile(source, "utf8"), "Version antérieure à adapter.");
       const instructions = renderAgent(agentTemplate, customized);
       assert.ok(instructions.includes("`Sources/`"));
@@ -1162,12 +1186,12 @@ try {
     const folder = associatedFolder(settings, "Roman A/Partie/note.md");
     assert.equal(applySettings(settings, { folder }).threadId, "session-partie");
     settings = applySettings(settings, { folder: "" });
-    assert.equal(associatedFolder(settings, "Autre/note.md"), "");
-    assert.equal(associatedFolder(settings, ""), "");
+    assert.equal(associatedFolder(settings, "Autre/note.md"), undefined);
+    assert.equal(associatedFolder(settings, ""), undefined);
     assert.equal(associatedFolder(settings, "Roman A/note.md"), "Roman A");
     settings = applySettings(settings, { threadId: "session-racine", threadCwd: "/vault" });
     settings = applySettings(settings, { folder: "Roman B" });
-    assert.equal(associatedFolder(settings, "Autre/note.md"), "");
+    assert.equal(associatedFolder(settings, "Autre/note.md"), undefined);
   });
 
   await check("Navigation : dernier chemin prioritaire, ouverture périmée annulée et retour dans la même note", async () => {
@@ -1233,7 +1257,7 @@ try {
     assert.equal(visibleFolder(settings, "Roman A/Annexe/note.md", false), "Roman A/Annexe");
     assert.equal(settings.folder, "Roman A");
     assert.equal(settings.threadId, "session-A");
-    assert.equal(visibleFolder(loadSettings(undefined), "Note.md", true), "");
+    assert.equal(visibleFolder(loadSettings(undefined), "Note.md", true), undefined);
     assert.equal(visibleFolder(loadSettings(undefined), null, false), undefined);
   });
 
@@ -1271,33 +1295,30 @@ try {
     assert.equal(applySettings(loadSettings(undefined), { archiveFolder: "_Archives" }).archiveFolder, "_Archives");
   });
 
-  await check("Structure Manuscript, Model et Bible, miroir dans Archives et préparation sans écrasement", async () => {
+  await check("Structure Manuscript, Model, Bible et Tracking, archives créées à la demande", async () => {
     const project = join(directory, "layout");
-    await mkdir(join(project, "Manuscript", "Chapters"), { recursive: true });
+    await mkdir(join(project, "Manuscript"), { recursive: true });
     await mkdir(join(project, "_Archives"));
-    await writeFile(join(project, "Manuscript", "Chapters", "existant.md"), "Manuscrit existant");
+    await writeFile(join(project, "Manuscript", "existant.md"), "Manuscrit existant");
     await writeFile(join(project, "_Archives", "ancien.md"), "Ancienne archive");
     try {
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
-      const expected = ["Archives", "Manuscript", "Model", "Bible", "Manuscript/Context", "Archives/Manuscript/Context"];
-      for (const child of ["Chapters", "Characters", "Plan", "Summaries"]) {
-        expected.push(`Manuscript/${child}`, `Archives/Manuscript/${child}`);
-
-      }
-      for (const child of ["Seeds", "Synopsis", "Scenes", "Arcs", "Plots", "Variants", "Checks"]) expected.push(`Manuscript/${child}`, `Archives/Manuscript/${child}`);
-      expected.push("Bible/Style", "Bible/Characters", "Archives/Manuscript", "Archives/Model", "Archives/Bible", "Archives/Bible/Style", "Archives/Bible/Characters");
+      const content = ["Manuscript", "Model", "Bible", "Tracking"];
+      for (const child of ["Characters", "Plan", "Summaries", "Style", "World", "Seeds", "Synopsis", "Scenes", "Arcs", "Plots", "Variants", "Checks", "Brainstorm"]) content.push(`Bible/${child}`);
+      const expected = ["Archives", ...content];
       assert.deepEqual(projectPaths(DEFAULT_PROJECT_FOLDERS).sort(), expected.sort());
       assert.deepEqual(await readdir(join(project, "Model")), []);
       for (const path of expected) assert.equal((await stat(join(project, path))).isDirectory(), true, path);
-      assert.equal(await readFile(join(project, "Manuscript", "Chapters", "existant.md"), "utf8"), "Manuscrit existant");
+      assert.equal(await readFile(join(project, "Manuscript", "existant.md"), "utf8"), "Manuscrit existant");
       assert.equal(await readFile(join(project, "_Archives", "ancien.md"), "utf8"), "Ancienne archive");
       const custom = { archiveFolder: "Versions", manuscriptFolder: "Manuscrit", modelFolder: "Sources", bibleFolder: "Univers" };
       await prepareProject(project, custom);
-      for (const path of ["Manuscrit/Chapters", "Manuscrit/Characters", "Manuscrit/Plan", "Manuscrit/Summaries",
-        "Univers", "Univers/Style", "Univers/Characters", "Versions/Manuscrit/Chapters", "Versions/Univers", "Versions/Univers/Style", "Versions/Univers/Characters", "Archives/Manuscript/Chapters"]) {
+      for (const path of ["Manuscrit", "Univers/Plan", "Univers/Summaries",
+        "Univers", "Univers/Style", "Univers/Characters", "Versions"]) {
         assert.equal((await stat(join(project, path))).isDirectory(), true, path);
       }
+      assert.deepEqual(await readdir(join(project, "Versions")), []);
       for (const name of ["consignes.md", "exemple.md"]) {
         await writeFile(join(project, "Univers", "Style", name), `Texte personnel : ${name}`);
       }
@@ -1320,7 +1341,7 @@ try {
       await prepareBible(project, folders);
       await assert.rejects(access(path), { code: "ENOENT" });
       const agent = renderAgent(agentTemplate, loadSettings(folders));
-      assert.ok(renderTaskPrompts(taskPrompts, folders, "Manuscript/Chapters/1.md", "sources.md", "preparation.md")["preparer-scene"].includes(EDITORIAL_PRIORITIES));
+      assert.ok(renderTaskPrompts(taskPrompts, folders, "Manuscript/1.md", "sources.md", "preparation.md")["preparer-scene"].includes(EDITORIAL_PRIORITIES));
       assert.equal(agent.includes("{editorialPriorities}"), false);
       await assert.rejects(access(join(project, "Univers", "Narration.md")), { code: "ENOENT" });
       const personal = "\ufeff# Narration\r\n\r\nNarration à la première personne, au présent.\r\n";
@@ -1331,7 +1352,7 @@ try {
       await prepareBible(project, folders);
       assert.equal(await readFile(path, "utf8"), personal);
       assert.equal(await readFile(join(project, "Univers", "Characters", "Lea.md"), "utf8"), character);
-      assert.deepEqual((await readdir(join(project, "Versions", "Univers"))).sort(), ["Characters", "Style"]);
+      assert.deepEqual(await readdir(join(project, "Versions")), []);
       const instructions = renderAgent(agentTemplate, loadSettings(folders));
       for (const text of ["`Univers/Style/Narration.md`", "`Univers/Characters/`", "mode narratif", "fiches des personnages"]) assert.ok(instructions.includes(text), text);
       assert.equal(instructions.includes("`Univers/Narration.md`"), false);
@@ -1384,12 +1405,12 @@ try {
     await mkdir(project);
     try {
       await prepareProject(project, folders);
-      await writeFile(join(project, "Roman", "Chapters", "un.md"), "Chapitre original");
+      await writeFile(join(project, "Roman", "un.md"), "Chapitre original");
       await writeFile(join(project, "Univers", "monde.md"), "Bible originale");
-      const changes = ["Roman/Chapters/un.md", "Univers/monde.md"].map(path => ({ path, kind: { type: "update" } }));
+      const changes = ["Roman/un.md", "Univers/monde.md"].map(path => ({ path, kind: { type: "update" } }));
       const copies = await archiveChanges(project, changes, undefined, folders.archiveFolder);
       assert.equal(copies.length, 2);
-      assert.match(copies[0], /^Versions é\/Roman\/Chapters\/un\..+\.md$/);
+      assert.match(copies[0], /^Versions é\/Roman\/un\..+\.md$/);
       assert.match(copies[1], /^Versions é\/Univers\/monde\..+\.md$/);
       assert.equal(await readFile(join(project, copies[0]), "utf8"), "Chapitre original");
       assert.equal(await readFile(join(project, copies[1]), "utf8"), "Bible originale");
@@ -1521,7 +1542,7 @@ try {
   });
 
   await check("Corrections : coupes, réécritures, barrés et commentaires multilignes conservés", async () => {
-    const report = correctionReport("Manuscript/Chapters/Été.md", "Titre\nLa longue description.\nÀ supprimer.\nFin",
+    const report = correctionReport("Manuscript/Été.md", "Titre\nLa longue description.\nÀ supprimer.\nFin",
       "Titre\nUne phrase. ~~À supprimer.~~ (((Plus court.\nGarder la voix.)))\nFin");
     for (const text of ["La longue description.", "À supprimer.", "Une phrase.", "Plus court.", "Garder la voix.", "## Passages barrés"]) assert.ok(report.includes(text), text);
     assert.ok(report.split("## Commentaires destinés à Codex")[1].split("## Passages barrés")[0].includes("    Plus court.\n    Garder la voix."));
@@ -1540,7 +1561,7 @@ try {
 
   await check("Tracking à la demande, références persistantes, relevés horodatés et archivage humain avant patch", async () => {
     const project = join(directory, "corrections");
-    const path = "Manuscript/Chapters/Été.md";
+    const path = "Manuscript/Été.md";
     const settings = loadSettings(undefined);
     await mkdir(project);
     try {
@@ -1553,25 +1574,25 @@ try {
       const versions = restored.codexVersions[project];
       assert.equal(versions[path], "Titre\nUn long détour.\nUne fin.");
       await refreshCorrections(project, settings, versions);
-      assert.deepEqual(await readdir(join(project, "Bible", "Tracking")), []);
+      assert.deepEqual(await correctionReportNames(project), []);
       const human = "Titre\nUne phrase brève.\n~~Une fin.~~ (((Éviter les détours.)))";
       await writeFile(join(project, path), human);
-      assert.deepEqual(await readdir(join(project, "Bible", "Tracking")), []);
+      assert.deepEqual(await correctionReportNames(project), []);
       await refreshCorrections(project, settings, versions);
-      const [reportName] = await readdir(join(project, "Bible", "Tracking"));
+      const [reportName] = await correctionReportNames(project);
       assert.match(reportName, /^\d{4}-\d{2}-\d{2}T.+-[a-f0-9-]{36}\.md$/);
-      const report = await readFile(join(project, "Bible", "Tracking", reportName), "utf8");
+      const report = await readFile(join(project, "Tracking", reportName), "utf8");
       assert.ok(report.includes("Un long détour."));
       assert.ok(report.includes("Une phrase brève."));
       assert.ok(report.includes("Éviter les détours."));
       assert.equal(await readFile(join(project, path), "utf8"), human);
-      assert.deepEqual(await readdir(join(project, "Archives", "Manuscript", "Chapters")), []);
-      const index = await readFile(join(project, "Bible", "suivi.md"), "utf8");
-      const indexTime = (await stat(join(project, "Bible", "suivi.md"))).mtimeMs;
+      await assert.rejects(access(join(project, "Archives", "Manuscript")), { code: "ENOENT" });
+      const index = await readFile(join(project, "Tracking", "suivi.md"), "utf8");
+      const indexTime = (await stat(join(project, "Tracking", "suivi.md"))).mtimeMs;
       await refreshCorrections(project, settings, versions);
-      assert.equal(await readFile(join(project, "Bible", "suivi.md"), "utf8"), index);
-      assert.equal((await stat(join(project, "Bible", "suivi.md"))).mtimeMs, indexTime);
-      assert.deepEqual(await readdir(join(project, "Bible", "Tracking")), [reportName]);
+      assert.equal(await readFile(join(project, "Tracking", "suivi.md"), "utf8"), index);
+      assert.equal((await stat(join(project, "Tracking", "suivi.md"))).mtimeMs, indexTime);
+      assert.deepEqual(await correctionReportNames(project), [reportName]);
       const archives = await archiveWithCorrections(project, settings, changes, versions, () => {});
       assert.equal(archives.length, 1);
       assert.ok(archives[0].endsWith("-h.md"));
@@ -1582,21 +1603,21 @@ try {
       assert.equal(codexArchive[0].endsWith("-h.md"), false);
       await writeFile(join(project, path), "Une autre correction. (((Continuer ainsi.)))");
       await refreshCorrections(project, settings, next);
-      assert.equal((await readdir(join(project, "Bible", "Tracking"))).length, 2);
-      assert.equal(await readFile(join(project, "Bible", "Tracking", reportName), "utf8"), report);
+      assert.equal((await correctionReportNames(project)).length, 2);
+      assert.equal(await readFile(join(project, "Tracking", reportName), "utf8"), report);
       await writeFile(join(project, path), "Correction intermédiaire.");
       await refreshCorrections(project, settings, next);
       await writeFile(join(project, path), "Une autre correction. (((Continuer ainsi.)))");
       await refreshCorrections(project, settings, next);
-      assert.equal((await readdir(join(project, "Bible", "Tracking"))).length, 4);
+      assert.equal((await correctionReportNames(project)).length, 4);
       await writeFile(join(project, path), next[path]);
       await refreshCorrections(project, settings, next);
-      const reports = await readdir(join(project, "Bible", "Tracking"));
+      const reports = await correctionReportNames(project);
       assert.equal(reports.length, 5);
-      const contents = await Promise.all(reports.map(name => readFile(join(project, "Bible", "Tracking", name), "utf8")));
+      const contents = await Promise.all(reports.map(name => readFile(join(project, "Tracking", name), "utf8")));
       assert.equal(contents.filter(text => text.includes("Retour à la version Codex")).length, 1);
       await refreshCorrections(project, settings, next);
-      assert.equal((await readdir(join(project, "Bible", "Tracking"))).length, 5);
+      assert.equal((await correctionReportNames(project)).length, 5);
       assert.throws(() => loadSettings({ codexVersions: [] }), /références/);
       assert.throws(() => loadSettings({ codexVersions: { projet: { chapitre: 42 } } }), /références/);
     } finally { await rm(project, { recursive: true }); }
@@ -1605,36 +1626,36 @@ try {
   await check("Tracking : noms personnalisés, notes personnelles, projets isolés et absence de référence", async () => {
     const project = join(directory, "corrections-custom");
     const folders = { manuscriptFolder: "Texte", modelFolder: "Sources", bibleFolder: "Univers", archiveFolder: "Versions" };
-    const path = "Texte/Chapters/1.md";
+    const path = "Texte/1.md";
     await mkdir(project);
     try {
       await prepareProject(project, folders);
-      await writeFile(join(project, "Univers", "suivi.md"), "# Notes personnelles\nÀ conserver.");
+      await writeFile(join(project, "Tracking", "suivi.md"), "# Notes personnelles\nÀ conserver.");
       await prepareCorrections(project, folders);
       await writeFile(join(project, path), "Texte corrigé (((Plus direct.)))");
       await refreshCorrections(project, folders, {});
-      assert.deepEqual(await readdir(join(project, "Univers", "Tracking")), []);
-      await refreshCorrections(project, folders, { "Ancien manuscrit/Chapters/1.md": "Ancienne référence" });
-      assert.deepEqual(await readdir(join(project, "Univers", "Tracking")), []);
+      assert.deepEqual(await correctionReportNames(project), []);
+      await refreshCorrections(project, folders, { "Ancien manuscrit/1.md": "Ancienne référence" });
+      assert.deepEqual(await correctionReportNames(project), []);
       await refreshCorrections(project, folders, { [path]: "Texte Codex" });
-      assert.ok((await readFile(join(project, "Univers", "suivi.md"), "utf8")).startsWith("# Notes personnelles\nÀ conserver."));
-      assert.equal((await readdir(join(project, "Univers", "Tracking"))).length, 1);
+      assert.ok((await readFile(join(project, "Tracking", "suivi.md"), "utf8")).startsWith("# Notes personnelles\nÀ conserver."));
+      assert.equal((await correctionReportNames(project)).length, 1);
       await assert.rejects(access(join(project, "Bible")), { code: "ENOENT" });
       await writeFile(join(project, path), "");
       await refreshCorrections(project, folders, { [path]: "Texte Codex" });
-      assert.equal((await readdir(join(project, "Univers", "Tracking"))).length, 2);
+      assert.equal((await correctionReportNames(project)).length, 2);
       const restored = loadSettings(JSON.parse(JSON.stringify({ codexVersions: { A: { [path]: "A" }, B: { [path]: "B" } } })));
       assert.equal(restored.codexVersions.A[path], "A");
       assert.equal(restored.codexVersions.B[path], "B");
       const instructions = renderAgent(agentTemplate, loadSettings(folders));
-      assert.ok(instructions.includes("Univers/suivi.md"));
-      assert.ok(instructions.includes("Univers/Tracking/"));
+      assert.ok(instructions.includes("Tracking/suivi.md"));
+      assert.ok(instructions.includes("Tracking/"));
     } finally { await rm(project, { recursive: true }); }
   });
 
   await check("Tracking : liens, chemins sortants, index concurrent et échec d’archive préservent les textes", async () => {
     const project = join(directory, "corrections-invalid");
-    const path = "Manuscript/Chapters/1.md";
+    const path = "Manuscript/1.md";
     const folders = DEFAULT_PROJECT_FOLDERS;
     await mkdir(project);
     try {
@@ -1643,18 +1664,18 @@ try {
       await assert.rejects(refreshCorrections(project, folders, { "../externe.md": "Codex" }), /Chemin/);
       await assert.rejects(readProjectFile(project, "../externe.md"), /rester/);
       await assert.rejects(archiveWithCorrections(project, folders,
-        [{ path: "Bible/suivi.md", kind: { type: "update" } }], {}, () => {}), /relevés/);
+        [{ path: "Tracking/suivi.md", kind: { type: "update" } }], {}, () => {}), /relevés/);
       await assert.rejects(archiveWithCorrections(project, folders,
-        [{ path: "bible/SUIVI.MD", kind: { type: "update" } }], {}, () => {}), /relevés/);
-      const indexPath = "Bible/suivi.md";
+        [{ path: "tracking/SUIVI.MD", kind: { type: "update" } }], {}, () => {}), /relevés/);
+      const indexPath = "Tracking/suivi.md";
       const previous = await readProjectFile(project, indexPath);
       await writeFile(join(project, indexPath), "Note de l’auteur arrivée entre-temps.");
       await assert.rejects(writeProjectFile(project, indexPath, "À refuser", previous, "Archives"), /a changé/);
       assert.equal(await readFile(join(project, indexPath), "utf8"), "Note de l’auteur arrivée entre-temps.");
-      await rm(join(project, "Bible", "Tracking"), { recursive: true });
-      await symlink(join(project, "Archives"), join(project, "Bible", "Tracking"));
+      await rm(join(project, "Tracking"), { recursive: true });
+      await symlink(join(project, "Archives"), join(project, "Tracking"));
       await assert.rejects(refreshCorrections(project, folders, { [path]: "Codex" }), /symboliques/);
-      await rm(join(project, "Bible", "Tracking"));
+      await rm(join(project, "Tracking"));
       await rm(join(project, "Archives"), { recursive: true });
       await writeFile(join(project, "Archives"), "Archive impossible");
       await assert.rejects(archiveWithCorrections(project, folders, [{ path, kind: { type: "update" } }], { [path]: "Codex" }, () => {}));
@@ -1795,7 +1816,7 @@ try {
   await check("Écriture Orelius : archive exacte, version humaine, création, refus et interruption", async () => {
     const project = join(directory, "writer");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const path = "Manuscript/Chapters/texte.md";
+    const path = "Manuscript/texte.md";
     await mkdir(project);
     try {
       await prepareProject(project, folders);
@@ -1806,26 +1827,27 @@ try {
       const archive = (cwd, changes) => archiveWithCorrections(cwd, folders, changes, versions, () => {}, join(project, ".obsidian"));
       const copies = await writeProjectFile(project, path, "Version révisée.\n", original, folders.archiveFolder, archive);
       assert.equal(copies.length, 1);
-      assert.match(copies[0], /^Archives\/Manuscript\/Chapters\/texte\..+-h\.md$/);
+      assert.match(copies[0], /^Archives\/Manuscript\/texte\..+-h\.md$/);
       assert.equal(await readFile(join(project, copies[0]), "utf8"), original.text);
       assert.equal(await readFile(join(project, path), "utf8"), "Version révisée.\n");
       const current = await readProjectFile(project, path);
       assert.deepEqual(await writeProjectFile(project, path, current.text, current, folders.archiveFolder, archive), []);
-      const created = "Manuscript/Chapters/Partie/Été.md";
+      const created = "Manuscript/Partie/Été.md";
       assert.deepEqual(await writeProjectFile(project, created, "Été 🖋\n", null, folders.archiveFolder, archive), []);
       assert.equal(await readFile(join(project, created), "utf8"), "Été 🖋\n");
-      for (const blocked of ["../outside.md", "Archives/no.md", "_Archives/no.md", ".obsidian/no.md", ".git/no.md", "Bible/suivi.md", "Bible/Tracking/Conversation.md"]) {
+      for (const blocked of ["../outside.md", "Archives/no.md", "_Archives/no.md", ".obsidian/no.md", ".git/no.md", "Tracking/suivi.md", "Tracking/Conversation.md"]) {
         await assert.rejects(writeProjectFile(project, blocked, "Interdit", null, folders.archiveFolder, archive));
         await assert.rejects(access(join(project, blocked)), { code: "ENOENT" });
       }
       await symlink(join(project, path), join(project, "lien.md"));
       await assert.rejects(writeProjectFile(project, "lien.md", "Interdit", current, folders.archiveFolder, archive), /symboliques/);
-      await mkdir(join(project, "Manuscript/Chapters/Bloqué"));
-      await writeFile(join(project, "Manuscript/Chapters/Bloqué/a.md"), "À conserver");
-      await writeFile(join(project, "Archives/Manuscript/Chapters/Bloqué"), "Obstacle");
-      await assert.rejects(writeProjectFile(project, "Manuscript/Chapters/Bloqué/a.md", "Interdit",
-        await readProjectFile(project, "Manuscript/Chapters/Bloqué/a.md"), folders.archiveFolder, archive));
-      assert.equal(await readFile(join(project, "Manuscript/Chapters/Bloqué/a.md"), "utf8"), "À conserver");
+      await mkdir(join(project, "Manuscript/Bloqué"));
+      await writeFile(join(project, "Manuscript/Bloqué/a.md"), "À conserver");
+      await mkdir(join(project, "Archives/Manuscript"), { recursive: true });
+      await writeFile(join(project, "Archives/Manuscript/Bloqué"), "Obstacle");
+      await assert.rejects(writeProjectFile(project, "Manuscript/Bloqué/a.md", "Interdit",
+        await readProjectFile(project, "Manuscript/Bloqué/a.md"), folders.archiveFolder, archive));
+      assert.equal(await readFile(join(project, "Manuscript/Bloqué/a.md"), "utf8"), "À conserver");
       let active = true;
       await assert.rejects(writeProjectFile(project, path, "Interdit", current, folders.archiveFolder,
         async (...args) => { const result = await archive(...args); active = false; return result; },
@@ -1834,14 +1856,14 @@ try {
       await assert.rejects(writeProjectFile(project, path, "Interdit", current, folders.archiveFolder,
         async (...args) => { const result = await archive(...args); await writeFile(join(project, path), "Changement concurrent"); return result; }), /a changé/);
       assert.equal(await readFile(join(project, path), "utf8"), "Changement concurrent");
-      assert.equal((await readdir(join(project, "Manuscript/Chapters"))).some(name => name.endsWith(".tmp")), false);
+      assert.equal((await readdir(join(project, "Manuscript"))).some(name => name.endsWith(".tmp")), false);
     } finally { await rm(project, { recursive: true }); }
   });
 
   await check("Version générée : copie figée dès la création, diff humain et réécriture conservés", async () => {
     const project = join(directory, "generated-versions");
     const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Texte", archiveFolder: "Versions" };
-    const path = "Texte/Chapters/Été.md";
+    const path = "Texte/Été.md";
     const generated = "\ufeff# Été\r\nTexte généré 🖋.\r\n";
     const human = "\ufeff# Été\r\nTexte réécrit. (((Plus direct.)))\r\n";
     const revised = "# Été\nVersion reprise.\n";
@@ -1852,15 +1874,15 @@ try {
       await prepareProject(project, folders);
       const [baseline] = await writeProjectFile(project, path, generated, null, folders.archiveFolder, archive, () => {}, true);
       assert.equal(typeof baseline, "string");
-      assert.ok(baseline.startsWith("Versions/Texte/Chapters/Été."));
+      assert.ok(baseline.startsWith("Versions/Texte/Été."));
       assert.equal(baseline.endsWith("-h.md"), false);
       assert.equal(await readFile(join(project, baseline), "utf8"), generated);
       Object.assign(versions, await captureCodexVersions(project, folders, [{ path }]));
       await writeFile(join(project, path), human);
       await refreshCorrections(project, folders, versions);
-      const reports = await readdir(join(project, "Bible/Tracking"));
+      const reports = await correctionReportNames(project);
       assert.equal(reports.length, 1);
-      const report = await readFile(join(project, "Bible/Tracking", reports[0]), "utf8");
+      const report = await readFile(join(project, "Tracking", reports[0]), "utf8");
       assert.ok(report.includes("Texte généré 🖋."));
       assert.ok(report.includes("Texte réécrit."));
       assert.equal(await readFile(join(project, baseline), "utf8"), generated);
@@ -1899,7 +1921,7 @@ try {
 
   await check("Prompts de tâches : fichiers réels, variables résolues et séparation création/révision", async () => {
     const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Manuscrit", bibleFolder: "Univers" };
-    const rendered = renderTaskPrompts(taskPrompts, folders, "Manuscrit/Chapters/002.md", "Manuscrit/Context/002/sources.md", "Manuscrit/Context/002/preparation.md");
+    const rendered = renderTaskPrompts(taskPrompts, folders, "Manuscrit/002.md", "Tracking/002/sources.md", "Tracking/002/preparation.md");
     for (const [name, text] of Object.entries(rendered)) {
       assert.ok(text.length > 100, name);
       assert.doesNotMatch(text, /\{(?:chapter|contextPath|preparationPath|manuscriptFolder|bibleFolder)\}/);
@@ -1912,15 +1934,15 @@ try {
     await mkdir(project);
     try {
       await prepareProject(project, folders);
-      const dossier = await buildSceneContext(project, folders, {}, "Manuscrit/Chapters/002.md", "Écris ce chapitre.");
+      const dossier = await buildSceneContext(project, folders, {}, "Manuscrit/002.md", "Écris ce chapitre.");
       assert.equal(dossier.task, "rediger");
-      assert.equal(dossier.path, "Manuscrit/Context/002/sources.md");
+      assert.equal(dossier.path, "Tracking/002/sources.md");
       await saveSceneContext(project, folders, dossier);
       assert.equal((await readFile(join(project, dossier.promptsPath), "utf8")).includes("## prompts/rediger.md"), false);
       assert.ok(dossier.pages.join("").includes("preparer-scene.md"));
-      await mkdir(join(project, "Manuscrit/Context/002"), { recursive: true });
+      await mkdir(join(project, "Tracking/002"), { recursive: true });
       const feedback = '« Quel mot ? » — « Tout ça pour ça ». Retours exacts de l’auteur.';
-      await writeFile(join(project, "Manuscrit/Context/002/retours-auteur.md"), feedback);
+      await writeFile(join(project, "Tracking/002/retours-auteur.md"), feedback);
       const updated = await buildSceneContext(project, folders, {}, dossier.chapter);
       assert.equal(updated.sources.find(source => source.path.endsWith("retours-auteur.md")).content, feedback);
       await assert.rejects(checkSceneContext(project, dossier), /Source modifiée/);
@@ -1936,11 +1958,11 @@ try {
       await writeFile(join(project, old, "preparation.md"), "Préparation existante.");
       try {
         if (scenario === "conflict") {
-          await mkdir(join(project, "Manuscript/Context/002"), { recursive: true });
-          await writeFile(join(project, "Manuscript/Context/002/sources.md"), "Autre contenu.");
+          await mkdir(join(project, "Tracking/002"), { recursive: true });
+          await writeFile(join(project, "Tracking/002/sources.md"), "Autre contenu.");
           await assert.rejects(prepareProject(project, DEFAULT_PROJECT_FOLDERS), /deux dossiers/);
           assert.equal(await readFile(join(project, old, "sources.md"), "utf8"), "Sources existantes.");
-          assert.equal(await readFile(join(project, "Manuscript/Context/002/sources.md"), "utf8"), "Autre contenu.");
+          assert.equal(await readFile(join(project, "Tracking/002/sources.md"), "utf8"), "Autre contenu.");
         } else if (scenario === "link") {
           await symlink(join(project, old, "sources.md"), join(project, old, "lien.md"));
           await assert.rejects(prepareProject(project, DEFAULT_PROJECT_FOLDERS), /lien symbolique/);
@@ -1948,9 +1970,10 @@ try {
         } else {
           await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
           await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
-          assert.equal(await readFile(join(project, "Manuscript/Context/002/sources.md"), "utf8"), "Sources existantes.");
-          assert.equal(await readFile(join(project, "Manuscript/Context/002/preparation.md"), "utf8"), "Préparation existante.");
-          await assert.rejects(access(join(project, "context")), { code: "ENOENT" });
+          assert.equal(await readFile(join(project, "Tracking/002/sources.md"), "utf8"), "Sources existantes.");
+          assert.equal(await readFile(join(project, "Tracking/002/preparation.md"), "utf8"), "Préparation existante.");
+          assert.equal(await readFile(join(project,"Tracking/002/sources.md"),"utf8"),"Sources existantes.");
+          await assert.rejects(access(join(project, "context/Manuscript")), { code: "ENOENT" });
         }
       } finally { await rm(project, { recursive: true }); }
     }
@@ -1962,7 +1985,7 @@ try {
     try {
       const folders = DEFAULT_PROJECT_FOLDERS;
       await prepareProject(project, folders);
-      const path = "Manuscript/Chapters/002.md", source = "Manuscript/Chapters/001.md";
+      const path = "Manuscript/002.md", source = "Manuscript/001.md";
       const original = "Louise pleure. (((Qui parle ?)))";
       await writeFile(join(project, path), original);
       await writeFile(join(project, source), "Nadia serre Louise dans ses bras.");
@@ -1992,7 +2015,7 @@ try {
       dossier = await buildSceneContext(project, folders, {}, path);
       assert.ok(dossier.document.includes("Nadia sort de la cuisine."));
       await saveSceneContext(project, folders, dossier);
-      assert.ok((await readdir(join(project, "Archives/Manuscript/Context/002"))).some(name => name.startsWith("sources.")));
+      assert.ok((await readdir(join(project, "Archives/Tracking/002"))).some(name => name.startsWith("sources.")));
       for (const invalid of [{ ...args, actions: [] }, { ...args, actions: [null] }, { ...args, situation: "" }, { ...args, contenu: "Prose déjà écrite" }, { ...args, chemin: source }]) {
         await review.prepare(project, folders, args, dossier);
         await assert.rejects(review.prepare(project, folders, invalid, dossier), /Préparez/);
@@ -2012,18 +2035,18 @@ try {
       const folders = { ...DEFAULT_PROJECT_FOLDERS, manuscriptFolder: "Roman", bibleFolder: "Univers", archiveFolder: "Versions" };
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
-      const previous = "Roman/Chapters/2.md", chapter = "Roman/Chapters/10.md";
+      const previous = "Roman/2.md", chapter = "Roman/10.md";
       await writeFile(join(project, previous), "Jonas guette.\n\nNadia parle.");
       await recordAcceptance(project, folders, previous, { before: "Avant.", after: "Jonas guette.\n\nNadia parle." }, "Garde cette voix.");
       await writeFile(join(project, previous), "Jonas écoute Louise. Aucun appel effectué.");
       await writeFile(join(project, chapter), "Louise écrit. (((Précise ce qu’elle écrit.)))");
-      await writeFile(join(project, "Roman/Chapters/11.md"), "RÉVÉLATION FUTURE À EXCLURE");
-      await writeFile(join(project, "Roman/Plan/10.md"), "Nadia pourrait appeler demain.");
-      await writeFile(join(project, "Roman/Summaries/2.md"), "ANCIEN RÉSUMÉ : une plainte déposée.");
-      await writeFile(join(project, "Roman/Characters/10.md"), "ANCIENNE NOTE : Jonas est haïtien.");
+      await writeFile(join(project, "Roman/11.md"), "RÉVÉLATION FUTURE À EXCLURE");
+      await writeFile(join(project, "Univers/Plan/10.md"), "Nadia pourrait appeler demain.");
+      await writeFile(join(project, "Univers/Summaries/2.md"), "ANCIEN RÉSUMÉ : une plainte déposée.");
+      await writeFile(join(project, "Univers/Characters/10.md"), "ANCIENNE NOTE : Jonas est haïtien.");
       await writeFile(join(project, "Univers/Characters/Jonas Delva.md"), "Jonas est ivoirien et parle nouchi.");
       await writeFile(join(project, "Univers/Characters/Absent.md"), "FICHE INUTILE");
-      await writeFile(join(project, "Univers/Tracking/Connaissances.md"), "## Consignes actives\n\nNommer les acteurs.\n\n## Historique\n\nHYPOTHÈSE ABANDONNÉE");
+      await writeFile(join(project, "Tracking/Connaissances.md"), "## Consignes actives\n\nNommer les acteurs.\n\n## Historique\n\nHYPOTHÈSE ABANDONNÉE");
       const dossier = await buildSceneContext(project, folders, {}, chapter, "Révise les annotations.");
       const byRole = role => dossier.sources.filter(source => source.role === role);
       assert.equal(byRole("previous-manuscript")[0].path, previous);
@@ -2041,7 +2064,7 @@ try {
       const updated = await buildSceneContext(project, folders, {}, chapter);
       assert.equal(updated.sources.find(source => source.path === previous).content, "Une correction humaine récente.");
       await assert.rejects(buildSceneContext(project, folders, {}, "../ailleurs.md"), /chapitre relatif/);
-      await assert.rejects(saveSceneContext(project, folders, updated, () => {}, "Roman/Context"), /configuration Obsidian/);
+      await assert.rejects(saveSceneContext(project, folders, updated, () => {}, "Tracking"), /configuration Obsidian/);
     } finally { await rm(project, { recursive: true }); }
   });
 
@@ -2122,6 +2145,8 @@ try {
 
   const executable = await findCodex("");
   const rpc = client();
+  await check("Brainstorm : lecture du projet, note isolée, reprise des commentaires et absence d’intégration automatique", () => checkBrainstorm(executable, taskPrompts));
+  await check("Discussion et révision d’une fiche par MCP Codex : note, annotations, intention et archivage", () => checkDocumentRevisionProtocol(executable, taskPrompts));
   await check("Connexion et authentification Codex local", async () => {
     const cliVersion = execFileSync(executable, ["--version"], { encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "pipe"] });
     const expected = cliVersion.match(/^codex-cli (\S+)\s*$/)?.[1];
@@ -2138,23 +2163,28 @@ try {
   await check("Contexte éditorial : écriture bloquée avant consultation complète, actualisée dans la même session", async () => {
     const project = join(directory, "editorial-session");
     const folders = DEFAULT_PROJECT_FOLDERS;
-    const path = "Manuscript/Chapters/001.md";
-    const next = "Manuscript/Chapters/002.md";
+    const path = "Manuscript/001.md";
+    const next = "Manuscript/002.md";
     const baseline = "La voix de référence.\n";
     const versions = { [path]: baseline };
-    let evaluations = 0, rejectPublication = false, holdReview = null;
-    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, activeChapter: next, taskPrompts, codexVersions: { [project]: versions } }), undefined, undefined,
-      async (_executable, _cwd, _model, input, signal) => { evaluations++; return holdReview ? holdReview(input,signal) : publicationVerdict(input, evaluations > 1 && !rejectPublication); });
+    let evaluations = 0, rejectPublication = false, holdReview = null, readinessCalls = 0, blockedReadiness = true, invalidReadiness = false;
+    const session = new ChatSession(() => {}, async () => {}, undefined, () => ({ ...folders, activeChapter: next, taskPrompts, externalSources: async (_cwd,args) => JSON.stringify(args.source === undefined ? {sources:[{source:0,path:"/authorized/documents",description:"Documentation du passage."}]} : {fichier:"/authorized/documents/reference.md",page:0,pages:1,publication:"2026-10-06",usage:args.usage ?? "personnage",contenu:"Une source effectivement lue."}), codexVersions: { [project]: versions } }), undefined, undefined,
+      async (_executable, _cwd, _model, input, signal) => { evaluations++; return holdReview ? holdReview(input,signal) : publicationVerdict(input, evaluations > 1 && !rejectPublication); },
+      async (_executable,_cwd,_model,input) => { readinessCalls++;assert.ok(input.catalogue.includes("/authorized/documents"));return invalidReadiness ? {criteres:[]} : readinessVerdict(input,blockedReadiness); });
     await mkdir(project);
     try {
       await prepareProject(project, folders);
       await prepareCorrections(project, folders);
       await writeFile(join(project, path), baseline + "(((Même voix au chapitre suivant.)))\n");
       await writeFile(join(project, "Bible/Style/Narration.md"), "Rythme nouchi.\n");
+      await writeFile(join(project, "Bible/Plan/002.md"), "Préparer la suite du chapitre.");
+      await writeFile(join(project, "Bible/Characters/Suivant.md"), "Le personnage poursuit son raisonnement.");
+      await writeFile(join(project,"Tracking/configuration.md"),'# Contexte\n\n```json\n'+JSON.stringify({chapters:[{path},{path:next,date:"2026-09-15"}],references:[]})+'\n```');
       await mkdir(join(project, "Bible/World"), { recursive: true });
       await writeFile(join(project, "Bible/World/Suivant.md"), "# Suivant\n\nLe village possède un port.");
-      await writeFile(join(project, "Bible/Tracking/Connaissances.md"), "## Consignes actives\n\n" + "Leçons issues de 001.\n".repeat(600));
+      await writeFile(join(project, "Tracking/Connaissances.md"), "## Consignes actives\n\n" + "Leçons issues de 001.\n".repeat(600));
       await session.connect(executable, project, "");
+      assert.ok(session.client.threadConfig.mcp_servers.orelius.enabled_tools.includes(SOURCES_TOOL),"L’outil documentaire est autorisé dans Codex, pas seulement annoncé par le serveur MCP.");
       const native = session.client.request.bind(session.client);
       const { thread } = await native("thread/start", { cwd: project, ephemeral: true,
         sandbox: "read-only", approvalPolicy: "never", approvalsReviewer: "user" });
@@ -2169,27 +2199,32 @@ try {
         if (method === "turn/steer") {
           steeredPrompts.push(params.input[0].text);
           assert.ok(params.input[0].text.includes('<!-- orelius:material-search -->'));
-          assert.ok((await readFile(join(project,'Manuscript/Context/Recherche.md'),'utf8')).includes('Jonas'));
+          assert.ok((await readFile(join(project,'Tracking/Recherche.md'),'utf8')).includes('Jonas'));
           return {turnId:params.expectedTurnId};
         }
         if (method === "thread/turns/list") return Promise.resolve({ data: prompts.map((input,index)=>({id:`tour-${index+1}`,status:"completed",items:[{id:`prompt-${index}`,type:"userMessage",content:input}]})), nextCursor:null });
         if (method !== "turn/start") return native(method, params);
         if (!params.input[0].text.startsWith('[Orelius : actualisation interne du suivi]')) {
-          assert.ok((await readFile(join(project,'Manuscript/Context/Recherche.md'),'utf8')).includes('# Recherche pour la demande'));
+          assert.ok((await readFile(join(project,'Tracking/Recherche.md'),'utf8')).includes('# Recherche pour la demande'));
         }
         prompts.push(params.input);
         return Promise.resolve({ turn: { id: `tour-${prompts.length}` } });
       };
       const call = async (tool, args) => native("mcpServer/tool/call", { threadId, server: "orelius", tool, arguments: args });
+      const completeInputs = async () => {
+        const response=await call(INPUTS_TOOL,{});assert.equal(response.isError,false);
+        const inputs=JSON.parse(response.content[0].text).enAttente;
+        if(inputs.length)assert.equal((await call(INPUTS_TOOL,{analyses:inputs.map(input=>({id:input.id,statut:"sans-impact",synthese:"Commande technique du scénario de contrôle, sans décision littéraire nouvelle.",references:[]}))})).isError,false);
+      };
       let candidate = "Plainte déjà déposée.\n";
       const write = () => call(FILE_TOOL, { chemin: next, contenu: candidate });
-      const prepare = () => call(REVIEW_TOOL, { chemin: next, personnages: "Les personnages veulent comprendre la situation.", documentation: [], situation: "Situation de départ.", objectif: "Continuer.", actions: ["Une action concrète."], connaissances: "Ce que sait le lecteur.", arrivee: "Situation finale.", corrections: "Même voix.", incertitudes: "Aucune." });
+      const prepare = async () => { await completeInputs(); return call(REVIEW_TOOL, { chemin: next, personnages: "Les personnages veulent comprendre la situation.", documentation: [], situation: "Situation de départ.", objectif: "Continuer.", actions: ["Une action concrète."], connaissances: "Ce que sait le lecteur.", arrivee: "Situation finale.", corrections: "Même voix.", incertitudes: "Aucune." }); };
       await session.send("Écris le chapitre 002.", executable, project, threadId);
       assert.ok(prompts[0][0].text.includes('<!-- orelius:material-search -->'));
       assert.ok(prompts[0][0].text.includes('Rythme nouchi.'));
       assert.equal(authorPrompt(prompts[0][0].text),'Écris le chapitre 002.');
-      assert.ok((await readFile(join(project,'Manuscript/Context/Recherche.md'),'utf8')).includes('Écris le chapitre 002.'));
-      for (const target of [next, "manuscript/chapters/002.MD"]) {
+      assert.ok((await readFile(join(project,'Tracking/Recherche.md'),'utf8')).includes('Écris le chapitre 002.'));
+      for (const target of [next, "manuscript/002.MD"]) {
         const denied = await call(FILE_TOOL, { chemin: target, contenu: "Interdit.\n" });
         assert.equal(denied.isError, true);
         assert.match(denied.content[0].text, /consulter_contexte_editorial/);
@@ -2215,12 +2250,43 @@ try {
       assert.match(configWrite.content[0].text, /Seul l’auteur/);
       const unprepared = await write();
       assert.equal(unprepared.isError, true);
-      assert.match(unprepared.content[0].text, /preparer_chapitre/);
+      assert.match(unprepared.content[0].text, /analyser_inputs/);
+      await completeInputs();
+      assert.match((await write()).content[0].text,/preparer_chapitre/);
+      assert.equal((await call(FILE_TOOL,{chemin:"Tracking/Inputs.md",contenu:"Effacer les apports."})).isError,true);
       await assert.rejects(access(join(project, next)), { code: "ENOENT" });
       const method = await call(METHOD_TOOL, { tache: "decomposer-scene" });
       assert.equal(method.isError, false);
       assert.ok(JSON.parse(method.content[0].text).prompt.includes("étapes causales"));
       assert.equal((await prepare()).isError, false);
+      const prerequisites=JSON.parse((await prepare()).content[0].text);
+      assert.equal(prerequisites.autorise,false);assert.match(prerequisites.message,/Que veut obtenir/);
+      assert.match(prerequisites.consigne,/un seul point à la fois/);
+      assert.match(prerequisites.consigne,/Bible\/Characters/);
+      assert.ok(!prerequisites.consigne.includes('{bibleFolder}'));
+      assert.equal((await write()).isError,true,"Une préparation remplie mais refusée ne permet pas de publier.");
+      await prepare();assert.equal(readinessCalls,1,"La même demande ne boucle pas sur le contrôleur de prérequis.");
+      await assert.rejects(access(join(project,next)),{code:"ENOENT"});
+      const characterPath='Bible/Characters/Correspondante.md';
+      for(const content of ['# Correspondante\n\nElle veut que son travail soit lu.','# Correspondante\n\nElle veut que son travail soit lu, mais dissimule ce besoin derrière ses objections.']) {
+        assert.equal((await call(FILE_TOOL,{chemin:characterPath,contenu:content})).isError,false,'Le dialogue peut enrichir une caractérisation avant toute autorisation de prose.');
+        assert.equal(await readFile(join(project,characterPath),'utf8'),content);
+        assert.equal((await write()).isError,true);
+      }
+      const characterArchives=await readdir(join(project,'Archives/Bible/Characters'));
+      assert.ok(characterArchives.length>=2,'Les états successifs de la caractérisation sont archivés.');
+      blockedReadiness=false;
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Style/Narration.md",contenu:"Rythme nouchi. Le but du passage est précisé par l’auteur."})).isError,false);
+      for(let page=0,pages=1;page<pages;page++){const response=await call(CONTEXT_TOOL,{page});assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;}
+      const document=await call(SOURCES_TOOL,{source:0,chemin:"reference.md"});assert.equal(document.isError,false);
+      assert.equal(JSON.parse(document.content[0].text).usage,"personnage","La date de publication ne doit pas reclasser automatiquement la documentation.");
+      assert.equal(JSON.parse(document.content[0].text).dateDuPassage,"2026-09-15");
+      assert.ok(session.documentarySources.some(source=>source.role==="external-documentation"));
+      const backgroundDocument=await call(SOURCES_TOOL,{source:0,chemin:"reference.md",usage:"contexte-auteur"});
+      assert.equal(backgroundDocument.isError,false);
+      assert.equal(JSON.parse(backgroundDocument.content[0].text).usage,"contexte-auteur");
+      assert.ok(session.documentarySources.some(source=>source.role==="documentary-background-not-character-knowledge"),'Un usage explicitement réservé au travail d’auteur reste respecté.');
+      assert.equal((await prepare()).isError,false);
       const declined = await write();
       assert.equal(declined.isError, true);
       assert.match(declined.content[0].text, /UNE reprise/);
@@ -2232,10 +2298,10 @@ try {
       assert.equal((await call(WORKFLOW_TOOL, {})).isError, false);
       const chapterHash = JSON.parse(writtenChapter.content[0].text).empreinte;
       assert.equal((await call(STATE_TOOL, { chapter: next, hash: chapterHash, summary: "Chapitre suivant.", facts: [], moments: [] })).isError, false);
-      assert.ok((await readFile(join(project, "Manuscript/Context/002/etat.md"), "utf8")).includes(chapterHash));
-      assert.equal((await call(FILE_TOOL, { chemin: "./Manuscript/Context/002/etat.md", contenu: "contournement" })).isError, true);
+      assert.ok((await readFile(join(project, "Tracking/002/etat.md"), "utf8")).includes(chapterHash));
+      assert.equal((await call(FILE_TOOL, { chemin: "./Tracking/002/etat.md", contenu: "contournement" })).isError, true);
       assert.equal(await readFile(join(project, next), "utf8"), "Chapitre suivant.\n");
-      const copies = await readdir(join(project, "Archives/Manuscript/Chapters"));
+      const copies = await readdir(join(project, "Archives/Manuscript"));
       assert.ok(copies.length > 0, "La consultation ne contourne pas l’archivage du texte généré.");
       // Simulate the end of the external turn, keeping this same connection open.
       session.busy = false;
@@ -2246,6 +2312,11 @@ try {
       const revisionText = await revisionPrompt(project, folders, next, versions, "Reprends avec mes nouvelles remarques.", revisionPlan);
       await session.send(revisionText, executable, project, threadId, revisionPlan);
       assert.ok(prompts[1][0].text.includes('Cette mise à jour des références fait partie de la révision'));
+      for(let page=0,pages=1;page<pages;page++){const response=await call(CONTEXT_TOOL,{page});assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;}
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Plan/002.md",contenu:"Plan actualisé avec le retour de l’auteur."})).isError,false,"La révision peut mettre à jour le plan sélectionné sans sortir du chapitre ciblé.");
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Characters/Suivant.md",contenu:"Le personnage affine son raisonnement à partir du retour de l’auteur."})).isError,false,"La mise à jour du plan ne retire pas l’autorisation d’harmoniser ensuite le personnage déjà consulté.");
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Characters/Non-consulte.md",contenu:"Hors contexte."})).isError,true,"La conservation des autorisations n’ajoute aucune fiche non consultée.");
+
       assert.equal(prompts[1][0].text.includes('Ne modifie aucun autre document'),false);
       assert.equal(session.threadId, threadId);
       assert.equal((await write()).isError, true, "La consultation du tour précédent ne suffit pas.");
@@ -2268,7 +2339,7 @@ try {
       }
       assert.ok((await readdir(join(project, "Archives/Bible/World"))).some(name => name.startsWith("Suivant.")));
 
-      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Tracking/Connaissances.md",contenu:"## Consignes actives\n\nDévelopper le raisonnement de YQ sans confusion."})).isError,false);
+      assert.equal((await call(FILE_TOOL,{chemin:"Tracking/Connaissances.md",contenu:"## Consignes actives\n\nDévelopper le raisonnement de YQ sans confusion."})).isError,false);
       assert.equal((await prepare()).isError,true,"Une consigne nouvelle invalide la préparation et impose une relecture.");
       for(let page=0,pages=1;page<pages;page++) {
         const response=await call(CONTEXT_TOOL,{page});assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;
@@ -2298,22 +2369,24 @@ try {
       assert.equal(prompts.length, 3, "Un suivi incomplet ne crée pas une boucle de générations.");
       assert.match(session.status, /suivi incomplet/);
       await session.send(POPULATE_PREFIX + "Organise les sources.", executable, project, threadId);
-      assert.equal((await call(FILE_TOOL, {chemin:"Manuscript/Seeds/index.md",contenu:"Avant lecture"})).isError,true);
+      assert.equal((await call(FILE_TOOL, {chemin:"Bible/Seeds/index.md",contenu:"Avant lecture"})).isError,true);
       for(let page=0,pages=1;page<pages;page++) {
         const response=await call(WORKSHOP_TOOL,{page});
         assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;
       }
+      assert.equal((await call(FILE_TOOL,{chemin:"Tracking/Provenance.md",contenu:"# Provenance\n\nBible/Characters/Import.md : Model/source.md, citation de conception."})).isError,false);
       assert.equal((await write()).isError,true,"Peupler ne peut réécrire un chapitre.");
-      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Tracking/Conversation.md",contenu:"Non"})).isError,true);
-      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Characters/Import.md",contenu:"# Personnage\n\nSource : Manuscript/Chapters/001.md"})).isError,false);
-      assert.equal((await call(FILE_TOOL,{chemin:"Manuscript/Seeds/index.md",contenu:"# Seeds\n\nSource : Manuscript/Chapters/001.md"})).isError,false);
-      for (const [chemin,contenu] of [["Manuscript/Seeds/idee.md","Idée."],["Manuscript/Plan/idee.md","Plan proposé."]]) assert.equal((await call(FILE_TOOL,{chemin,contenu})).isError,false);
+      assert.equal((await call(FILE_TOOL,{chemin:"Tracking/Conversation.md",contenu:"Non"})).isError,true);
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Characters/Import.md",contenu:"# Personnage\n\nSource : Manuscript/001.md"})).isError,false);
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Seeds/index.md",contenu:"# Seeds\n\nSource : Manuscript/001.md"})).isError,false);
+      for (const [chemin,contenu] of [["Bible/Seeds/idee.md","Idée."],["Bible/Plan/idee.md","Plan proposé."],["Bible/Scenes/scene.md","Scène prévue, sans index."]]) assert.equal((await call(FILE_TOOL,{chemin,contenu})).isError,false);
       const structureResponse=await call(STRUCTURE_TOOL,{});
       assert.equal(structureResponse.isError,false);
       const structure=JSON.parse(structureResponse.content[0].text);
-      const seed=structure.nodes.find(node=>node.path==="Manuscript/Seeds/idee.md"),plan=structure.nodes.find(node=>node.path==="Manuscript/Plan/idee.md");
+      const seed=structure.nodes.find(node=>node.path==="Bible/Seeds/idee.md"),plan=structure.nodes.find(node=>node.path==="Bible/Plan/idee.md");
       assert.equal((await call(LINK_TOOL,{from:seed.id,to:plan.id,relation:"developpe",fromHash:seed.hash,toHash:plan.hash})).isError,false);
-      assert.equal((await call(FILE_TOOL,{chemin:"Manuscript/Context/Structure.md",contenu:"Retenu par le modèle"})).isError,true);
+      assert.equal((await call(FILE_TOOL,{chemin:"Tracking/Structure.md",contenu:"Retenu par le modèle"})).isError,true);
+      assert.equal((await call(WORKSHOP_TOOL,{action:"terminer"})).isError,false);
       await session.notification("turn/completed",{threadId,turn:{id:"tour-4",status:"completed"}},project);
       assert.match(session.status,/Atelier incomplet/);
       rejectPublication = true;
@@ -2330,7 +2403,7 @@ try {
       candidate="Troisième candidat interdit.";
       assert.equal((await write()).isError,true);
       assert.equal(evaluations,evaluated,"Relire et préparer ne réinitialise pas la limite de reprise.");
-      assert.equal((await call(FILE_TOOL,{chemin:"Manuscript/Context/002/Publication/controle-2.md",contenu:"Validé"})).isError,true);
+      assert.equal((await call(FILE_TOOL,{chemin:"Tracking/Chapters/002/Publication/controle-2.md",contenu:"Validé"})).isError,true);
       assert.equal(await readFile(join(project,next),"utf8"),"Chapitre suivant.\n");
       await session.notification("turn/completed",{threadId,turn:{id:"tour-5",status:"completed"}},project);
       assert.equal(session.canRetry,true);
@@ -2340,20 +2413,37 @@ try {
       rejectPublication=false;
       await session.send("Révise avec les faits conservés.",executable,project,threadId);
       await reread();
-      let reviewing;
+      let reviewing, finishReview;
       const startedReview=new Promise(resolve=>{reviewing=resolve;});
-      holdReview=async (_input,signal)=>{reviewing();return new Promise((_resolve,reject)=>signal.addEventListener("abort",()=>reject(new Error("Contrôle annulé par la nouvelle consigne.")),{once:true}));};
-      candidate="Candidat devenu périmé.";
+      holdReview=async (input,signal)=>{reviewing();return new Promise((resolve,reject)=>{
+        finishReview=()=>resolve(publicationVerdict(input,true));
+        signal.addEventListener("abort",()=>reject(new Error("Contrôle annulé.")),{once:true});
+      });};
+      candidate="Chapitre suivant.\n";
       const pendingWrite=write();
       await startedReview;
-      await session.steer("Conserve le point de vue de Jonas.");
-      assert.equal((await pendingWrite).isError,true);
-      assert.equal(publicationInterrupts,1,"Une consigne supplémentaire invalide le contrôle sans arrêter la nouvelle demande.");
-      assert.equal(await readFile(join(project,next),"utf8"),"Chapitre suivant.\n");
+      const activeRequest=session.lastRequest.text, activeReview=session.publication;
+      await session.send("Tu es planté ?",executable,project,threadId);
+      await session.send("Conserve le point de vue de Jonas.",executable,project,threadId);
+      assert.equal(session.queuedMessages.length,2);
+      assert.equal(session.lastRequest.text,activeRequest);
+      assert.equal(session.publication,activeReview);
+      assert.equal(activeReview.signal.aborted,false,"Aucun message en attente n’annule le contrôle actif.");
+      assert.equal(steeredPrompts.length,0);
+      finishReview();
+      assert.equal((await pendingWrite).isError,false,"L’écriture en cours aboutit malgré les nouveaux messages.");
+      assert.equal(publicationInterrupts,1);
+      assert.equal(await readFile(join(project,next),"utf8"),candidate);
       holdReview=null;
-      await reread();
-      candidate="Chapitre suivant.\n";
-      assert.equal((await write()).isError,false);
+      await completeInputs();
+      session.wroteChapter=false;
+      await session.notification("turn/completed",{threadId,turn:{status:"completed"}},project);
+      assert.ok(session.lastRequest.text.includes("Tu es planté ?"));
+      assert.equal(session.queuedMessages.length,1);
+      await completeInputs();
+      await session.notification("turn/completed",{threadId,turn:{status:"completed"}},project);
+      assert.ok(session.lastRequest.text.includes("Conserve le point de vue de Jonas."));
+      assert.equal(session.queuedMessages.length,0);
       session.busy=false;session.turnId="";
       const selectedSource=await readFile(join(project,next),"utf8");
       const selectedFrom=selectedSource.indexOf("suivant"),selectedTo=selectedFrom+"suivant".length;
@@ -2380,7 +2470,7 @@ try {
       const choices=await comparisonVersions(project,DEFAULT_PROJECT_FOLDERS,next,candidate);
       assert.ok(choices.some(choice=>choice.label.startsWith("Courte") && choice.text.includes("bref")));
       const beforeVariants=evaluations;
-      for(const chemin of [next,"Bible/Tracking/Connaissances.md","Manuscript/Variants/proposition.md"]) {
+      for(const chemin of [next,"Tracking/Connaissances.md","Bible/Variants/proposition.md"]) {
         const denied=await call(FILE_TOOL,{chemin,contenu:"Interdit"});assert.equal(denied.isError,true);assert.match(denied.content[0].text,/variantes/);
       }
       assert.equal((await call(LINK_TOOL,{from:seed.id,to:plan.id,relation:"developpe",fromHash:seed.hash,toHash:plan.hash})).isError,true);
@@ -2392,7 +2482,19 @@ try {
         const response=await call(WORKSHOP_TOOL,{page});
         assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;
       }
-      const importedPath="Manuscript/Chapters/import.md",importedText="Un chapitre importé sans retouche.\n";
+      await completeInputs();
+      await session.notification("turn/completed",{threadId,turn:{id:session.turnId,status:"completed"}},project);
+      assert.equal(session.busy,false);
+      assert.ok((await newModelSources(project,DEFAULT_PROJECT_FOLDERS)).length,'Une question après lecture ne marque pas les documents comme traités.');
+      const clarification="Ce brouillon est un chapitre à importer à l’identique.";
+      await session.send(clarification,executable,project,threadId);
+      assert.equal(authorPrompt(prompts.at(-1)[0].text),clarification,'La réponse reste un message ordinaire dans la conversation.');
+      for(const args of [{action:"invalide"},{action:["lire"]},{action:"terminer",page:0},{action:"terminer"}]) assert.equal((await call(WORKSHOP_TOOL,args)).isError,true);
+      for(let page=0,pages=1;page<pages;page++) {
+        const response=await call(WORKSHOP_TOOL,{page});
+        assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;
+      }
+      const importedPath="Manuscript/import.md",importedText="Un chapitre importé sans retouche.\n";
       const imported=await call(FILE_TOOL,{chemin:importedPath,contenu:importedText});
       assert.equal(imported.isError,false,JSON.stringify(imported));
       assert.equal(await readFile(join(project,importedPath),"utf8"),importedText);
@@ -2401,6 +2503,47 @@ try {
       assert.equal((await call(FILE_TOOL,{chemin:importedPath,contenu:"Une réécriture."})).isError,true);
       assert.equal((await call(FILE_TOOL,{chemin:"Model/source libre.md",contenu:"Une réécriture."})).isError,true);
       assert.equal(await readFile(join(project,"Model/source libre.md"),"utf8"),importedText);
+      assert.equal((await call(FILE_TOOL,{chemin:"Bible/Scenes/index.md",contenu:"# Scènes\n\n[[Bible/Scenes/scene.md]]"})).isError,false);
+      await completeInputs();
+      const finished=await call(WORKSHOP_TOOL,{action:"terminer"});assert.equal(finished.isError,false,JSON.stringify(finished));
+      await session.notification("turn/completed",{threadId,turn:{id:session.turnId,status:"completed"}},project);
+      assert.deepEqual(await newModelSources(project,DEFAULT_PROJECT_FOLDERS),[],'Les documents sont marqués traités seulement après la reprise achevée.');
+      if(session.busy) await session.notification("turn/completed",{threadId,turn:{id:session.turnId,status:"completed"}},project);
+      const preserved=await readFile(join(project,next),'utf8');
+      const dynamicNote='Bible/Characters/Personnage-manquant.md';
+      const dynamicText='# Personnage\n\nElle veut que son travail soit lu et cache ce besoin derrière ses objections.';
+      blockedReadiness=true;
+      await session.send('Révise ce chapitre, mais la motivation du personnage reste à approfondir.',executable,project,threadId,planRevision(next,preserved,preserved,'',true));
+      assert.equal((await call(FILE_TOOL,{chemin:dynamicNote,contenu:dynamicText})).isError,true,'La révision ne permet pas par défaut de créer une référence hors de son contexte.');
+      await reread();
+      const enriched=await call(FILE_TOOL,{chemin:dynamicNote,contenu:dynamicText});
+      assert.equal(enriched.isError,false,JSON.stringify(enriched));
+      assert.equal(await readFile(join(project,dynamicNote),'utf8'),dynamicText,'Un manque essentiel permet d’enrichir la Bible sans nouveau document Model ni clic Peupler.');
+      assert.equal(session.populateActive,true,'Le dialogue de peuplement dynamique est visible dans le chat.');
+      assert.equal((await write()).isError,true,'Compléter une fiche ne dispense pas du nouveau contrôle avant la prose.');
+      for(const chemin of ['Manuscript/autre.md','Model/nouveau.md']) assert.equal((await call(FILE_TOOL,{chemin,contenu:'Interdit.'})).isError,true);
+      assert.equal(await readFile(join(project,next),'utf8'),preserved);
+      blockedReadiness=false;
+      await reread();
+      assert.equal(session.populateActive,false,'Le peuplement dynamique s’arrête lorsque les prérequis sont satisfaits.');
+      assert.equal((await call(FILE_TOOL,{chemin:'Bible/Characters/Autre-note.md',contenu:'Sans rapport avec cette révision.'})).isError,true,'Les permissions de révision retrouvent leur portée après enrichissement.');
+      session.busy=false;session.turnId="";
+      await session.send("Une nouvelle révision.",executable,project,threadId);
+      invalidReadiness=true;
+      for(let page=0,pages=1;page<pages;page++) {
+        const response=await call(CONTEXT_TOOL,{chapitre:next,page});
+        assert.equal(response.isError,false);pages=JSON.parse(response.content[0].text).pages;
+      }
+      const beforeFailure=readinessCalls, beforeInterrupt=publicationInterrupts;
+      const technicalFailure=await prepare();
+      assert.equal(technicalFailure.isError,true);
+      assert.equal(readinessCalls-beforeFailure,2,"Le contrôleur corrige une fois son propre rapport.");
+      assert.match(session.failure.message,/échoué techniquement/);
+      assert.equal(publicationInterrupts,beforeInterrupt+1,"Le rédacteur ne boucle plus sur un contrôleur défaillant.");
+      await session.notification("turn/completed",{threadId,turn:{status:"interrupted"}},project);
+      assert.equal(session.busy,false);assert.equal(session.canRetry,true);
+      assert.equal(await readFile(join(project,next),'utf8'),preserved);
+
 
 
 
@@ -2529,6 +2672,11 @@ try {
       assert.deepEqual(session.items, []);
       assert.ok(session.models.length > 0);
       assert.ok(session.model);
+      const {config}=await session.client.request("config/read",{cwd:directory,includeLayers:false});
+      const configured=typeof config.model==="string"&&config.model?config.model:session.models.find(option=>option.isDefault)?.model??"";
+      assert.equal(session.defaultModel,configured,'Le modèle proposé par défaut vient des réglages Codex, pas du premier élément du catalogue.');
+      assert.equal(session.model,configured);
+      if(typeof config.model_reasoning_effort==="string"&&session.models.find(option=>option.model===configured)?.supportedReasoningEfforts?.some(option=>option.reasoningEffort===config.model_reasoning_effort))assert.equal(session.reasoningEffort,config.model_reasoning_effort);
       assert.equal(session.contextRemaining, null);
       await assert.rejects(session.steer("Consigne sans tâche active"), /Aucune tâche active/);
       assert.equal(session.connected, true);

@@ -18,7 +18,7 @@ export async function checkMaterialSearch(){
  const root=await mkdtemp(join(tmpdir(),'orelius-material-search-'));
  const put=async(path,content)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),content);};
  const request='Pourquoi la serrure a-t-elle été remplacée après le cambriolage ?';
- const relevant='Bible/Objects/dossier-17.md',irrelevant='Bible/Objects/recette.md',chapter='Manuscript/Chapters/002.md';
+ const relevant='Bible/Objects/dossier-17.md',irrelevant='Bible/Objects/recette.md',chapter='Manuscript/002.md';
  try {
   await put(relevant,'# Rapport\n\nAprès le cambriolage, la serrure du garage a été remplacée par Nora.');
   await put(irrelevant,'Farine, levure et sucre.');
@@ -31,7 +31,7 @@ export async function checkMaterialSearch(){
   assert.equal(authorPrompt(wire),request);assert.equal(withoutChanges(wire),request);
   assert.equal(withoutMaterialSearch(withMaterialSearch(request,result)),request);
   await saveMaterialSearch(root,folders,result,()=>{});
-  assert.ok((await readFile(join(root,'Manuscript/Context/Recherche.md'),'utf8')).includes(relevant));
+  assert.ok((await readFile(join(root,'Tracking/Recherche.md'),'utf8')).includes(relevant));
   let pages=await readEditorialContext(root,folders,{},undefined,request);
   assert.ok(pages.join('').includes('Nora'),'Recherche utilisée sans chapitre actif.');
   await put(chapter,'(((Vérifier le cambriolage et la serrure avant de reprendre.)))');
@@ -66,13 +66,13 @@ export async function checkMaterialSearch(){
   await put('Model/ancien.md','Cambriolage, serrure : ajout ancien à ignorer pour Peupler.');
   await put('Model/nouveau.md','Cambriolage, serrure : nouveau document.');
   result=await searchMaterials(root,folders,request,undefined,true);
-  assert.ok(!result.matches.some(match=>match.path==='Model/ancien.md'));
+  assert.ok(result.matches.some(match=>match.path==='Model/ancien.md'),'Une source modifiée est de nouveau recherchée pour Peupler.');
   assert.ok(result.matches.some(match=>match.path==='Model/nouveau.md'));
 
-  await put('Manuscript/Seeds/cause.md','Cambriolage : motivation retenue.');
-  await put('Manuscript/Plan/consequence.md','Un départ en train.');
+  await put('Bible/Seeds/cause.md','Cambriolage : motivation retenue.');
+  await put('Bible/Plan/consequence.md','Un départ en train.');
   let structure=await syncStructure(root,folders);
-  const from=structure.nodes.find(node=>node.path==='Manuscript/Seeds/cause.md'),to=structure.nodes.find(node=>node.path==='Manuscript/Plan/consequence.md');
+  const from=structure.nodes.find(node=>node.path==='Bible/Seeds/cause.md'),to=structure.nodes.find(node=>node.path==='Bible/Plan/consequence.md');
   await syncStructure(root,folders,{link:{from:from.id,to:to.id,relation:'developpe',fromHash:from.hash,toHash:to.hash}});
   result=await searchMaterials(root,folders,request);
   assert.ok(result.matches.some(match=>match.path===to.path && match.reasons.some(reason=>reason.includes('Relation'))));
@@ -86,5 +86,20 @@ export async function checkMaterialSearch(){
   assert.ok(result.omitted.length>0,'Les sources hors budget restent signalées.');
   result=await searchMaterials(root,folders,'Zygomatique');
   assert.ok(result.unmatched.includes('zygomatique'));
+  await put('Tracking/Connaissances.md','## Consignes actives\n\nLe métronome donne la cadence.\n\n## Historique\n\nMétronome : ANCIENNE_HYPOTHESE.');
+  result=await searchMaterials(root,folders,'Métronome');
+  assert.ok(result.matches.some(match=>match.path==='Tracking/Connaissances.md'),'Les enseignements actifs restent recherchables hors de Bible.');
+  assert.equal(JSON.stringify(result).includes('ANCIENNE_HYPOTHESE'),false);
+  await put('Tracking/Connaissances.md','# Historique\n\nMétronome : CONSIGNE_REMPLACEE.');
+  result=await searchMaterials(root,folders,'Métronome');
+  assert.equal(JSON.stringify(result).includes('CONSIGNE_REMPLACEE'),false,'Un historique sans rubrique active n’est pas une consigne actuelle.');
+  pages=await readEditorialContext(root,folders,{},undefined,'Métronome');
+  assert.equal(pages.join('').includes('CONSIGNE_REMPLACEE'),false);
+  await put(configPath(folders),'```json\n'+JSON.stringify({chapters:[],references:[]})+'\n```');
+  await put('Model/Aout/001.md','# Ouverture\n\nLa lettre accompagne les funérailles.');
+  await put('Model/Septembre/lettre-funerailles.md','# Lettre\n\n'+('La lettre évoque les funérailles.\n'.repeat(30)));
+  result=await searchMaterials(root,folders,'Travaillons sur août, la lettre des funérailles.');
+  assert.equal(result.matches[0].path,'Model/Aout/001.md','Le dossier nommé dans la demande doit orienter la recherche avant une répétition thématique ailleurs.');
+
  }finally{await rm(root,{recursive:true,force:true});}
 }

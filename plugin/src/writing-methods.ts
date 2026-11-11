@@ -70,7 +70,7 @@ export async function recordNarrativeState(cwd: string, folders: ProjectFolders,
   const state = parseState(args, chapter, manuscript.text);
   state.dependencies = {};
   for (const [path, original] of context?.snapshots ?? []) {
-    if (path === chapter || !path.startsWith(`${folders.manuscriptFolder}/Chapters/`) || original === null) continue;
+    if (path === chapter || !path.startsWith(`${folders.manuscriptFolder}/`) || original === null) continue;
     if ((await readProjectFile(cwd, path))?.text !== original) throw new Error(t("narrativeSourceModified", { value1: path }));
     state.dependencies[path] = fingerprint(original);
   }

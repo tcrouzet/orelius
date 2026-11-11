@@ -1,5 +1,5 @@
+import { withoutBrainstorm } from "./brainstorm.ts";
 import { t } from "./i18n.ts";
-import { basename } from "node:path";
 import { projectSources } from "./project-sources.ts";
 import { configPath, EMPTY_CONFIG, parseConfig, readData, visibleSections, fingerprint } from "./narrative-context.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
@@ -24,7 +24,7 @@ function counts(words: string[]): Map<string, number> {
   return result;
 }
 function queryText(request: string): string {
-  const clean = withoutContext(request);
+  const clean = withoutBrainstorm(withoutContext(request));
   const brief = clean.indexOf(POPULATE_BRIEF_MARKER);
   if (brief >= 0) return clean.slice(brief + POPULATE_BRIEF_MARKER.length);
   const selectionMarker = "\n\n<!-- orelius:selection -->\n";
@@ -36,6 +36,7 @@ function queryText(request: string): string {
 }
 
 export async function searchMaterials(cwd: string, folders: ProjectFolders, request: string, chapter?: string, populating = false): Promise<MaterialSearch> {
+  chapter ??= revisionRequest(withoutContext(request))?.path;
   const choice = contextChoice(request);
   const query = queryText(request);
   const configuration = await readProjectFile(cwd, configPath(folders));
@@ -46,22 +47,23 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
     ? [...await projectSources(cwd, folders, [folders.bibleFolder, folders.manuscriptFolder]), ...await newModelSources(cwd, folders)]
     : await projectSources(cwd, folders);
   const documents = sources.filter(source => {
-    if (contextExcluded(choice, source.path) || source.path.startsWith(`${folders.manuscriptFolder}/Context/`)) return false;
+    if (contextExcluded(choice, source.path) || source.path.startsWith("Tracking/") && source.path !== "Tracking/Connaissances.md") return false;
     if (config.references.some(reference => reference.path === source.path && (reference.mode === "hidden" || reference.mode === "manual" && !choice?.include.includes(source.path)))) return false;
     if (config.chapters.some(item => item.path === source.path && item.include === false)) return false;
     return !structure?.nodes.some(node => node.path === source.path && node.decision === "abandonne" && !choice?.include.includes(source.path));
   }).map(source => {
     const reference = config.references.find(reference => reference.path === source.path);
     let content = visibleSections(source.content, reference?.hiddenSections ?? []);
-    if (source.path === `${folders.bibleFolder}/Tracking/Connaissances.md`) {
-      content = /^## Consignes actives[^\n]*\r?\n[\s\S]*?(?=^## |$(?![\s\S]))/m.exec(content)?.[0] ?? content;
+    if (source.path === `Tracking/Connaissances.md`) {
+      content = /^## Consignes actives[^\n]*\r?\n[\s\S]*?(?=^## |$(?![\s\S]))/m.exec(content)?.[0] ?? "";
     }
-    const title = [basename(source.path, ".md"), reference?.name ?? "", ...(reference?.aliases ?? [])].join(" ");
+    const title = [source.path.replace(/\.md$/i, ""), reference?.name ?? "", ...(reference?.aliases ?? [])].join(" ");
     return { ...source, content, title, words: counts(terms(content)), titleWords: new Set(terms(title)) };
   });
   const frequency = new Map<string, number>();
   for (const document of documents) for (const word of document.words.keys()) frequency.set(word, (frequency.get(word) ?? 0) + 1);
-  const explicit = new Set(terms(query).slice(0, 96));
+  const requested = new Set(terms(query).slice(0, 96));
+  const explicit = new Set(requested);
   const active = documents.find(document => document.path === chapter);
   const annotations = [...(active?.content ?? "").matchAll(/\(\(\(([\s\S]*?)\)\)\)/g)].map(match => match[1]).join("\n");
   for (const word of terms(annotations).slice(0, 96)) explicit.add(word);
@@ -85,6 +87,8 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
       score += weight * idf * (tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * length / average)) + (document.titleWords.has(word) ? 2 : 0));
     }
     const reasons = hits.length ? [`Contenu ou titre correspondant : ${hits.join(", ")}`] : [];
+    const directories = terms(document.path.split("/").slice(1, -1).join(" ")).filter(word => requested.has(word));
+    if (directories.length) { score += 50; reasons.unshift(`Dossier nommé dans la demande : ${directories.join(", ")}`); }
     if (required.has(document.path)) { score += 100; reasons.unshift(document.path === chapter ? "Passage actif" : "Référence associée à la demande ou au chapitre"); }
     if (document.path.startsWith(`${folders.bibleFolder}/Style/`)) { score += 50; reasons.unshift("Consignes de style du projet"); }
     return { document, score, reasons };
@@ -137,7 +141,7 @@ export async function saveMaterialSearch(cwd: string, folders: ProjectFolders, r
     const file = await readProjectFile(cwd, match.path);
     if (!file || fingerprint(file.text) !== match.hash) throw new Error(t("sourceModifiedReadConsulterContexteEditorialAgainFromPage", { value1: match.path }));
   }
-  const path = `${folders.manuscriptFolder}/Context/Recherche.md`;
+  const path = `Tracking/Recherche.md`;
   const content = `# Recherche pour la demande\n\n${result.query}\n\nDocuments examinés : ${result.searched}.\n\n${result.matches.map(match => `## ${match.path}\n\nRôle : ${match.role}\n\n${match.reasons.join(" ; ")}\n\n${match.excerpts.join("\n\n[…]\n\n")}`).join("\n\n")}\n\n## Limites\n\nTermes sans résultat retenu : ${result.unmatched.join(", ") || "aucun"}.\nSources écartées par la limite : ${result.omitted.join(", ") || "aucune"}.\n\nLes correspondances sont des pistes de lecture, pas des faits validés. Relire les sources avant toute conclusion.\n`;
   ensureCurrent();
   await writeProjectFile(cwd, path, content, await readProjectFile(cwd, path), folders.archiveFolder, undefined, ensureCurrent, false, undefined, configDir);

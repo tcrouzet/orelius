@@ -16,12 +16,12 @@ export function publicationVerdict(input, accepted = true) {
 }
 export async function checkPublication() {
  const root=await mkdtemp(join(tmpdir(),'orelius-publication-'));
- const chapter='Manuscript/Chapters/002.md', prep='Manuscript/Context/002/preparation.md';
+ const chapter='Manuscript/002.md', prep='Tracking/002/preparation.md';
  const original='Texte conservé.', preparation='Aucune plainte établie ; voix de Jonas.';
  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
  try {
   await put(chapter,original);await put(prep,preparation);
-  const context={chapter,path:'Manuscript/Context/002/sources.md',preparationPath:prep,promptsPath:'Manuscript/Context/002/prompts.md',task:'reviser',sources:[{path:chapter,role:'current-manuscript',content:original},{path:'Bible/Style/Narration.md',role:'instructions',content:'Voix de Jonas.'}],snapshots:new Map([[chapter,original]]),document:'Dossier courant',pages:[]};
+  const context={chapter,path:'Tracking/002/sources.md',preparationPath:prep,promptsPath:'Tracking/002/prompts.md',task:'reviser',sources:[{path:chapter,role:'current-manuscript',content:original},{path:'Bible/Style/Narration.md',role:'instructions',content:'Voix de Jonas.'}],snapshots:new Map([[chapter,original]]),document:'Dossier courant',pages:[]};
   const input={candidat:'Une plainte a déjà été déposée.',preparation,contexte:context};
   const gate=new PublicationReview();let calls=0;
   const evaluator=async value=>{calls++;return publicationVerdict(value,calls>1);};
@@ -35,7 +35,7 @@ export async function checkPublication() {
   await gate.check(root,folders,repaired,evaluator);assert.equal(calls,2,'Même candidat validé : pas de nouvelle génération.');
   await assert.rejects(()=>gate.check(root,folders,{...input,candidat:'Troisième candidat.'},evaluator),error=>error.terminal);assert.equal(calls,2);
   assert.equal(await readFile(join(root,chapter),'utf8'),original);
-  assert.ok((await readFile(join(root,'Manuscript/Context/002/Publication/controle-2.md'),'utf8')).includes('contrôle favorable'));
+  assert.ok((await readFile(join(root,'Tracking/Chapters/002/Publication/controle-2.md'),'utf8')).includes('contrôle favorable'));
   const duplicate=new PublicationReview();let duplicateCalls=0;
   const refuseDuplicate=async value=>{duplicateCalls++;return publicationVerdict(value,false);};
   await assert.rejects(()=>duplicate.check(root,folders,input,refuseDuplicate),error=>!error.terminal);
@@ -47,7 +47,7 @@ export async function checkPublication() {
   await assert.rejects(()=>rejected.check(root,folders,{...input,candidat:"Autre brouillon avec plainte."},no),error=>!error.terminal);
   await assert.rejects(()=>rejected.check(root,folders,repaired,no),error=>error.terminal);
   await assert.rejects(()=>rejected.check(root,folders,{...repaired,candidat:'Autre.'},no),error=>error.terminal);assert.equal(rejectedCalls,2);
-  const archives=await readdir(join(root,'Archives/Manuscript/Context/002/Publication'));assert.ok(archives.some(name=>name.startsWith('candidat-1.')));
+  const archives=await readdir(join(root,'Archives/Tracking/Chapters/002/Publication'));assert.ok(archives.some(name=>name.startsWith('candidat-1.')));
   for(const mutate of [v=>v.controles.pop(),v=>v.controles[1].axe='intention',v=>v.controles[0].passage='Citation inventée',v=>v.controles[0].preuve='Preuve inventée',v=>v.controles[0].source='archive absente',v=>v.controles[0].conforme='oui']) {
    const verdict=publicationVerdict(input);mutate(verdict);assert.throws(()=>parsePublicationVerdict(verdict,input),/invalide/);
   }
@@ -55,17 +55,24 @@ export async function checkPublication() {
   assert.throws(()=>parsePublicationVerdict(falseFact,input),/invalide/,'La préparation ne prouve pas un fait.');
   const withVoice={...input,contexte:{...context,sources:[...context.sources,{path:'voix acceptee',role:'approved-voice',content:'Extrait accepté.'}]}};
   assert.throws(()=>parsePublicationVerdict(publicationVerdict(input),withVoice),/invalide/,'Une voix acceptée ne peut être ignorée au profit de consignes génériques.');
+  const changedVoice={...withVoice,contexte:{...withVoice.contexte,sources:[...withVoice.contexte.sources,{path:'demande actuelle',role:'author-request',content:'Elle parle dans sa voix personnelle dès le début ; abandonner l’ouverture académique.'}]}};
+  const changedVerdict=publicationVerdict(changedVoice);
+  Object.assign(changedVerdict.controles[2],{source:'demande actuelle',preuve:changedVoice.contexte.sources.at(-1).content});
+  assert.doesNotThrow(()=>parsePublicationVerdict(changedVerdict,changedVoice),'La demande actuelle de voix prime aussi sur un exemple ancien accepté.');
   const invalid=publicationVerdict(input);invalid.controles[1].preuve='Preuve inventée';
   assert.throws(()=>parsePublicationVerdict(invalid,input),error=>/faits/.test(error.message)&&error.message.includes(chapter));
   const repairReport=new PublicationReview();let reportCalls=0;
+  let sharedDeadline;
   await repairReport.check(root,folders,input,async value=>{
    reportCalls++;assert.equal(value.candidat,input.candidat);
+   if(reportCalls===1)sharedDeadline=value.deadline;
+   else assert.equal(value.deadline,sharedDeadline,'La correction du rapport conserve la même échéance que le premier contrôle.');
    if(reportCalls===1)return invalid;
    assert.match(value.correctionRapport.erreur,/faits/);assert.deepEqual(value.correctionRapport.rapport,invalid);
    return publicationVerdict(value);
   });
   assert.equal(reportCalls,2,'Un rapport invalide est corrigé une seule fois, sans réécrire le candidat.');
-  assert.ok((await readFile(join(root,'Manuscript/Context/002/Publication/controle-1-invalide.md'),'utf8')).includes('Preuve inventée'));
+  assert.ok((await readFile(join(root,'Tracking/Chapters/002/Publication/controle-1-invalide.md'),'utf8')).includes('Preuve inventée'));
   const invalidAgain=new PublicationReview();let invalidCalls=0;
   await assert.rejects(()=>invalidAgain.check(root,folders,input,async()=>{invalidCalls++;return invalid;}),error=>error.terminal&&/faits/.test(error.message));
   await assert.rejects(()=>invalidAgain.check(root,folders,input,evaluator),error=>error.terminal);
@@ -77,7 +84,7 @@ export async function checkPublication() {
   const feedbackInput={...input,contexte:{...context,sources:[...context.sources,
    {path:chapter,role:'current-manuscript',content:'Lettre. (((Cette voix ressemble à Thierry.)))'},
    {path:'demande actuelle',role:'author-request',content:'YQ développe son raisonnement.\n\nElle doit rester limpide.'},
-   {path:'Bible/Tracking/Connaissances.md',role:'editorial-memory',content:'## Consignes actives\n\n- Pas de questionnaire final.\n- Référents clairs.'}]}};
+   {path:'Tracking/Connaissances.md',role:'editorial-memory',content:'## Consignes actives\n\n- Pas de questionnaire final.\n- Référents clairs.'}]}};
   const feedback=publicationFeedback(feedbackInput);assert.equal(feedback.length,5);
   assert.match(feedback[0].attente,/ressemble à Thierry/);
   for(const mutate of [v=>v.retours.pop(),v=>v.retours[1].id=v.retours[0].id,v=>v.retours[0].passage='Citation inventée']) {
@@ -126,6 +133,11 @@ export async function checkPublication() {
   const pending=evaluatePublication('codex',root,'chosen-model',input,abort.signal,factory('wait'));
   abort.abort();await assert.rejects(()=>pending,/interrompu/);
   assert.equal(stopped,6);assert.equal(invoked,5);
+  let connectedAfterDeadline=false;
+  await assert.rejects(()=>evaluatePublication('codex',root,'chosen-model',{...input,deadline:Date.now()-1},new AbortController().signal,()=>({
+   async connect(){connectedAfterDeadline=true;},async stop(){},async request(){throw Error('Aucun appel attendu');},rejectRequest(){}
+  })),/trois minutes/);
+  assert.equal(connectedAfterDeadline,false,'Une échéance épuisée ne relance pas de génération.');
  } finally { await rm(root,{recursive:true,force:true}); }
 }
 

@@ -35,13 +35,16 @@ export async function checkExternalSources() {
   await symlink(join(second,'source.txt'),join(first,'link.md'));
   const before=await stat(join(first,'nested','reference.md'));
   const call=async args=>JSON.parse(await externalSources(project,args,parse));
+  await writeFile(join(first,'date.md'),'# Carnet\n\n#carnets #2026-10-6-10h00');
+  const dated=await call({source:0,chemin:'date.md',usage:'contexte-auteur'});
+  assert.equal(dated.publication,'2026-10-06');assert.equal(dated.usage,'contexte-auteur');
   assert.deepEqual((await call({})).sources,definitions.map((source,index)=>({source:index,...source})));
   assert.equal((await call({source:0})).description,definitions[0].description);
   const web=await call({source:2});assert.equal(web.url,definitions[2].url);assert.equal(web.description,definitions[2].description);
   assert.equal(web.contenu,undefined,'Une URL annoncée ne constitue pas une page consultée.');
   assert.equal((await call({source:3})).contenu,'Autre dossier.');
   await assert.rejects(call({source:2,chemin:'autre-page'}));
-  assert.deepEqual((await call({source:0})).documents,[{chemin:'nested',type:'dossier'}]);
+  assert.deepEqual((await call({source:0})).documents,[{chemin:'date.md',type:'document'},{chemin:'nested',type:'dossier'}]);
   const page0=await call({source:0,chemin:'nested/reference.md'}),page1=await call({source:0,chemin:'nested/reference.md',page:1});
   assert.equal(page0.pages,2);assert.equal(page0.contenu+page1.contenu,await readFile(join(first,'nested','reference.md'),'utf8'));
   assert.equal((await call({source:1,chemin:'source.txt'})).contenu,'Autre dossier.');

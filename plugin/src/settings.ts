@@ -34,21 +34,28 @@ export function validateProjectFolders(folders: ProjectFolders): void {
     return folders[key].normalize("NFC").toLowerCase();
   });
   if (new Set(names).size !== names.length || names.slice(1).includes("_archives")
-    || names.some(name => name === "agents.md" || name === "agents.override.md" || name === "context")) {
+    || names.some(name => name === "agents.md" || name === "agents.override.md" || name === "context" || name === "tracking")) {
     throw new Error(t("foldersMustHaveDistinctNamesAgentsMdAgentsOverride"));
   }
 }
 
 export const WORKSHOP_FOLDERS = ["Seeds", "Synopsis", "Scenes", "Arcs", "Plots", "Variants", "Checks"];
 
+export function isChapterPath(path: string, folders: Pick<ProjectFolders, "manuscriptFolder">): boolean {
+  const prefix = `${folders.manuscriptFolder}/`.normalize("NFC").toLowerCase();
+  const key = path.normalize("NFC").toLowerCase();
+  if (!key.startsWith(prefix) || !key.endsWith(".md") || key.includes("\\")) return false;
+  const parts = key.slice(prefix.length).split("/");
+  const reserved = [...WORKSHOP_FOLDERS, "Chapters", "Characters", "Plan", "Summaries", "Context", "Tracking", "Brainstorm"].map(name => name.toLowerCase());
+  return parts.every(part => part && !part.startsWith(".")) && !parts.slice(0, -1).some(part => reserved.includes(part));
+}
+
 export function projectPaths(folders: ProjectFolders): string[] {
   validateProjectFolders(folders);
-  const content = [folders.manuscriptFolder,
-    ...["Chapters", "Characters", "Plan", "Summaries"].map(name => `${folders.manuscriptFolder}/${name}`),
-    folders.modelFolder,
-    ...WORKSHOP_FOLDERS.map(name => `${folders.manuscriptFolder}/${name}`),
-    folders.bibleFolder, `${folders.bibleFolder}/Style`, `${folders.bibleFolder}/Characters`, `${folders.manuscriptFolder}/Context`];
-  return [folders.archiveFolder, ...content, ...content.map(path => `${folders.archiveFolder}/${path}`)];
+  const content = [folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder,
+    ...[...WORKSHOP_FOLDERS, "Plan", "Summaries", "Characters", "Style", "World", "Brainstorm"].map(name => `${folders.bibleFolder}/${name}`),
+    "Tracking"];
+  return [folders.archiveFolder, ...content];
 }
 
 export interface OreliusSettings extends ProjectFolders {
@@ -67,14 +74,14 @@ export interface OreliusSettings extends ProjectFolders {
 export type SettingsChanges = Partial<Omit<OreliusSettings, "sessions">>;
 
 export function associatedFolder(settings: OreliusSettings, path: string): string | undefined {
-  return [settings.folder, ...Object.keys(settings.sessions)]
-    .filter(folder => folder === "" || path === folder || path.startsWith(`${folder}/`))
+  return [...(settings.folder ? [settings.folder] : []), ...Object.keys(settings.sessions)]
+    .filter(folder => folder !== "" && (path === folder || path.startsWith(`${folder}/`)))
     .sort((a, b) => b.length - a.length)[0];
 }
 
 export function modelProject(settings: OreliusSettings, path: string): string | undefined {
   return [...Object.keys(settings.sessions), ...(settings.folder ? [settings.folder] : [])]
-    .find(folder => path === `${folder ? `${folder}/` : ""}${settings.modelFolder}`);
+    .find(folder => folder !== "" && path === `${folder}/${settings.modelFolder}`);
 }
 
 export function visibleFolder(settings: OreliusSettings, path: string | null, busy: boolean): string | undefined {

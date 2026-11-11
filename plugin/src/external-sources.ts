@@ -5,6 +5,7 @@ import { checkPath } from "./archives.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import type { RpcObject } from "./codex.ts";
 import { t } from "./i18n.ts";
+import { publicationDate } from "./source-dates.ts";
 
 export const SOURCE_CONFIG = "config.md";
 const TEMPLATE = `---\nsources: []\n---\n\n# Sources documentaires\n\nDécrivez chaque source et les sujets pour lesquels la consulter :\n\n\`\`\`yaml\nsources:\n  - path: "/Users/votre-nom/Documents/Documentation"\n    description: "Archives personnelles ; à consulter pour les événements vécus et leur chronologie."\n  - url: "https://example.org"\n    description: "Articles et analyses ; à consulter pour documenter les sujets abordés dans le texte."\n\`\`\`\n`;
@@ -44,7 +45,7 @@ export async function prepareSourceConfig(cwd: string, archive: string, parseYam
 
 export async function externalSources(cwd: string, args: RpcObject, parseYaml: (text: string) => unknown): Promise<string> {
   const fail = (): never => { throw new Error(t("externalSourcesInvalid")); };
-  if (Object.keys(args).some(key => !["source", "chemin", "page"].includes(key))) return fail();
+  if (Object.keys(args).some(key => !["source", "chemin", "page", "usage"].includes(key)) || args.usage !== undefined && !["personnage", "contexte-auteur"].includes(String(args.usage))) return fail();
   const config = await readProjectFile(cwd, SOURCE_CONFIG);
   const yaml = config?.text.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
   if (config && yaml === undefined) return fail();
@@ -106,6 +107,6 @@ export async function externalSources(cwd: string, args: RpcObject, parseYaml: (
     const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
     const pages = Math.max(1, Math.ceil(text.length / 8000));
     if (page >= pages) return fail();
-    return JSON.stringify({ source: index, fichier: target, description: selected.description, page, pages, contenu: text.slice(page * 8000, (page + 1) * 8000) });
+    return JSON.stringify({ source: index, fichier: target, description: selected.description, publication:publicationDate(text), usage:args.usage ?? "personnage", page, pages, contenu: text.slice(page * 8000, (page + 1) * 8000) });
   } finally { await file.close(); }
 }

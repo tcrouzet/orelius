@@ -12,7 +12,7 @@ import {readEditorialContext} from '../plugin/src/editorial-context.ts';
 
 export async function checkReactionImplementation(){
  const root=await mkdtemp(join(tmpdir(),'orelius-rated-versions-'));
- const chapter='Manuscript/Chapters/001.md',next='Manuscript/Chapters/002.md',character='Bible/Characters/YQ.md';
+ const chapter='Manuscript/001.md',next='Manuscript/002.md',character='Bible/Characters/YQ.md';
  const written=(path,content,extra={})=>toChatItem({id:path,type:'mcpToolCall',server:'orelius',tool:'ecrire_fichier',status:'completed',arguments:{chemin:path,contenu:content},result:{content:[{type:'text',text:JSON.stringify({fichier:path,modifie:true})}]},...extra});
  const turn={id:'turn',completed:true,date:null,messages:[
   {id:'u',role:'user',text:'Écris la lettre de YQ.',paths:[]},

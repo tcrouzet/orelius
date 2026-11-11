@@ -12,7 +12,7 @@ import { collectChanges, deliverChanges } from '../plugin/src/workshop.ts';
 export async function checkOutline() {
  const root=await mkdtemp(join(tmpdir(),'orelius-outline-'));
  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
- const chapter='Manuscript/Chapters/001.md', second='Manuscript/Chapters/002.md', scene='Manuscript/Scenes/entree.md', next='Manuscript/Scenes/sortie.md', person='Bible/Characters/Nadia.md', plot='Manuscript/Plots/enquete.md';
+ const chapter='Manuscript/001.md', second='Manuscript/002.md', scene='Bible/Scenes/entree.md', next='Bible/Scenes/sortie.md', person='Bible/Characters/Nadia.md', plot='Bible/Plots/enquete.md';
  try {
   for(const path of [chapter,second,scene,next,person,plot]) await put(path,path===chapter?'Nadia entre.':path);
   let data=await syncStructure(root,folders);
@@ -50,7 +50,7 @@ export async function checkOutline() {
   const snapshot=await readFile(join(root,structurePath(folders)),'utf8');
   for(const action of [move(sceneId,secondId,sceneId),move(sceneId,secondId,nextId),move(sceneId,id(person)),{type:'chapter',id:chapterId,act:'unknown'},{...move(sceneId,secondId),status:'__proto__'}]) await assert.rejects(edit(action));
   assert.equal(await readFile(join(root,structurePath(folders)),'utf8'),snapshot);
-  const renamed='Manuscript/Scenes/arrivee.md';await rename(join(root,scene),join(root,renamed));
+  const renamed='Bible/Scenes/arrivee.md';await rename(join(root,scene),join(root,renamed));
   data=await syncStructure(root,folders,{rename:{from:scene,to:renamed}});
   assert.equal(data.outline.scenes.find(item=>item.id===sceneId).chapter,secondId);
   assert.equal(data.nodes.find(item=>item.id===sceneId).path,renamed);
@@ -65,7 +65,7 @@ export async function checkOutline() {
   const changed=await collectChanges(root,folders);assert.ok(changed.pending.some(item=>item.path===structurePath(folders)));
   const invalid=structuredClone(data);invalid.outline.scenes.push(invalid.outline.scenes[0]);
   assert.throws(()=>parseStructure(invalid,folders),/invalide/);
-  assert.ok((await readdir(join(root,'Archives/Manuscript/Context'))).some(name=>name.startsWith('Structure.')));
+  assert.ok((await readdir(join(root,'Archives/Tracking'))).some(name=>name.startsWith('Structure.')));
   const legacy={version:1,nodes:data.nodes,links:data.links};assert.deepEqual(parseStructure(legacy,folders),legacy);
  } finally { await rm(root,{recursive:true,force:true}); }
 }

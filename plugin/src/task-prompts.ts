@@ -2,12 +2,12 @@ import { EDITORIAL_PRIORITIES } from "./bible.ts";
 import { t } from "./i18n.ts";
 import type { ProjectFolders } from "./settings.ts";
 
-export const TASK_PROMPT_NAMES = ["preparer-scene", "rediger", "reviser", "controler-continuite", "controler-publication", "actualiser-suivi", "idees", "synopsis", "planifier", "decomposer-scene", "resumer", "developper", "reformuler", "condenser", "critiquer", "extraire-style", "adapter", "actualiser-bible", "decrire", "continuer"] as const;
+export const TASK_PROMPT_NAMES = ["verifier-prerequis", "approfondir-projet", "enrichir-bible", "preparer-scene", "rediger", "reviser", "controler-continuite", "controler-publication", "actualiser-suivi", "idees", "synopsis", "planifier", "decomposer-scene", "resumer", "developper", "reformuler", "condenser", "critiquer", "extraire-style", "adapter", "actualiser-bible", "decrire", "continuer"] as const;
 export type TaskPromptName = typeof TASK_PROMPT_NAMES[number];
 export type TaskPrompts = Record<TaskPromptName, string>;
 
-export function renderTaskPrompts(templates: TaskPrompts, folders: ProjectFolders, chapter: string, contextPath: string, preparationPath: string, metadata: { pov?: string; tense?: string } = {}): TaskPrompts {
-  const variables: Record<string, string> = { editorialPriorities: EDITORIAL_PRIORITIES, chapter, contextPath, preparationPath, manuscriptFolder: folders.manuscriptFolder, bibleFolder: folders.bibleFolder, modelFolder: folders.modelFolder, pov: metadata.pov ?? "", tense: metadata.tense ?? "" };
+export function renderTaskPrompts(templates: TaskPrompts, folders: ProjectFolders, chapter: string, contextPath: string, preparationPath: string, metadata: { pov?: string; tense?: string; date?: string } = {}): TaskPrompts {
+  const variables: Record<string, string> = { editorialPriorities: EDITORIAL_PRIORITIES, chapter, contextPath, preparationPath, manuscriptFolder: folders.manuscriptFolder, bibleFolder: folders.bibleFolder, modelFolder: folders.modelFolder, pov: metadata.pov ?? "", tense: metadata.tense ?? "", storyDate: metadata.date ?? "" };
   const expand = (name: TaskPromptName, ancestors: string[] = []): string => {
     if (ancestors.includes(name)) throw new Error(t("promptInclusionCycle", { value1: name }));
     const template = templates[name];

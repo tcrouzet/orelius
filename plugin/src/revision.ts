@@ -28,10 +28,10 @@ export function revisionFor(plans: readonly RevisionPlan[], cwd: string, request
   return plans.find(plan => pathKey(plan.path) === key);
 }
 
-export function revisionPath(plan: RevisionPlan, cwd: string, bibleFolder: string, requested: string, references: readonly string[] = []): string {
+export function revisionPath(plan: RevisionPlan, cwd: string, bibleFolder: string, requested: string, references: readonly string[] = [], provenance?: string): string {
   const key = revisionKey(cwd, requested);
-  const knowledge = `${bibleFolder}/Tracking/Connaissances.md`;
-  for (const allowed of [plan.path, knowledge]) if (key === pathKey(allowed)) return allowed;
+  const knowledge = `Tracking/Connaissances.md`;
+  for (const allowed of [plan.path, knowledge, ...(provenance ? [provenance] : [])]) if (key === pathKey(allowed)) return allowed;
   const reference = references.find(path => revisionKey(cwd, path) === key);
   if (reference && bibleReference(reference, { bibleFolder })) return reference;
   throw new Error(t("thisRevisionOnlyPermitsChangesToTheTargetChapter"));
@@ -64,7 +64,8 @@ export function fullRewriteRequested(text: string, path: string): boolean {
 export function planRevision(path: string, source: string, baseline?: string, details = "", wholeChapterRequested = false): RevisionPlan {
   const touched: TextRange[] = [];
   let offset = 0;
-  if (baseline !== undefined) for (const change of diffToGroups(baseline, source, true)) {
+  const full = wholeChapterRequested || fullRewriteRequested(details, path);
+  if (!full && baseline !== undefined) for (const change of diffToGroups(baseline, source, true)) {
     const from = change.delFrom + offset;
     const length = change.insText?.length ?? 0;
     if (length) touched.push({ from, to: from + length });
@@ -74,7 +75,7 @@ export function planRevision(path: string, source: string, baseline?: string, de
     touched.push({ from: match.index, to: match.index + match[0].length });
   }
   const ranges = paragraphs(source).filter(paragraph => touched.some(range => range.from < paragraph.to && range.to > paragraph.from));
-  const wholeChapter = wholeChapterRequested || fullRewriteRequested(details, path)
+  const wholeChapter = full
     || !ranges.length && (baseline === undefined || baseline === source) && !!details.trim();
   if (wholeChapter) ranges.splice(0, ranges.length, { from: 0, to: source.length });
   if (!ranges.length && (baseline === undefined || baseline === source)) throw new Error(baseline === undefined
@@ -91,7 +92,7 @@ export function checkRevision(plan: RevisionPlan, current: string | undefined, p
     if (plan.selection.readOnly) throw new Error(t("alternativesAreProposedInTheChatReplacingTheManuscript"));
     const before = plan.source.slice(0, plan.selection.from), after = plan.source.slice(plan.selection.to);
     if (proposed.length < before.length + after.length || !proposed.startsWith(before) || !proposed.endsWith(after)) throw new Error(t("changeOutsideTheSelectionChapterPreserved"));
-  } else for (const change of diffToGroups(plan.source, proposed, true)) {
+  } else if (!plan.wholeChapter) for (const change of diffToGroups(plan.source, proposed, true)) {
     if (!plan.ranges.some(range => change.delFrom >= range.from && change.delTo <= range.to)) {
       const line = plan.source.slice(0, change.delFrom).split("\n").length;
       throw new Error(t("revisionRefusedChangeOutsideTheAuthorSCorrectedParagraphs", { value1: line }));
@@ -106,7 +107,7 @@ export function revisionMarks(snapshot: RevisionHighlight, current: string): Rev
   const before = snapshot.before.replace(/\r\n?/g, "\n");
   const after = snapshot.after.replace(/\r\n?/g, "\n");
   let offset = 0;
-  const marks = diffToGroups(before, after, true).flatMap(block => {
+  const marks = diffToGroups(before, after, true, true).flatMap(block => {
     const start = block.delFrom + offset;
     offset += (block.insText?.length ?? 0) - (block.delTo - block.delFrom);
     let innerOffset = 0;

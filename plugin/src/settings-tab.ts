@@ -27,7 +27,6 @@ export class OreliusSettingTab extends PluginSettingTab {
     containerEl.empty();
     new Setting(containerEl).setName(t("codex")).setHeading();
     const installationEl = containerEl.createDiv();
-    new Setting(installationEl).setName(t("installation")).setDesc(t("detectingCodex"));
     let detectedPath: string | null = null;
     let testButton!: ButtonComponent;
     new Setting(containerEl).setName(t("connection"))
@@ -45,11 +44,11 @@ export class OreliusSettingTab extends PluginSettingTab {
         });
       });
     const codexStatus = containerEl.createEl("p", { attr: { role: "status" } });
-    const showCodex = (path: string | null, manual = false) => {
+    const showCodex = (path: string | null, manual = false, searched = true) => {
       detectedPath = path;
       installationEl.empty();
       const installation = new Setting(installationEl).setName(t("installation"))
-        .setDesc(path ? t("codexDetected", { value1: path }) : t("codexWasNotDetected"));
+        .setDesc(path ? t("codexDetected", { value1: path }) : t(searched ? "codexWasNotDetected" : "codexDetectionOnDemand"));
       testButton.setDisabled(!path);
       if (!path) installation.addButton(button => button.setButtonText(t("findCodex")).onClick(async () => {
         button.setDisabled(true);
@@ -87,7 +86,7 @@ export class OreliusSettingTab extends PluginSettingTab {
           };
         });
     };
-    void findCodex(this.plugin.settings.codexPath).then(path => showCodex(path)).catch(() => showCodex(null));
+    showCodex(null, false, false);
 
     new Setting(containerEl).setName(t("projectOrganization")).setHeading();
     const labels = { archiveFolder: t("archivesFolder"), manuscriptFolder: t("manuscriptFolder"), modelFolder: t("sourceTextsFolder"), bibleFolder: t("bibleFolder") };

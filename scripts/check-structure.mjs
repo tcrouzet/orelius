@@ -13,11 +13,11 @@ import { ProjectMcp, STRUCTURE_TOOL, LINK_TOOL } from '../plugin/src/mcp.ts';
 export async function checkStructure() {
  const root = await mkdtemp(join(tmpdir(), 'orelius-structure-'));
  const put = async (path, text) => { await mkdir(join(root, path, '..'), { recursive: true }); await writeFile(join(root, path), text); };
- const paths = { seed: 'Manuscript/Seeds/depart.md', plan: 'Manuscript/Plan/002.md', scene: 'Manuscript/Scenes/cuisine.md', character: 'Bible/Characters/Louise.md', plot: 'Manuscript/Plots/video.md', chapter: 'Manuscript/Chapters/002.md' };
+ const paths = { seed: 'Bible/Seeds/depart.md', plan: 'Bible/Plan/002.md', scene: 'Bible/Scenes/cuisine.md', character: 'Bible/Characters/Louise.md', plot: 'Bible/Plots/video.md', chapter: 'Manuscript/002.md' };
  let server;
  try {
   for (const [name,path] of Object.entries(paths)) await put(path, name === 'chapter' ? 'Louise ouvre la porte. Nadia entre.' : name + ' initial');
-  await put('Manuscript/Seeds/index.md', 'Index');
+  await put('Bible/Seeds/index.md', 'Index');
   let data = await syncStructure(root, folders);
   assert.equal(data.nodes.length, 6);
   const ids = Object.fromEntries(Object.entries(paths).map(([key,path])=>[key,data.nodes.find(node=>node.path===path).id]));
@@ -59,7 +59,10 @@ export async function checkStructure() {
   await put(paths.chapter,'Nadia sort.');
   data=await syncStructure(root,folders);
   assert.equal(structureView(data,await projectSources(root,folders)).links.find(link=>link.relation==='realise').status,'à revalider');
-  const renamed='Manuscript/Scenes/renommee.md';
+  data=await syncStructure(root,folders,{link:args('scene','chapter','realise',{remove:true})});
+  assert.equal(data.links.some(link=>link.relation==='realise'),false,'Retirer un ancien passage ne demande pas de citer un texte qui n’existe plus.');
+  data=await syncStructure(root,folders,{link:args('scene','chapter','realise',{quote:'Nadia sort.',at:0})});
+  const renamed='Bible/Scenes/renommee.md';
   await rename(join(root,paths.scene),join(root,renamed));
   await put(renamed,'Scène aussi modifiée.');
   data=await syncStructure(root,folders,{rename:{from:paths.scene,to:renamed}});
@@ -75,11 +78,11 @@ export async function checkStructure() {
   await rm(join(root,moved));
   data=await syncStructure(root,folders);
   assert.equal(node('character').missing,true);
-  await put('Manuscript/Seeds/doublon-a.md','Même texte'); await put('Manuscript/Seeds/doublon-b.md','Même texte');
+  await put('Bible/Seeds/doublon-a.md','Même texte'); await put('Bible/Seeds/doublon-b.md','Même texte');
   data=await syncStructure(root,folders);
   const originals=data.nodes.filter(node=>node.path.includes('doublon-')).map(node=>node.id);
-  await rename(join(root,'Manuscript/Seeds/doublon-a.md'),join(root,'Manuscript/Seeds/autre-a.md'));
-  await rename(join(root,'Manuscript/Seeds/doublon-b.md'),join(root,'Manuscript/Seeds/autre-b.md'));
+  await rename(join(root,'Bible/Seeds/doublon-a.md'),join(root,'Bible/Seeds/autre-a.md'));
+  await rename(join(root,'Bible/Seeds/doublon-b.md'),join(root,'Bible/Seeds/autre-b.md'));
   data=await syncStructure(root,folders);
   assert.ok(data.nodes.filter(node=>originals.includes(node.id)).every(node=>node.missing),'Renommage ambigu non inventé.');
   data=await syncStructure(root,folders,{decision:{path:paths.seed,value:'abandonne'}});
@@ -98,7 +101,7 @@ export async function checkStructure() {
   assert.equal(characterImpacts.some(item=>item.path===paths.seed),false,'Le registre ne diffuse pas un changement vers les autres branches du graphe.');
   data=await syncStructure(root,folders,{link:args('character','scene','implique',{remove:true})});
   assert.equal(data.links.some(link=>link.from===ids.character),false,'Un lien vers une fiche absente peut être retiré.');
-  const archived=await readdir(join(root,folders.archiveFolder,'Manuscript','Context'));
+  const archived=await readdir(join(root,folders.archiveFolder,'Tracking'));
   assert.ok(archived.some(name=>name.includes('Structure')),'Originals du registre archivés.');
   assert.equal(await readFile(join(root,paths.chapter),'utf8'),'Nadia sort.','Aucune prose modifiée par le registre.');
   server=new ProjectMcp(async()=>'',undefined,undefined,undefined,undefined,undefined,undefined,undefined,async args=>JSON.stringify(structureView(await syncStructure(root,folders,args?{link:args}:{}),await projectSources(root,folders))));

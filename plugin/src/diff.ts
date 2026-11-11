@@ -38,7 +38,7 @@ function sparseDiff(a: string[], b: string[]): DiffOp[] | null {
   return null;
 }
 
-function tokenDiff(original: string, revised: string, lines: boolean): DiffOp[] {
+function tokenDiff(original: string, revised: string, lines: boolean, allowReplacement: boolean): DiffOp[] {
   const a = tokenize(original, lines);
   const b = tokenize(revised, lines);
   const n = a.length;
@@ -66,14 +66,14 @@ function tokenDiff(original: string, revised: string, lines: boolean): DiffOp[] 
   if (prefix || suffix) {
     return [
       { op: "equal", text: a.slice(0, prefix).join("") },
-      ...tokenDiff(a.slice(prefix, n - suffix).join(""), b.slice(prefix, m - suffix).join(""), lines),
+      ...tokenDiff(a.slice(prefix, n - suffix).join(""), b.slice(prefix, m - suffix).join(""), lines, allowReplacement),
       { op: "equal", text: a.slice(n - suffix).join("") },
     ];
   }
   if (n * m > 4_000_000) {
     const sparse = sparseDiff(a, b);
     if (sparse) return sparse;
-    if (lines) throw new Error(t("theDiffIsTooLargeToIdentifyCorrectionsReliably"));
+    if (lines && !allowReplacement) throw new Error(t("theDiffIsTooLargeToIdentifyCorrectionsReliably"));
     return [
       { op: "del", text: original },
       { op: "ins", text: revised },
@@ -115,8 +115,8 @@ function tokenDiff(original: string, revised: string, lines: boolean): DiffOp[] 
   return merged;
 }
 
-export function diffToGroups(original: string, revised: string, lines = false): DiffGroup[] {
-  const ops = tokenDiff(original, revised, lines);
+export function diffToGroups(original: string, revised: string, lines = false, allowReplacement = false): DiffGroup[] {
+  const ops = tokenDiff(original, revised, lines, allowReplacement);
   const groups: DiffGroup[] = [];
   let pos = 0;
   let i = 0;

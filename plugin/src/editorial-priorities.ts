@@ -35,13 +35,27 @@ export function introducedObjectives(path: string, before: string, after: string
   return editorialObjectives(path, after).filter(goal => !old.some(item => item.goal === goal.goal && item.level === goal.level));
 }
 
+export const priorityHistoryPath = (path: string, folders: Pick<ProjectFolders, "bibleFolder">) => `Tracking/Priorities/${path.slice(folders.bibleFolder.length + 1)}`;
+
+export function prioritySummary(path: string, content: string): { path: string; content: string; role: string } | null {
+  const rows = content.match(/^- [+-]?\d+ — .+$/gm);
+  return rows?.length ? { path, content: rows.join("\n"), role: "priority-evidence" } : null;
+}
+
 export async function rateEditorialObjectives(cwd: string, folders: ProjectFolders, objectives: EditorialObjective[],
   evidence: Evidence, checkEditor: (path: string, content: string) => void = () => {}): Promise<void> {
   for (const path of new Set(objectives.map(item => item.path))) {
     if (!bibleReference(path, folders)) throw new Error(t("priorityBibleOnly"));
     if (!path.startsWith(`${folders.bibleFolder}/Style/`)) continue;
-    const file = await readProjectFile(cwd, path);
-    if (!file) continue;
+    const reference = await readProjectFile(cwd, path);
+    if (!reference) continue;
+    const historyPath = priorityHistoryPath(path, folders);
+    const previous = await readProjectFile(cwd, historyPath);
+    const legacyStart = reference.text.indexOf(START), legacyEnd = reference.text.indexOf(END);
+    if ((legacyStart < 0) !== (legacyEnd < 0) || legacyStart >= 0 && legacyEnd < legacyStart) throw new Error(t("priorityMarkersInvalid"));
+    const legacy = legacyStart < 0 ? "" : reference.text.slice(legacyStart, legacyEnd + END.length);
+    if (legacy && previous) throw new Error(t("priorityHistoryInvalid"));
+    const file = previous ?? { ...reference, text: legacy };
     const start = file.text.indexOf(START), end = file.text.indexOf(END);
     let records: Record<string, RatedObjective> = {};
     if (start !== -1 || end !== -1) {
@@ -62,7 +76,7 @@ export async function rateEditorialObjectives(cwd: string, folders: ProjectFolde
       }
       records = data as Record<string, RatedObjective>;
     }
-    const current = editorialObjectives(path, file.text);
+    const current = editorialObjectives(path, reference.text);
     let changed = false;
     for (const goal of objectives.filter(item => item.path === path)) {
       if (!current.some(item => item.goal === goal.goal && item.level === goal.level)) continue;
@@ -73,7 +87,7 @@ export async function rateEditorialObjectives(cwd: string, folders: ProjectFolde
       records[id] = record;
       changed = true;
     }
-    if (!changed) continue;
+    if (!changed && !legacy) continue;
     const score = (record: RatedObjective) => record.evidence.reduce((sum, item) => sum + (item.value === "heart" ? 2 : item.value === "up" ? 1 : -1), 0);
     const rows = Object.values(records).filter(record => current.some(item => item.goal === record.goal))
       .sort((a, b) => score(b) - score(a)).map(record => {
@@ -83,7 +97,11 @@ export async function rateEditorialObjectives(cwd: string, folders: ProjectFolde
     const body = `## Retours sur les priorités\n\n${rows}\n\nCes points concernent l’application de ces objectifs dans les échanges évalués, pas une preuve de causalité. Un rejet invite à revoir l’objectif ou son application ; il ne supprime ni fait établi ni interdiction explicite. Les consignes de l’auteur priment sur le score.\n\nDonnées : ${JSON.stringify(records)}\n`;
     const block = `${START}\n<!-- orelius:priorities-content:${key(body)} -->\n${body}${END}`;
     const content = start < 0 ? `${file.text}${file.text.endsWith("\n") ? "\n" : "\n\n"}${block}\n` : file.text.slice(0, start) + block + file.text.slice(end + END.length);
-    await writeProjectFile(cwd, path, content, file, folders.archiveFolder, undefined, () => checkEditor(path, file.text));
+    await writeProjectFile(cwd, historyPath, content, previous, folders.archiveFolder, undefined, () => checkEditor(historyPath, previous?.text ?? ""));
+    if (legacy) {
+      const clean = reference.text.slice(0, legacyStart) + reference.text.slice(legacyEnd + END.length);
+      await writeProjectFile(cwd, path, clean, reference, folders.archiveFolder, undefined, () => checkEditor(path, reference.text));
+    }
   }
 }
 

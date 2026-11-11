@@ -12,6 +12,12 @@ body:not(.is-mobile) .workspace.orelius-chat-open .workspace-split:is(.mod-right
   pointer-events: auto;
 }
 
+.workspace-leaf-content[data-type="orelius-chat"] .orelius-chat,
+.workspace-leaf-content[data-type="orelius-chat"] .orelius-chat * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .orelius-chat {
   display: flex;
   flex-direction: column;
@@ -47,6 +53,7 @@ body:not(.is-mobile) .workspace.orelius-chat-open .workspace-split:is(.mod-right
 @keyframes orelius-working { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .orelius-status.is-working::before { animation: none; } }
 .orelius-model { display: flex; align-items: center; gap: var(--size-4-2); }
+.orelius-model + .orelius-model { margin-top: var(--size-4-2); }
 .orelius-model select { flex: 1; min-width: 0; max-width: 100%; }
 .orelius-context { padding-block: var(--size-4-2); font-variant-numeric: tabular-nums; }
 .orelius-actions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
@@ -128,3 +135,9 @@ body:not(.is-mobile) .workspace.orelius-chat-open .workspace-split:is(.mod-right
 }
 
 .orelius-file select { display: block; width: 100%; }
+
+.orelius-failure p, .orelius-error {
+  max-height: 30vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}

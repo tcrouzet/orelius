@@ -6,13 +6,13 @@ import {newModelSources} from '../plugin/src/populate-state.ts';
 import {renderAgent} from "../plugin/src/generate-agent.ts";
 import { withContext } from "../plugin/src/request-context.ts";
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,rm,rename,symlink,link,stat} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,readdir,rm,rename,symlink,link,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {projectSources,collectChanges,deliverChanges,rememberGenerated,withChanges,withoutChanges,populateDestination,checkPopulateChapter,WorkshopContext,POPULATE_PREFIX} from '../plugin/src/workshop.ts';
 import {DEFAULT_PROJECT_FOLDERS as folders, loadSettings, modelProject} from '../plugin/src/settings.ts';
 import {prepareProject} from '../plugin/src/archives.ts';
-import {authorPrompt} from '../plugin/src/conversation.ts';
+import {authorPrompt,visibleMessages} from '../plugin/src/conversation.ts';
 import {buildSceneContext} from '../plugin/src/scene-context.ts';
 
 export async function checkWorkshop(){
@@ -20,8 +20,8 @@ export async function checkWorkshop(){
  assert.equal(isModelNote('Roman/Sources/Notes/Projet.MD','Roman/Sources'),true);
  for(const path of ['Autre/Model/Projet.md','Roman/Model bis/Projet.md','Roman/Bible/Projet.md','Roman/Model/image.png','Roman/Model/../Projet.md']) assert.equal(isModelNote(path,'Roman/Model'),false,path);
 
- assert.throws(()=>populateBrief('  '),/Décrivez/);
- assert.throws(()=>populateBrief('',{path:'Projet.md',content:'  '}),/Décrivez/);
+ assert.equal(populateBrief('  '),'');
+ assert.equal(populateBrief('',{path:'Projet.md',content:'  '}),'');
  assert.equal(populateBrief(' Un essai. '),'Un essai.');
  const brief=populateBrief('Un essai, pas un roman.',{path:'Notes/Projet.md',content:'Le document est une référence historique.\nNe pas en extraire de personnages.'});
  assert.ok(brief.includes('Notes/Projet.md'));
@@ -29,6 +29,17 @@ export async function checkWorkshop(){
  assert.ok(populateBrief('',{path:'Projet.md',content:'Une correspondance.'}).includes('Une correspondance.'));
  const visible=authorPrompt(POPULATE_PREFIX+'Consignes internes'+POPULATE_BRIEF_MARKER+brief);
  assert.ok(visible.endsWith(brief));assert.ok(!visible.includes('Consignes internes'));
+ const progress=[
+  {id:'populate',role:'user',text:POPULATE_PREFIX+'Consignes internes',paths:[]},
+  {id:'progress',role:'assistant',phase:'commentary',text:'Les notes décrivent une correspondance.',paths:[]},
+  {id:'tool',role:'activity',text:'Appel interne',paths:[]},
+  {id:'question',role:'assistant',phase:'final_answer',text:'Quel rôle ce brouillon doit-il jouer ?',paths:[]},
+ ];
+ assert.deepEqual(visibleMessages(progress,[]).map(item=>item.id),['populate','progress','question']);
+ assert.equal(visibleMessages(progress,[])[0].text,'Peupler l’atelier à partir de Manuscript, Model et Bible.');
+ const reply=[{id:'reply',role:'user',text:'C’est une référence documentaire.',paths:[]},...progress.slice(1)];
+ assert.deepEqual(visibleMessages(reply,[],true).map(item=>item.id),['reply','progress','question']);
+ assert.deepEqual(visibleMessages(reply,[]).map(item=>item.id),['reply','question'],'Les autres demandes conservent leur affichage habituel.');
 
  const savedWindow=globalThis.window, savedObserver=globalThis.MutationObserver;
  let scheduled, pending=true, busy=false, defer, readError;
@@ -54,7 +65,7 @@ export async function checkWorkshop(){
   assert.equal(button.disabled,true,'Un registre illisible ne doit pas activer Peupler.');
   assert.equal(button.title,'Registre illisible','L’erreur reste visible au survol.');
   readError=undefined;pending=false;await refresh();
-  assert.equal(button.title,'Aucun nouveau document');
+  assert.equal(button.title,'Aucun changement à traiter');
   pending=true;await refresh();assert.equal(button.disabled,false);assert.equal(button.title,'');
 
  } finally {
@@ -72,6 +83,8 @@ export async function checkWorkshop(){
   assert.equal(modelProject(loadSettings(undefined),'Model'),undefined);
   assert.equal(modelProject({...projects,modelFolder:'Sources'},'Roman B/Sources'),'Roman B');
   const populatePrompt=renderAgent(await readFile(new URL('../prompts/peupler.md',import.meta.url),'utf8'),{...projects,modelFolder:'Sources',manuscriptFolder:'Roman',bibleFolder:'Univers'});
+  assert.ok(populatePrompt.includes('Tracking/Provenance.md'));
+  assert.equal(populatePrompt.includes('Chaque fiche doit rendre lisibles son statut, ses sources'),false);
   assert.ok(populatePrompt.includes('Sources') && populatePrompt.includes('Roman') && populatePrompt.includes('Univers'));
   assert.ok(!populatePrompt.includes('{modelFolder}'));
   await prepareProject(root,folders);
@@ -83,12 +96,12 @@ export async function checkWorkshop(){
   assert.equal((await stat(join(root,'Bible/Style/Narration.md'))).nlink,1);
   await assert.rejects(readFile(join(root,leftover)),{code:'ENOENT'});
 
-  const chapter='Manuscript/Chapters/001.md';
+  const chapter='Manuscript/001.md';
   await put(chapter,'Texte conservé.');
   await put('Model/Chapters/001.md','Ancienne version.');
   await put('Bible/Style/Narration.md','Voix actuelle.');
-  await put('Bible/Tracking/Conversation.md','Historique à exclure.');
-  await put('Manuscript/Context/001/sources.md','Trace générée à exclure.');
+  await put('Tracking/Conversation.md','Historique à exclure.');
+  await put('Tracking/001/sources.md','Trace générée à exclure.');
   const first=await collectChanges(root,folders);
   assert.equal(first.pending.length,3);
   assert.ok(first.pending.every(change=>change.kind==='ajouté'));
@@ -109,10 +122,10 @@ export async function checkWorkshop(){
   await rememberGenerated(root,folders,'Bible/Style/Narration.md','Résultat du modèle.');
   await deliverChanges(root,folders,current);
   assert.equal((await collectChanges(root,folders)).pending.length,0,'Un accusé tardif ne remplace pas la version générée connue.');
-  await rename(join(root,chapter),join(root,'Manuscript/Chapters/002.md'));
+  await rename(join(root,chapter),join(root,'Manuscript/002.md'));
   const moved=await collectChanges(root,folders);
   assert.deepEqual(moved.pending.map(item=>item.kind),['supprimé','ajouté']);
-  assert.ok((await readFile(join(root,'Manuscript/Context/Modifications.md'),'utf8')).includes('supprimé'));
+  assert.ok((await readFile(join(root,'Tracking/Modifications.md'),'utf8')).includes('supprimé'));
   await put('Model/notes libres/texte.md','Début.\n\nUn chapitre conservé.\n\nFin.');
   const sourceFiles=await projectSources(root,folders);
   assert.doesNotThrow(()=>checkPopulateChapter(folders,chapter,'Un chapitre conservé.',undefined,sourceFiles));
@@ -121,67 +134,76 @@ export async function checkWorkshop(){
   assert.throws(()=>checkPopulateChapter(folders,chapter,'',undefined,sourceFiles),/texte exact/);
   const workshop=new WorkshopContext();
   await assert.rejects(()=>workshop.check(root,folders),/toutes les pages/);
-  await put('Manuscript/Seeds/index.md','Idée humaine. '.repeat(1000));
+  await put('Bible/Seeds/index.md','Idée humaine. '.repeat(1000));
   const opening=JSON.parse(await workshop.page(root,folders,0));
   assert.ok(opening.pages>1);
+  assert.equal(opening.configurationNarrative.fichier,'Tracking/configuration.md');
+  assert.deepEqual(opening.configurationNarrative.structureMinimale,{chapters:[],references:[]});
+  assert.match(opening.configurationNarrative.format,/AAAA-MM-JJ/);
   await assert.rejects(()=>workshop.check(root,folders),/toutes les pages/);
   for(let page=1;page<opening.pages;page++) await workshop.page(root,folders,page);
   await workshop.check(root,folders);
-  await put('Manuscript/Seeds/index.md','Décision de l’auteur.');
+  await put('Bible/Seeds/index.md','Décision de l’auteur.');
   await assert.rejects(()=>workshop.check(root,folders),/source a changé/);
   for(let page=0,pages=1;page<pages;page++) pages=JSON.parse(await workshop.page(root,folders,page)).pages;
-  await put('Manuscript/Scenes/index.md','Fiche proposée.');
-  workshop.written('Manuscript/Scenes/index.md','Fiche proposée.');
+  await put('Bible/Scenes/index.md','Fiche proposée.');
+  workshop.written('Bible/Scenes/index.md','Fiche proposée.');
   await workshop.check(root,folders);
-  for(const denied of ['Bible/Tracking/Conversation.md','Bible/suivi.md','Model/Scenes/index.md','Manuscript/Seeds/../Chapters/001.md','Manuscript/Context/Modifications.md']) assert.equal(populateDestination(folders,denied),false,denied);
-  for(const allowed of ['Manuscript/Chapters/001.md','Bible/Style/Narration.md','Bible/Characters/Nora.md','Manuscript/Seeds/index.md','Manuscript/Scenes/scene-01.md','Manuscript/Plan/001.md']) assert.equal(populateDestination(folders,allowed),true,allowed);
-  const automatic=await buildSceneContext(root,folders,{},'Manuscript/Chapters/002.md');
-  assert.ok(!automatic.sources.some(source=>source.path==='Manuscript/Seeds/index.md'),'Les fiches sans rapport avec le chapitre ne sont plus injectées en bloc.');
-  const context=await buildSceneContext(root,folders,{},'Manuscript/Chapters/002.md',withContext('',{chapter:'Manuscript/Chapters/002.md',include:['Manuscript/Seeds/index.md'],exclude:[]}));
+  for(const denied of ['Tracking/Conversation.md','Tracking/suivi.md','Model/Scenes/index.md','Bible/Seeds/../Chapters/001.md','Tracking/Modifications.md','Tracking/Provenance.md/../configuration.md']) assert.equal(populateDestination(folders,denied),false,denied);
+  for(const allowed of ['Manuscript/001.md','Bible/Style/Narration.md','Bible/Characters/Nora.md','Bible/Seeds/index.md','Bible/Scenes/scene-01.md','Bible/Plan/001.md','Tracking/Provenance.md','Tracking/configuration.md']) assert.equal(populateDestination(folders,allowed),true,allowed);
+  await put('Tracking/Provenance.md','Sources historiques de Nora : Model/ancien.md.');
+  await workshop.check(root,folders);
+  assert.equal((await projectSources(root,folders)).some(source=>source.path.endsWith('/Provenance.md')),false);
+  const automatic=await buildSceneContext(root,folders,{},'Manuscript/002.md');
+  assert.equal(automatic.document.includes('Sources historiques de Nora'),false,'La provenance ne doit pas être injectée dans le dossier de rédaction.');
+  assert.ok(!automatic.sources.some(source=>source.path==='Bible/Seeds/index.md'),'Les fiches sans rapport avec le chapitre ne sont plus injectées en bloc.');
+  const context=await buildSceneContext(root,folders,{},'Manuscript/002.md',withContext('',{chapter:'Manuscript/002.md',include:['Bible/Seeds/index.md'],exclude:[]}));
   assert.ok(context.sources.some(source=>source.role==='workshop-intentions-not-canon'&&source.content==='Décision de l’auteur.'));
   assert.equal((await projectSources(root,folders)).some(source=>source.path.endsWith('Conversation.md')),false);
   assert.equal((await newModelSources(root,folders)).length,2);
   await workshop.finish(root,folders,()=>{});
   assert.deepEqual(await newModelSources(root,folders),[]);
   await put('Model/notes libres/texte.md','Ajout dans une note déjà traitée.');
-  assert.deepEqual(await newModelSources(root,folders),[],'Les ajouts dans un ancien document sont ignorés.');
+  assert.deepEqual((await newModelSources(root,folders)).map(source=>source.path),['Model/notes libres/texte.md'],'Les modifications des documents traités sont proposées.');
   await put('Model/nouveau.md','Nouvelle source.');
   const incremental=new WorkshopContext();
   for(let page=0,pages=1;page<pages;page++) pages=JSON.parse(await incremental.page(root,folders,page)).pages;
-  assert.deepEqual(incremental.sources.filter(source=>source.path.startsWith('Model/')).map(source=>source.path),['Model/nouveau.md']);
-  await put('Model/notes libres/texte.md','Autre modification ignorée.');
+  assert.deepEqual(incremental.sources.filter(source=>source.path.startsWith('Model/')).map(source=>source.path),['Model/notes libres/texte.md','Model/nouveau.md']);
+  await put('Model/Chapters/001.md','Modification à traiter au passage suivant.');
   await put('Model/arrive-apres.md','À traiter au prochain passage.');
   await incremental.check(root,folders);
-  assert.equal((await newModelSources(root,folders)).length,2,'Une tâche non terminée reste à traiter.');
+  assert.equal((await newModelSources(root,folders)).length,4,'Une tâche non terminée reste à traiter.');
   await put('Model/nouveau.md','Source modifiée pendant le traitement.');
   await assert.rejects(()=>incremental.finish(root,folders,()=>{}),/source a changé/);
-  assert.equal((await newModelSources(root,folders)).length,2);
+  assert.equal((await newModelSources(root,folders)).length,4);
   await put('Model/nouveau.md','Nouvelle source.');
   await incremental.finish(root,folders,()=>{});
-  assert.deepEqual((await newModelSources(root,folders)).map(source=>source.path),['Model/arrive-apres.md']);
-  await put('Manuscript/Context/Populate.md','Registre cassé');
+  assert.deepEqual((await newModelSources(root,folders)).map(source=>source.path),['Model/arrive-apres.md','Model/Chapters/001.md']);
+  await put('Tracking/Populate.md','Registre cassé');
   await assert.rejects(()=>newModelSources(root,folders),/bloc JSON/);
-  await put('Manuscript/Context/Modifications.md','Registre cassé');
+  await put('Tracking/Modifications.md','Registre cassé');
   await assert.rejects(()=>collectChanges(root,folders),/bloc JSON/);
   assert.equal(loadSettings({}).debugMode,false);
   assert.equal(loadSettings({debugMode:true}).debugMode,true);
   const modelBefore=await projectSources(root,folders,[folders.modelFolder]);
-  const backup=await resetProject(root,folders);
-  assert.equal(await readFile(join(root,backup,'Manuscript/Context/Populate.md'),'utf8'),'Registre cassé');
-  assert.equal(await readFile(join(root,backup,'Bible/Style/Narration.md'),'utf8'),'Résultat du modèle.');
+  await resetProject(root,folders);
+  assert.deepEqual(await readdir(join(root,'Tracking')),[]);
+  assert.deepEqual(await readdir(join(root,'Archives')),[]);
   assert.deepEqual(await projectSources(root,folders,[folders.bibleFolder,folders.manuscriptFolder]),[]);
   assert.deepEqual(await projectSources(root,folders,[folders.modelFolder]),modelBefore);
   assert.deepEqual(await newModelSources(root,folders),modelBefore);
-  const nextBackup=await resetProject(root,folders);
-  assert.notEqual(nextBackup,backup);
+  await resetProject(root,folders);
+  assert.deepEqual(await readdir(join(root,'Archives')),[]);
+  assert.deepEqual(await readdir(join(root,'Tracking')),[]);
   const custom={archiveFolder:'Copies',manuscriptFolder:'Texte',modelFolder:'Sources',bibleFolder:'References'};
-  await put('Sources/original.md','Source conservée.');await put('Texte/Chapters/1.md','Chapitre.');
+  await put('Sources/original.md','Source conservée.');await put('Texte/1.md','Chapitre.');
   await symlink(join(root,'Bible'),join(root,'References'));
   await assert.rejects(()=>resetProject(root,custom),/symbolique/);
-  assert.equal(await readFile(join(root,'Texte/Chapters/1.md'),'utf8'),'Chapitre.');
+  assert.equal(await readFile(join(root,'Texte/1.md'),'utf8'),'Chapitre.');
   await rm(join(root,'References'));await put('References/Characters/1.md','Fiche.');
-  const customBackup=await resetProject(root,custom);
-  assert.equal(await readFile(join(root,customBackup,'References/Characters/1.md'),'utf8'),'Fiche.');
+  await resetProject(root,custom);
+  assert.deepEqual(await readdir(join(root,'References/Characters')),[]);
+  assert.deepEqual(await readdir(join(root,'Copies')),[]);
   assert.equal(await readFile(join(root,'Sources/original.md'),'utf8'),'Source conservée.');
 
  } finally {await rm(root,{recursive:true,force:true});}

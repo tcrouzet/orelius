@@ -9,10 +9,10 @@ export class ExplorerActions {
   private generation = 0;
   private readonly app: App;
   private readonly settings: () => OreliusSettings;
-  private readonly busy: () => boolean;
+  private readonly busy: (folder: string) => boolean;
   private readonly hasNewSources: (folder: string) => Promise<boolean>;
   private readonly populate: (folder: string) => void;
-  constructor(app: App, settings: () => OreliusSettings, busy: () => boolean,
+  constructor(app: App, settings: () => OreliusSettings, busy: (folder: string) => boolean,
     hasNewSources: (folder: string) => Promise<boolean>, populate: (folder: string) => void) {
     this.app = app;
     this.settings = settings;
@@ -60,7 +60,7 @@ export class ExplorerActions {
         const currentButton = button;
         void availability.get(folder)!.then(({ hasNew, error }) => {
           if (generation !== this.generation) return;
-          currentButton.disabled = this.busy() || !hasNew;
+          currentButton.disabled = this.busy(folder) || !hasNew;
           currentButton.title = error || (hasNew ? "" : t("noNewPopulateDocuments"));
         });
         button.onclick = event => { event.preventDefault(); event.stopPropagation(); this.populate(folder); };

@@ -1,9 +1,11 @@
+import { BRAINSTORM_INPUT, brainstormRequest, withoutBrainstorm } from "./brainstorm.ts";
 import { POPULATE_BRIEF_MARKER } from "./populate-brief.ts";
 import { t, getLocale } from "./i18n.ts";
 import { withoutContext } from "./request-context.ts";
 import { parseSelectionPrompt, selectionSummary } from "./selection-actions.ts";
 import { POPULATE_PREFIX, withoutChanges } from "./workshop.ts";
-import { MAINTENANCE_PREFIX } from "./editorial-workflow.ts";
+import { internalPrompt, INPUT_REVIEW_PREFIX } from "./editorial-workflow.ts";
+import { importInputs } from "./author-inputs.ts";
 import { revisionRequest } from "./corrections.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
@@ -22,7 +24,7 @@ export interface ConversationTurn {
 }
 
 export function finalResponses(turn: ConversationTurn): ChatItem[] {
-  if (!turn.completed || turn.messages.some(item => item.role === "user" && item.text.startsWith(MAINTENANCE_PREFIX))) return [];
+  if (!turn.completed || turn.messages.some(item => item.role === "user" && internalPrompt(item.text))) return [];
   const answers = turn.messages.filter(message => message.role === "assistant" && message.text.trim());
   const finals = answers.filter(message => message.phase === "final_answer");
   return finals.length ? finals : answers.filter(message => message.phase === undefined).slice(-1);
@@ -31,32 +33,43 @@ export function finalResponses(turn: ConversationTurn): ChatItem[] {
 export function authorPrompt(text: string): string {
   text = withoutChanges(text);
   try { text = withoutContext(text); } catch { return text; }
+  if (brainstormRequest(text)) return BRAINSTORM_INPUT + authorPrompt(withoutBrainstorm(text));
   if (text.startsWith(POPULATE_PREFIX)) {
     const index = text.indexOf(POPULATE_BRIEF_MARKER);
     return t("populateTheProjectFromManuscriptModelAndBible") + (index < 0 ? "" : "\n\n" + text.slice(index + POPULATE_BRIEF_MARKER.length));
   }
   try { const selection = parseSelectionPrompt(text); if (selection) return selectionSummary(selection); } catch { /* Preserve an incomplete author message. */ }
   const revision = revisionRequest(text);
-  return revision ? revision.details || t("revise2", { value1: revision.path, value2: revision.wholeChapterRequested ? t("entireChapter") : t("myAnnotations") }) : text;
+  return revision ? revision.details || t("revise2", { value1: revision.path, value2: revision.wholeChapterRequested ? t(text.startsWith("Révise le document ") ? "entireDocument" : "entireChapter") : t("myAnnotations") }) : text;
 }
 
-export function visibleMessages(items: ChatItem[], turns: ConversationTurn[]): ChatItem[] {
+export function visibleMessages(items: ChatItem[], turns: ConversationTurn[], populateActive = false, running = false): ChatItem[] {
+  const progress = running ? items.filter(item => item.role !== "activity").at(-1) : undefined;
   const finals = new Set(turns.flatMap(finalResponses).map(item => item.id));
   const modified = new Map<string, string[]>();
+  let previousAnswer: string | undefined;
   for (const turn of turns) {
     const answer = finalResponses(turn).at(-1);
-    if (answer) modified.set(answer.id, [...new Set(turn.messages.flatMap(message => message.modifiedPaths ?? []).filter(path => /\.md$/i.test(path)))]);
+    const paths = turn.messages.flatMap(message => message.modifiedPaths ?? []).filter(path => /\.(md|csv)$/i.test(path));
+    if (answer) { previousAnswer = answer.id; modified.set(answer.id, [...new Set(paths)]); }
+    else if (previousAnswer && turn.messages.some(message => message.role === "user" && message.text.startsWith(INPUT_REVIEW_PREFIX))) {
+      modified.set(previousAnswer,[...new Set([...(modified.get(previousAnswer) ?? []),...paths])]);
+    }
   }
   let livePaths: string[] = [];
+  let latestPromptId = "";
   for (const item of items) {
-    if (item.role === "user") livePaths = [];
+    if (item.role === "user") { livePaths = []; latestPromptId = item.id; }
     livePaths.push(...(item.modifiedPaths ?? []));
-    if (item.role === "assistant" && item.phase === "final_answer" && !modified.has(item.id)) modified.set(item.id, [...new Set(livePaths.filter(path => /\.md$/i.test(path)))]);
+    if (item.role === "assistant" && item.phase === "final_answer" && !modified.has(item.id)) modified.set(item.id, [...new Set(livePaths.filter(path => /\.(md|csv)$/i.test(path)))]);
   }
-  let maintenance = false;
+  let maintenance = false, population = false;
   return items.filter(item => {
-    if (item.role === "user") maintenance = item.text.startsWith(MAINTENANCE_PREFIX);
-    return !maintenance && (item.role === "user" || item.role === "assistant" && (item.phase === "final_answer" || finals.has(item.id)));
+    if (item.role === "user") {
+      maintenance = internalPrompt(item.text);
+      population = withoutChanges(item.text).startsWith(POPULATE_PREFIX) || populateActive && item.id === latestPromptId;
+    }
+    return !maintenance && (item.role === "user" || item.role === "assistant" && (population && (!item.phase || item.phase === "commentary") || item.phase === "final_answer" || finals.has(item.id) || item === progress && item.phase === "commentary"));
   })
     .map(item => item.role === "user" ? { ...item, text: authorPrompt(item.text) } : { ...item, paths: modified.get(item.id) ?? [] });
 }
@@ -66,7 +79,7 @@ export function renderConversation(turns: ConversationTurn[]): string {
   let content = "";
   let previousDate = "";
   for (const turn of turns) {
-    if (turn.messages.some(item => item.role === "user" && item.text.startsWith(MAINTENANCE_PREFIX))) continue;
+    if (turn.messages.some(item => item.role === "user" && internalPrompt(item.text))) continue;
     const prompts = turn.messages.filter(message => message.role === "user" && message.text.trim());
     const selected = finalResponses(turn);
     if (!prompts.length && !selected.length) continue;
@@ -87,11 +100,11 @@ export async function saveConversation(cwd: string, folders: ProjectFolders, thr
   const transcript = renderConversation(turns);
   if (!transcript) return;
   const root = await realpath(cwd);
-  const directory = join(root, folders.bibleFolder, "Tracking");
+  const directory = join(root, "Tracking");
   await checkPath(root, directory);
   await mkdir(directory, { recursive: true });
   await checkPath(root, directory);
-  const path = `${folders.bibleFolder}/Tracking/Conversation.md`;
+  const path = `Tracking/Conversation.md`;
   const previous = await readProjectFile(root, path);
   const original = previous?.text ?? "";
   const key = createHash("sha256").update(threadId).digest("hex");
@@ -110,4 +123,8 @@ export async function saveConversation(cwd: string, folders: ProjectFolders, thr
     content = `${remaining.trimEnd()}${remaining.trim() ? "\n\n" : ""}${block}\n`;
   }
   await writeProjectFile(root, path, content, previous, folders.archiveFolder);
+  await importInputs(root,folders,turns.filter(turn => !turn.messages.some(item => item.role === "user" && internalPrompt(item.text)))
+    .flatMap(turn => turn.messages.filter(item => item.role === "user" && item.text.trim()).map(item => ({
+      source: JSON.stringify([threadId,item.id]),threadId,turnId:turn.id,date:turn.date && !Number.isNaN(turn.date.valueOf()) ? turn.date.toISOString() : new Date().toISOString(),text:authorPrompt(item.text),
+    }))));
 }

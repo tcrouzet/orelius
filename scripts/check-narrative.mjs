@@ -13,7 +13,7 @@ export async function checkNarrative() {
   const root=await mkdtemp(join(tmpdir(),'orelius-narrative-'));
   const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
   const templates=Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name=>[name,await readFile(new URL('../prompts/'+name+'.md',import.meta.url),'utf8')])));
-  const chapter='Manuscript/Chapters/002.md', previous='Manuscript/Chapters/001.md';
+  const chapter='Manuscript/002.md', previous='Manuscript/001.md';
   const refs=[{path:'Bible/Characters/Nora.md',aliases:['Archiviste'],children:['Bible/Places/Phare.md']},{path:'Bible/Places/Phare.md',mode:'manual',children:['Bible/Characters/Nora.md']},{path:'Bible/Secret.md',mode:'hidden'},{path:'Bible/Global.md',mode:'always'},{path:'Bible/Off.md',track:false}];
   try {
     const server=new ProjectMcp(async()=>'',undefined,undefined,async()=> 'méthode',async()=>{throw new Error('Citation absente');});
@@ -65,7 +65,7 @@ export async function checkNarrative() {
     await put(refs[0].path,'# Nora\nArchiviste\n## Secret\nFUTUR_INTERDIT\n## Voix\nPrécise');
     await put(refs[1].path,'# Phare\nUn lieu.');await put(refs[3].path,'# Règle\nGlobale');
     const config={chapters:[{path:previous},{path:chapter,previous,pov:refs[0].path}],references:refs.map(r=>r.path===refs[0].path?{...r,hiddenSections:['Secret']}:r),methods:{critiquer:{instructions:'Causalité',targetWords:100}}};
-    await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
+    await put('Tracking/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
     await recordNarrativeState(root,folders,state,previous,()=>{});
     let context=await buildSceneContext(root,folders,{},chapter,'',templates);
     assert.ok(context.sources.some(s=>s.role==='verified-summary'));
@@ -75,10 +75,10 @@ export async function checkNarrative() {
     const method=JSON.parse(await consultMethod(root,folders,{tache:'critiquer',debut:0,fin:4},context,()=>{}));
     assert.equal(method.selection.texte,'Nora');assert.ok(method.prompt.includes('Causalité'));
     assert.equal(method.empreinte,fingerprint(await readFile(join(root,chapter),'utf8')));
-    assert.ok((await readFile(join(root,'Manuscript/Context/002/methode-critiquer.md'),'utf8')).includes(method.prompt.slice(0,10)));
+    assert.ok((await readFile(join(root,'Tracking/002/methode-critiquer.md'),'utf8')).includes(method.prompt.slice(0,10)));
     await assert.rejects(()=>consultMethod(root,folders,{tache:'critiquer',fin:999},context,()=>{}),/Sélection/);
     const chunks=reviewChunks('A'.repeat(2500)+'\n\nCourt\n\nFin');assert.equal(chunks[0].text.length,2500);assert.equal(chunks[1].text,'Court\n\nFin');
-    await put('Manuscript/Context/Prompts/critiquer.md','Consigne personnelle {chapter}');
+    await put('Tracking/Prompts/critiquer.md','Consigne personnelle {chapter}');
     await assert.rejects(()=>checkSceneContext(root,context),/Source modifiée/);
     context=await buildSceneContext(root,folders,{},chapter,'',templates);
     assert.ok(context.prompts.critiquer.includes('Consigne personnelle'));
@@ -87,16 +87,16 @@ export async function checkNarrative() {
     await recordNarrativeState(root,folders,{chapter,hash:fingerprint(second),summary:'Nora attend.',facts:[{...uncertain,quote:'Nora entre au Phare.'}],moments:[]},chapter,()=>{},undefined,context);
     const atEnd=JSON.parse(await consultMethod(root,folders,{tache:'critiquer',debut:second.length,fin:second.length,acteur:'Nora'},context,()=>{}));
     assert.deepEqual(atEnd.connaissancesAvantSelection,[],'Une hypothèse citée ne devient pas une connaissance acquise.');
-    const secondState=readData(await readFile(join(root,'Manuscript/Context/002/etat.md'),'utf8'));
+    const secondState=readData(await readFile(join(root,'Tracking/002/etat.md'),'utf8'));
     assert.equal(secondState.dependencies[previous],fingerprint(prose));
     await put(previous,prose+' Une autre phrase.');
     await assert.rejects(()=>checkSceneContext(root,context),/Source modifiée/);
     context=await buildSceneContext(root,folders,{},chapter,'',templates);
     assert.ok(context.sources.some(s=>s.role==='stale-analysis'));
     assert.ok(!context.sources.some(s=>s.role==='verified-summary'));
-    await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify({...config,maxCharacters:1000})+'\n```\n');
+    await put('Tracking/configuration.md','```json\n'+JSON.stringify({...config,maxCharacters:1000})+'\n```\n');
     await assert.rejects(()=>buildSceneContext(root,folders,{},chapter,'',templates),/trop volumineux/);
-    const recorded=readData(await readFile(join(root,'Manuscript/Context/001/etat.md'),'utf8'));
+    const recorded=readData(await readFile(join(root,'Tracking/001/etat.md'),'utf8'));
     assert.equal(recorded.hash,state.hash);
   } finally { await rm(root,{recursive:true,force:true}); }
 }

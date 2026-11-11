@@ -58,7 +58,7 @@ export async function prepareProject(cwd: string, folders: ProjectFolders, confi
   const paths = projectPaths(folders);
   const root = await realpath(cwd);
   const legacy = join(root, "context", folders.manuscriptFolder, "Chapters");
-  const destination = join(root, folders.manuscriptFolder, "Context");
+  const destination = join(root, "Tracking");
   await checkPath(root, legacy, configDir);
   let legacyExists = false;
   try { legacyExists = (await lstat(legacy)).isDirectory(); }
@@ -68,7 +68,12 @@ export async function prepareProject(cwd: string, folders: ProjectFolders, confi
     let destinationExists = false;
     try { await lstat(destination); destinationExists = true; }
     catch (error) { if (object(error).code !== "ENOENT") throw error; }
-    if (destinationExists) throw new Error(t("bothContextChaptersAndContextExistNoContextWas", { value1: folders.manuscriptFolder, value2: folders.manuscriptFolder }));
+    const legacyRoot = join(root, "context");
+    const sameRoot = destinationExists && await realpath(destination) === await realpath(legacyRoot);
+    if (destinationExists && (!sameRoot || (await readdir(legacyRoot)).some(name => name !== folders.manuscriptFolder)
+      || (await readdir(dirname(legacy))).some(name => name !== "Chapters"))) {
+      throw new Error(t("bothContextChaptersAndContextExistNoContextWas", { value1: folders.manuscriptFolder, value2: folders.manuscriptFolder }));
+    }
     const inspect = async (directory: string): Promise<void> => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         if (entry.isSymbolicLink()) throw new Error(t("theContextToMoveContainsASymbolicLinkNo"));
@@ -78,11 +83,13 @@ export async function prepareProject(cwd: string, folders: ProjectFolders, confi
     await inspect(legacy);
     await mkdir(dirname(destination), { recursive: true });
     await checkPath(root, destination, configDir);
-    await rename(legacy, destination);
+    const temporary = sameRoot ? join(root, `.orelius-context-${randomUUID()}`) : destination;
+    await rename(legacy, temporary);
     for (const empty of [dirname(legacy), join(root, "context")]) {
       try { await rmdir(empty); }
       catch (error) { if (!["ENOTEMPTY", "EEXIST", "ENOENT"].includes(String(object(error).code))) throw error; }
     }
+    if (sameRoot) await rename(temporary, destination);
   }
   for (const path of paths) {
     const target = join(root, path);

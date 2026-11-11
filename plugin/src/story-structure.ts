@@ -1,3 +1,4 @@
+import { isChapterPath } from "./settings.ts";
 import { t } from "./i18n.ts";
 import { editOutline, parseOutline, reconcileOutline, outlineRelations, type NovelOutline, type OutlineAction } from "./novel-outline.ts";
 import { randomUUID } from "node:crypto";
@@ -7,18 +8,18 @@ import { projectSources, type ProjectSource } from "./project-sources.ts";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import type { ProjectFolders } from "./settings.ts";
 
-const kinds = { Seeds: "graine", Plan: "plan", Scenes: "scene", Characters: "personnage", Plots: "intrigue", Arcs: "arc", Chapters: "chapitre" } as const;
-export type StoryKind = typeof kinds[keyof typeof kinds];
+const kinds = { Seeds: "graine", Plan: "plan", Scenes: "scene", Characters: "personnage", Plots: "intrigue", Arcs: "arc" } as const;
+export type StoryKind = typeof kinds[keyof typeof kinds] | "chapitre";
 export type Decision = "propose" | "retenu" | "abandonne";
 export interface StoryNode { id: string; kind: StoryKind; path: string; hash: string; missing: boolean; decision: Decision }
 export interface StoryLink { from: string; to: string; relation: "developpe" | "planifie" | "implique" | "realise"; fromHash: string; toHash: string; quote?: string; at?: number }
 export interface StoryStructure { version: 1; nodes: StoryNode[]; links: StoryLink[]; outline?: NovelOutline }
-export const structurePath = (folders: ProjectFolders) => `${folders.manuscriptFolder}/Context/Structure.md`;
+export const structurePath = (folders: ProjectFolders) => `Tracking/Structure.md`;
 export function storyKind(path: string, folders: ProjectFolders): StoryKind | undefined {
-  if (!/\.md$/i.test(path) || /\/index\.md$/i.test(path) || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) return;
-  for (const [directory, kind] of Object.entries(kinds)) if (path.startsWith(`${folders.manuscriptFolder}/${directory}/`)) return kind;
-  if (path.startsWith(`${folders.bibleFolder}/Characters/`)) return "personnage";
-  if (path.startsWith(`${folders.bibleFolder}/Plots/`)) return "intrigue";
+  if (!/\.md$/i.test(path) || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) return;
+  if (isChapterPath(path, folders)) return "chapitre";
+  if (/\/index\.md$/i.test(path)) return;
+  for (const [directory, kind] of Object.entries(kinds)) if (path.startsWith(`${folders.bibleFolder}/${directory}/`)) return kind;
 }
 const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -116,12 +117,12 @@ export async function syncStructure(cwd: string, folders: ProjectFolders, edit: 
       const index = data.links.findIndex(other => other.from === link.from && other.to === link.to && other.relation === link.relation);
       const from = data.nodes.find(node => node.id === link.from), to = data.nodes.find(node => node.id === link.to);
       if (!from || !to || !remove && (from.missing || to.missing) || from.hash !== link.fromHash || to.hash !== link.toHash) throw new Error(t("sourcesChangedOrMissingReadTheStructureAgain"));
-      const proposed = { ...data, links: index < 0 ? [...data.links, link] : data.links.map((previous, i) => i === index ? link : previous) };
-      parseStructure(proposed, folders);
       if (remove) {
         if (index < 0) throw new Error(t("missingLink"));
         data.links.splice(index, 1);
       } else {
+        const proposed = { ...data, links: index < 0 ? [...data.links, link] : data.links.map((previous, i) => i === index ? link : previous) };
+        parseStructure(proposed, folders);
         if (linkStatus(proposed, link, sources) !== "valide") throw new Error(t("abandonedLinkOrPassageNotFoundAtTheSpecified"));
         if (link.relation === "realise") {
           const text = sources.find(source => source.path === to.path)!.content;

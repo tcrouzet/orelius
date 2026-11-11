@@ -1,3 +1,5 @@
+import { isChapterPath } from "./settings.ts";
+import { isIsoDate } from "./source-dates.ts";
 import { t } from "./i18n.ts";
 import { createHash } from "node:crypto";
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
@@ -10,12 +12,12 @@ export interface Reference {
   priority?: number; secondary?: string[]; secondaryMode?: "all" | "any" | "none";
   role?: "knowledge" | "style" | "example"; children?: string[]; hiddenSections?: string[];
 }
-export interface ChapterLink { path: string; previous?: string | null; pov?: string; tense?: string; include?: boolean; references?: string[]; plan?: string; model?: string; act?: string }
+export interface ChapterLink { path: string; previous?: string | null; pov?: string; tense?: string; date?: string; include?: boolean; references?: string[]; plan?: string; model?: string; act?: string }
 export interface MethodPreset { instructions?: string; persona?: string; targetWords?: number }
 export interface NarrativeConfig { methods?: Record<string, MethodPreset>; chapters: ChapterLink[]; references: Reference[]; maxCharacters?: number; referenceBudget?: number; recursiveReferences?: boolean }
 export const EMPTY_CONFIG: NarrativeConfig = { chapters: [], references: [] };
-export const configPath = (folders: ProjectFolders) => `${folders.manuscriptFolder}/Context/configuration.md`;
-export const statePath = (folders: ProjectFolders, chapter: string) => `${folders.manuscriptFolder}/Context/${chapter.slice(`${folders.manuscriptFolder}/Chapters/`.length).replace(/\.md$/i, "")}/etat.md`;
+export const configPath = (folders: ProjectFolders) => `Tracking/configuration.md`;
+export const statePath = (folders: ProjectFolders, chapter: string) => `Tracking/${chapter.slice(`${folders.manuscriptFolder}/`.length).replace(/\.md$/i, "")}/etat.md`;
 export function readData(text: string): unknown {
   const matches = [...text.matchAll(/^```json\s*\r?\n([\s\S]*?)^```\s*$/gm)];
   if (matches.length !== 1) throw new Error(t("theStructuredNoteMustContainExactlyOneJsonBlock"));
@@ -47,9 +49,10 @@ export function parseConfig(value: unknown, folders: ProjectFolders): NarrativeC
   if (!Array.isArray(root.chapters) || !Array.isArray(root.references)) throw new Error(t("chaptersAndReferencesAreRequired"));
   const chapters = root.chapters.map(value => {
     const item = record(value);
-    keys(item, ["path", "previous", "pov", "tense", "include", "references", "plan", "model", "act"]);
+    keys(item, ["path", "previous", "pov", "tense", "date", "include", "references", "plan", "model", "act"]);
     const chapter = path(item.path);
-    if (!chapter.startsWith(`${folders.manuscriptFolder}/Chapters/`)) throw new Error(t("chapterOutsideManuscriptChapters"));
+    if (!isChapterPath(chapter, folders)) throw new Error(t("chapterOutsideManuscriptChapters"));
+    if (item.date !== undefined && !isIsoDate(item.date)) throw new Error(t("invalidStoryDate"));
     for (const field of ["pov", "tense", "act"]) if (item[field] !== undefined) text(item[field]);
     for (const field of ["previous", "plan", "model"]) if (item[field] !== undefined && item[field] !== null) path(item[field]);
     if (item.include !== undefined && typeof item.include !== "boolean") throw new Error(t("includeMustBeABoolean"));

@@ -1,9 +1,10 @@
+import { brainstormFolder } from "./brainstorm.ts";
 import { readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { checkPath } from "./archives.ts";
 import { fingerprint } from "./narrative-context.ts";
 import { readProjectFile } from "./project-files.ts";
-import type { ProjectFolders } from "./settings.ts";
+import { isChapterPath, type ProjectFolders } from "./settings.ts";
 
 export interface ProjectSource { path: string; content: string; hash: string }
 
@@ -19,17 +20,17 @@ export async function projectSources(cwd: string, folders: ProjectFolders, only?
       const path = `${directory}/${entry.name}`;
       if (excluded.has(path)) continue;
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
-      if (path.startsWith(`${folders.bibleFolder}/Tracking/`) && entry.name !== "Connaissances.md") continue;
-      if (path === `${folders.bibleFolder}/suivi.md`) continue;
-      if (directory === `${folders.manuscriptFolder}/Context` && entry.name !== "configuration.md" && entry.name !== "Prompts") continue;
+      if (path === `Tracking/suivi.md`) continue;
+      if (directory === `Tracking` && entry.name !== "configuration.md" && entry.name !== "Prompts" && entry.name !== "Connaissances.md") continue;
       if (entry.isDirectory()) await walk(path);
       else if (entry.isFile() && /\.md$/i.test(entry.name)) {
+        if (path.startsWith(`${folders.manuscriptFolder}/`) && !isChapterPath(path, folders) && !brainstormFolder(path, folders)) continue;
         const file = await readProjectFile(cwd, path);
         if (file) sources.push({ path, content: file.text, hash: fingerprint(file.text) });
       }
     }
   }
-  for (const path of only ?? [folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder]) await walk(path);
+  for (const path of only ?? [folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Tracking"]) await walk(path);
   return sources.sort((a, b) => a.path.localeCompare(b.path, "fr", { numeric: true }));
 }
 

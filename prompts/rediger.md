@@ -1,5 +1,7 @@
 # Rédiger {chapter}
 
+Commence seulement après le contrôle favorable des prérequis retourné par preparer_chapitre. Un refus demande de compléter les étapes indiquées avant toute prose, y compris dans le chat.
+
 Rédige à partir de {preparationPath} et des sources actuelles de {contextPath}. La demande et les annotations de l’auteur priment sur les anciennes intentions du plan. Respecte la narration définie dans {bibleFolder}/Style/Narration.md, les règles actives et la portée autorisée. Le dossier {manuscriptFolder} contient le récit conservé ; une ancienne réponse de conversation n’en fait pas partie.
 
 Développe les actions préparées à proportion de leur enjeu. Chaque geste doit être physiquement intelligible et situé : qui touche quoi, pour obtenir quoi, dans quelle position. Ne remplis pas les transitions de gestes automatiques. Les gestes, silences et regards peuvent porter une tension, mais elle doit être perceptible dans ce qui se passe.

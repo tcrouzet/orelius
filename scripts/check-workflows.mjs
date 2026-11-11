@@ -16,7 +16,7 @@ export async function checkWorkflows(){
  const root=await mkdtemp(join(tmpdir(),'orelius-workflows-'));
  const put=async(path,text)=>{await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),text);};
  const templates=Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name=>[name,await readFile(new URL('../prompts/'+name+'.md',import.meta.url),'utf8')])));
- const chapter='Manuscript/Chapters/001.md';
+ const chapter='Manuscript/001.md';
  try {
   assert.equal(renderConditions('{if:pov}A{if:tense}B{else}C{/if}{else}D{/if}',{pov:'Nora',tense:''}),'AC');
   assert.throws(()=>renderConditions('{if:absent}A{/if}',{}),/inconnue/);
@@ -26,7 +26,7 @@ export async function checkWorkflows(){
   assert.deepEqual(selectReferences(references,'Nora',[]).selected.map(r=>r.path),['Bible/B.md']);
   assert.deepEqual(selectReferences(references,'Nora lettre',[]).selected.map(r=>r.path),['Bible/B.md','Bible/A.md']);
   const first={chapter,hash:'',summary:'',facts:[],moments:[{id:'a',quote:'',description:'',at:10,unit:'hours',duration:2}]};
-  const second={...first,chapter:'Manuscript/Chapters/002.md',moments:[{id:'b',quote:'',description:'',after:chapter+'#a',offset:30,unit:'minutes'}]};
+  const second={...first,chapter:'Manuscript/002.md',moments:[{id:'b',quote:'',description:'',after:chapter+'#a',offset:30,unit:'minutes'}]};
   const timeline=resolveTimeline([first,second]);
   assert.equal(timeline[0].end,43200);assert.equal(timeline[1].start,37800);
   assert.throws(()=>resolveTimeline([{...first,moments:[{...first.moments[0],after:second.chapter+'#b'}]},second]),/Cycle/);
@@ -58,18 +58,18 @@ export async function checkWorkflows(){
   await put('Bible/Nora.md','# Nora\n\nVisible.\n\n## Savoir\n\nSecret.');
   await put('Bible/Lettre.md','# Lettre\n\nNora.');
   const config={chapters:[],references:[{path:'Bible/Nora.md',name:'Nora',hiddenSections:['Savoir'],priority:1},{path:'Bible/Lettre.md',name:'lettre',priority:2}],referenceBudget:0};
-  await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
+  await put('Tracking/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
   context=await buildSceneContext(root,folders,{},chapter,'',templates);
   assert.equal(context.sources.some(source=>source.path==='Bible/Lettre.md'),false);
   assert.equal(JSON.parse(await consultMethod(root,folders,{tache:'continuer',debut:actual.length,fin:actual.length,acteur:'Nora'},context,()=>{})).connaissancesAvantSelection.length,0);
   config.references[0].mode='always';
-  await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
+  await put('Tracking/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
   await assert.rejects(()=>buildSceneContext(root,folders,{},chapter,'',templates),/hors budget/);
   delete config.referenceBudget;
   config.recursiveReferences=true;
   config.references.push({path:'Bible/Cache.md',name:'Visible'});
   await put('Bible/Cache.md','# Référence indirecte');
-  await put('Manuscript/Context/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
+  await put('Tracking/configuration.md','```json\n'+JSON.stringify(config)+'\n```\n');
   context=await buildSceneContext(root,folders,{},chapter,'',templates);
   assert.ok(context.sources.some(source=>source.path==='Bible/Cache.md'));
   for(const name of await readdir(new URL('../wiki/',import.meta.url))){
@@ -82,7 +82,7 @@ export async function checkWorkflows(){
   const pending=await pendingStates(root,folders);
   assert.equal(pending[0].reason,'perime');
   await saveWorkflow(root,folders,pending);
-  assert.ok((await readFile(join(root,'Manuscript/Context/suivi-etats.md'),'utf8')).includes(chapter));
+  assert.ok((await readFile(join(root,'Tracking/suivi-etats.md'),'utf8')).includes(chapter));
   const messages=[{id:'u',role:'user',text:maintenancePrompt(pending),paths:[]},{id:'f',role:'assistant',phase:'final_answer',text:'Technique',paths:[]}];
   assert.equal(renderConversation([{id:'internal',date:null,completed:true,messages}]),'');
   assert.deepEqual(visibleMessages(messages,[]),[]);

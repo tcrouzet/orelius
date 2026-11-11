@@ -1,10 +1,11 @@
+import { priorityHistoryPath, prioritySummary } from "./editorial-priorities.ts";
 import { implementedReaction } from "./reactions.ts";
 import { searchMaterials } from "./material-search.ts";
 import { t } from "./i18n.ts";
 import { configPath, parseConfig, readData, visibleSections } from "./narrative-context.ts";
 import { contextChoice, contextExcluded, validateContextChoice, manualRole, SOURCE_REASONS } from "./request-context.ts";
 import { buildSceneContext } from "./scene-context.ts";
-import { chapterPath, correctionReport } from "./corrections.ts";
+import { chapterPath, correctionReport, revisionDocumentPath, revisionRequest } from "./corrections.ts";
 import { readProjectFile } from "./project-files.ts";
 import { validateProjectFolders, type ProjectFolders } from "./settings.ts";
 
@@ -15,6 +16,7 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
   const choice = contextChoice(request);
   validateContextChoice(choice, folders, chapter);
   if (chapter) return (await buildSceneContext(cwd, folders, versions, chapter, request)).pages;
+  const target = revisionRequest(request)?.path;
   const sources: { path: string; content: string; role: string; reason?: string }[] = [];
   const add = async (path: string, role: SourceRole) => {
     const file = await readProjectFile(cwd, path);
@@ -22,17 +24,24 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
   };
   await add(`${folders.bibleFolder}/Style/Narration.md`, "instructions");
   await add(`${folders.bibleFolder}/Style/rules.md`, "instructions");
-  if (chapter && chapterPath(cwd, folders, chapter) === chapter) await add(chapter, "current-manuscript");
-  await add(`${folders.bibleFolder}/Tracking/Exemples.md`, "correction-examples");
-  const indexPath = `${folders.bibleFolder}/suivi.md`;
+  for (const source of [...sources]) {
+    const path = priorityHistoryPath(source.path, folders);
+    if (contextExcluded(choice, path)) continue;
+    const history = await readProjectFile(cwd, path);
+    const summary = history && prioritySummary(path, history.text);
+    if (summary) sources.push(summary);
+  }
+  if (target && revisionDocumentPath(cwd, folders, target) === target) await add(target, "working-draft");
+  await add(`Tracking/Exemples.md`, "correction-examples");
+  const indexPath = `Tracking/suivi.md`;
   const index = (await readProjectFile(cwd, indexPath))?.text ?? "";
-  const reports = [...index.matchAll(/\]\(Tracking\/([^/\\\r\n()]+\.md)\)/g)].map(match => match[1]);
+  const reports = [...index.matchAll(/\]\((?:Tracking\/)?([^/\\\r\n()]+\.md)\)/g)].map(match => match[1]);
   const acceptedChapters = new Set<string>();
   const ratedResponses = new Set<string>();
   const ratedVersions = new Map<string, string>();
   for (const name of [...new Set(reports)].reverse()) {
     if (!name.includes("-acceptation-") && !name.includes("-reaction-")) continue;
-    const path = `${folders.bibleFolder}/Tracking/${name}`;
+    const path = `Tracking/${name}`;
     const file = await readProjectFile(cwd, path);
     if (!file) continue;
     let role: SourceRole = "author-feedback";
@@ -71,17 +80,18 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
     if (path && prose && ratedVersions.get(JSON.stringify([JSON.parse(path), prose])) === "down") sources.splice(index, 1);
   }
   for (const [path, baseline] of Object.entries(versions)) {
-    if (chapterPath(cwd, folders, path) !== path) continue;
+    if (chapterPath(cwd, folders, path) !== path && path !== target) continue;
     const file = await readProjectFile(cwd, path);
     if (!file || (file.text === baseline && !file.text.includes("((("))) continue;
-    if (path !== chapter) sources.push({ path, content: file.text, role: "working-draft" });
+    if (path !== target) sources.push({ path, content: file.text, role: "working-draft" });
     sources.push({ path: `${path} — comparaison Codex/auteur`, content: correctionReport(path, baseline, file.text), role: "correction-diff" });
   }
-  const memoryPath = `${folders.bibleFolder}/Tracking/Connaissances.md`;
+  const memoryPath = `Tracking/Connaissances.md`;
   const memory = await readProjectFile(cwd, memoryPath);
   if (memory) {
     const active = /^## Consignes actives[^\n]*\r?\n[\s\S]*?(?=^## |$(?![\s\S]))/m.exec(memory.text)?.[0];
-    sources.push({ path: memoryPath, content: active ?? memory.text, role: "editorial-memory" });
+    const legacy = !request.trim() || choice?.include.includes(memoryPath);
+    sources.push({ path: memoryPath, content: active ?? (legacy ? memory.text : "Historique non consolidé : aucune rubrique Consignes actives. Consulter ce fichier seulement pour retrouver un échange précis ; les fiches actuelles et les indications récentes de l’auteur priment."), role: "editorial-memory" });
   }
   if (index) sources.push({ path: indexPath, content: index, role: "index" });
   for (let index = sources.length - 1; index >= 0; index--) {

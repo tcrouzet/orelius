@@ -134,7 +134,7 @@ export class CodexClient {
         url: files.url, bearer_token_env_var: "ORELIUS_MCP_TOKEN", enabled: true, required: true,
         // The publication reviewer has a three-minute deadline inside the write call.
         tool_timeout_sec: 210,
-        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial", "preparer_chapitre", "consulter_methode", "enregistrer_etat_narratif", "revoir_lots", "consulter_suivi_narratif", "consulter_atelier", "consulter_structure", "relier_elements", "proposer_variantes"],
+        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial", "preparer_chapitre", "consulter_methode", "enregistrer_etat_narratif", "revoir_lots", "consulter_suivi_narratif", "consulter_atelier", "consulter_structure", "relier_elements", "proposer_variantes", "consulter_sources_documentaires", "analyser_inputs"],
       } } };
       const models = await this.request("model/list", { limit: 1 });
       if (!Array.isArray(models.data)) throw new Error(t("codexInvalidModelCatalogUpdateCodexAndOrelius", { value1: this.version }));

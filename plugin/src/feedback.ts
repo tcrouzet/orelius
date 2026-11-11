@@ -20,7 +20,7 @@ export async function recordFeedback(cwd: string, folders: ProjectFolders, feedb
   validateProjectFolders(folders);
   await prepareCorrections(cwd, folders);
   const marker = `<!-- orelius:${feedback.kind}:${feedback.id} -->`;
-  const directory = `${folders.bibleFolder}/Tracking`;
+  const directory = `Tracking`;
   const suffix = `-${feedback.kind === "acceptance" ? "acceptation" : "reaction"}-${feedback.id}.md`;
   const previousName = (await readdir(join(cwd, directory))).find(name => name.endsWith(suffix));
   const name = previousName ?? `${new Date().toISOString().replace(/[:.]/g, "-")}${suffix}`;
@@ -34,7 +34,7 @@ export async function recordFeedback(cwd: string, folders: ProjectFolders, feedb
   for (const [target, initial, entry] of [
     [knowledge, "# Connaissances éditoriales de l’auteur\n",
       `## ${feedback.title} — ${stamp}\n\n${feedback.summary} Consulter le [relevé et le retour explicite de l’auteur](${name}).\n${marker}`],
-    [`${folders.bibleFolder}/suivi.md`, "", `- [${stamp} — ${feedback.title}](Tracking/${name})\n${marker}`],
+    [`Tracking/suivi.md`, "", `- [${stamp} — ${feedback.title}](${name})\n${marker}`],
   ]) {
     const previous = await readProjectFile(cwd, target);
     const original = previous?.text ?? initial;

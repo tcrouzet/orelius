@@ -15,7 +15,7 @@ import { generateAgent, renderAgent } from "../plugin/src/generate-agent.ts";
 const taskPrompts = Object.fromEntries(await Promise.all(TASK_PROMPT_NAMES.map(async name => [name, await readFile(new URL(`../prompts/${name}.md`, import.meta.url), "utf8")])));
 const project = await mkdtemp(join(tmpdir(), "orelius-session-"));
 const folders = DEFAULT_PROJECT_FOLDERS;
-const path = "Manuscript/Chapters/controle.md";
+const path = "Manuscript/controle.md";
 const original = "Version humaine à conserver.\n";
 const versions = { [path]: "Ancienne version Codex.\n" };
 let savedId = "";
@@ -60,7 +60,7 @@ try {
   assert.equal(session.status, "");
   assert.equal(await readFile(join(project, path), "utf8"), "PREMIER_OK\n");
   assert.equal(await readFile(join(project, "consigne.md"), "utf8"), "CONSIGNE_OK\n");
-  const archiveDirectory = join(project, "Archives/Manuscript/Chapters");
+  const archiveDirectory = join(project, "Archives/Manuscript");
   const archives = await readdir(archiveDirectory);
   assert.equal(archives.length, 2);
   const humanArchive = archives.find(name => name.endsWith("-h.md"));
@@ -75,31 +75,31 @@ try {
   assert.equal(versions[path], "PREMIER_OK\n");
   console.log("OK consigne appliquée, original humain et textes générés archivés, référence Codex actualisée");
   const turns = await readConversation(session.client, threadId, () => {});
-  assert.equal(turns.length, 1);
-  assert.ok(turns[0].messages.some(message => message.role === "user" && message.text.includes("ADDITION_CONTROL")));
-  const journal = await readFile(join(project, "Bible/Tracking/Conversation.md"), "utf8");
+  assert.equal(turns.length, 2);
+  assert.ok(turns[1].messages.some(message => message.role === "user" && message.text.includes("ADDITION_CONTROL")));
+  const journal = await readFile(join(project, "Tracking/Conversation.md"), "utf8");
   assert.ok(journal.includes("ADDITION_CONTROL"));
   assert.ok(journal.includes("## Codex"));
   await assert.rejects(session.steer("Consigne sans tâche"), /Aucune tâche active/);
   assert.equal(session.connected, true);
-  console.log("OK historique et journal conservés dans un seul échange ; consigne hors tâche refusée");
+  console.log("OK historique et journal conservés dans deux échanges successifs ; consigne hors tâche refusée");
   const followup = "Réponds uniquement SUIVI_SUIVANT_OK dans le chat. Ne crée et ne modifie aucun fichier.";
   await session.send(followup, executable, project, threadId);
   await until(() => !session.busy);
   assert.equal(session.status, "");
   assert.equal(session.threadId, threadId);
-  const updated = await readFile(join(project, "Bible/Tracking/Conversation.md"), "utf8");
+  const updated = await readFile(join(project, "Tracking/Conversation.md"), "utf8");
   assert.ok(updated.includes(followup));
   assert.ok(updated.includes("SUIVI_SUIVANT_OK"));
   assert.ok(updated.includes("ADDITION_CONTROL"));
   assert.ok(updated.includes("## Codex"));
-  const journalArchives = join(project, "Archives/Bible/Tracking");
+  const journalArchives = join(project, "Archives/Tracking");
   const previousJournals = await Promise.all((await readdir(journalArchives)).map(name => readFile(join(journalArchives, name), "utf8")));
   assert.ok(previousJournals.includes(journal));
   const completed = await readConversation(session.client, threadId, () => {});
-  assert.equal(completed.length, 2);
+  assert.equal(completed.length, 3);
   assert.equal(updated.split("## Utilisateur").length - 1, 3);
-  assert.equal(updated.split("## Codex").length - 1, 2);
+  assert.equal(updated.split("## Codex").length - 1, 3);
   console.log("OK journal enrichi au deuxième échange sans écriture demandée, avec conservation et archivage du premier");
 
   await session.disconnect();
@@ -109,8 +109,8 @@ try {
   await session.send("Pour la suite du roman, je préfère des dialogues avec des phrases brèves. C’est une consigne pour tout le projet. Ne rédige pas de passage pour le moment : je précise seulement mes attentes.", executable, project, threadId);
   await until(() => !session.busy);
   assert.equal(session.status, "");
-  const knowledgePath = "Bible/Tracking/Connaissances.md";
-  assert.ok((await readdir(join(project, "Bible/Tracking"))).includes("Connaissances.md"),
+  const knowledgePath = "Tracking/Connaissances.md";
+  assert.ok((await readdir(join(project, "Tracking"))).includes("Connaissances.md"),
     `Codex doit consigner l’attente éditoriale. Dernière réponse : ${session.items.filter(item => item.role === "assistant").at(-1)?.text}`);
   const knowledge = await readFile(join(project, knowledgePath), "utf8");
   assert.match(knowledge, /dialogue/i);
