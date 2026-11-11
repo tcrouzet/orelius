@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {DEFAULT_PROJECT_FOLDERS} from '../plugin/src/settings.ts';
 import {archiveWithCorrections, captureCodexVersions, refreshCorrections, revisionPrompt, revisionRequest} from '../plugin/src/corrections.ts';
-import {planRevision, checkRevision, revisionMarks} from '../plugin/src/revision.ts';
+import {planRevision, checkRevision, revisionMarks, checkAuthorComments} from '../plugin/src/revision.ts';
 import {readProjectFile, writeProjectFile} from '../plugin/src/project-files.ts';
 import {authorPrompt} from '../plugin/src/conversation.ts';
 import {ChatSession} from '../plugin/src/session.ts';
@@ -14,6 +14,12 @@ import {searchMaterials} from '../plugin/src/material-search.ts';
 import {readEditorialContext} from '../plugin/src/editorial-context.ts';
 
 export async function checkDocumentRevision() {
+ const source='Texte. (((Développe ce motif.)))\n(((À conserver.)))';
+ assert.doesNotThrow(()=>checkAuthorComments(source,source));
+ assert.doesNotThrow(()=>checkAuthorComments(source,'Motif développé. (((À conserver.)))'));
+ assert.doesNotThrow(()=>checkAuthorComments(source,'Texte révisé.'));
+ for(const text of ['(((Suggestion de Codex)))','(((Suggestion inachevée','Texte )))',source+' (((À conserver.)))',source.replace('À conserver.','Autre demande.')])assert.throws(()=>checkAuthorComments(source,text),/réservées à l’auteur/);
+ assert.throws(()=>checkAuthorComments('','(((Commentaire IA)))'),/réservées à l’auteur/);
  const root=await mkdtemp(join(tmpdir(),'orelius-document-revision-'));
  const folders={...DEFAULT_PROJECT_FOLDERS,bibleFolder:'Univers',modelFolder:'Sources',archiveFolder:'Versions'};
  const path='Univers/Brainstorm/Le désir.md';

@@ -48,7 +48,7 @@ async function markdownFiles(cwd: string, directory: string): Promise<string[]> 
   try {
     return (await readdir(join(root, directory), { withFileTypes: true }))
       .filter(entry => entry.isFile() && /\.md$/i.test(entry.name))
-      .map(entry => `${directory}/${entry.name}`).sort(natural.compare);
+      .map(entry => `${directory}/${entry.name}`).sort((a, b) => natural.compare(a, b));
   } catch (error) { if (object(error).code === "ENOENT") return []; throw error; }
 }
 
@@ -242,7 +242,7 @@ export async function buildSceneContext(cwd: string, folders: ProjectFolders, ve
       const target: unknown = JSON.parse(encoded);
       if (typeof target !== "string" || seenChapters.has(target)) continue;
       seenChapters.add(target);
-      const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text)?.[1]?.replace(/^    /gm, "").trim();
+      const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text)?.[1]?.replace(/^ {4}/gm, "").trim();
       const versionKey = JSON.stringify([target, prose]);
       if (prose && !ratedVersions.has(versionKey)) ratedVersions.set(versionKey, "up");
       if (!contextExcluded(choice, target) && (target === chapter || target === previous)) accepted.push({ path, chapter: target, text });
@@ -264,13 +264,13 @@ export async function buildSceneContext(cwd: string, folders: ProjectFolders, ve
         const status = implementation!.value === "heart" ? "FORTEMENT VALIDÉ — référence prioritaire" : implementation!.value === "up" ? "VALIDÉ" : "INVALIDÉ — ne pas reproduire ni utiliser comme référence positive";
         const words = [...version.content.matchAll(/\S+/g)];
         const excerpt = version.content.slice(words[Math.max(0, words.length - 650)]?.index ?? 0);
-        const comment = /^## Précisions de l’auteur\r?\n\n([\s\S]*?)(?=^## |^<!-- orelius:|$(?![\s\S]))/m.exec(text)?.[1]?.replace(/^    /gm, "").trim() ?? "";
+        const comment = /^## Précisions de l’auteur\r?\n\n([\s\S]*?)(?=^## |^<!-- orelius:|$(?![\s\S]))/m.exec(text)?.[1]?.replace(/^ {4}/gm, "").trim() ?? "";
         const content = `Précisions de l’auteur : ${comment}\n\nStatut de la mise en œuvre : ${status}.\nFichier : ${version.path}\nCette appréciation porte sur cette version de cet échange ; les retours explicites priment. Ce n’est pas une source de faits actuels.\n\n${excerpt}`;
         sources.push({ path: `${path}#${version.path}`, role: implementation!.value === "down" ? "rejected-example" : "approved-example", content });
         if (implementation!.value !== "down" && (version.path === chapter || version.path === previous)) reactionVoices.push({ path, content, strong: implementation!.value === "heart" });
       }
       snapshots.set(path, text);
-      const section = (heading: string) => new RegExp(`^## ${heading}\\r?\\n\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(text)?.[1]?.replace(/^    /gm, "").trim() ?? "";
+      const section = (heading: string) => new RegExp(`^## ${heading}\\r?\\n\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(text)?.[1]?.replace(/^ {4}/gm, "").trim() ?? "";
       const prompt = section("Demandes de l’auteur");
       const revision = revisionRequest(prompt);
       const request = revision ? `Révision de ${revision.path}.\n${revision.details}` : prompt;
@@ -280,8 +280,8 @@ export async function buildSceneContext(cwd: string, folders: ProjectFolders, ve
     }
   }
   for (let index = accepted.length - 1; index >= 0; index--) {
-    const example = accepted[index]!;
-    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(example.text)?.[1]?.replace(/^    /gm, "").trim();
+    const example = accepted[index];
+    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(example.text)?.[1]?.replace(/^ {4}/gm, "").trim();
     if (prose && ratedVersions.get(JSON.stringify([example.chapter, prose])) === "down") accepted.splice(index, 1);
   }
   const preferredReaction = reactionVoices.find(voice => voice.strong) ?? reactionVoices[0];
@@ -296,7 +296,7 @@ export async function buildSceneContext(cwd: string, folders: ProjectFolders, ve
     const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(voice.text)?.[1];
     if (prose) {
       snapshots.set(voice.path, voice.text);
-      const approved = prose.replace(/^    /gm, "").trim();
+      const approved = prose.replace(/^ {4}/gm, "").trim();
       const words = [...approved.matchAll(/\S+/g)];
       const excerpt = approved.slice(words[Math.max(0, words.length - 650)]?.index ?? 0);
       const feedback = /^## Retour explicite de l’auteur\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(voice.text)?.[1] ?? "";
@@ -333,7 +333,7 @@ export async function buildSceneContext(cwd: string, folders: ProjectFolders, ve
   const examined = new Set<string>();
   const pendingStyleSources = [...sources];
   for (let index = 0; index < pendingStyleSources.length; index++) {
-    const source = pendingStyleSources[index]!;
+    const source = pendingStyleSources[index];
     const key = source.path + digest(source.content);
     if (examined.has(key) || !["style-reference", "instructions", "character-reference", "adaptation-source-not-canon", "style-example-not-canon", "author-request"].includes(source.role)) continue;
     examined.add(key);

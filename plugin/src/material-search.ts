@@ -124,7 +124,7 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
       let start = 0;
       if (block.text.length > allowance) {
         const hit = [...block.text.matchAll(/[\p{L}\p{N}]{3,}/gu)].find(match => terms(match[0]).some(word => explicit.has(word)));
-        if (hit) start = Math.max(0, hit.index! - 120);
+        if (hit) start = Math.max(0, hit.index - 120);
       }
       const text = block.text.slice(start, start + allowance);
       excerpts.push(text); allowance -= text.length; remaining -= text.length;

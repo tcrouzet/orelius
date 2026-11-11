@@ -86,7 +86,10 @@ export function withoutChanges(text: string): string {
   text = withoutMaterialSearch(text);
   const index = text.lastIndexOf(CHANGE_MARKER);
   if (index < 0) return text;
-  try { if (Array.isArray(JSON.parse(text.slice(index + CHANGE_MARKER.length)).fichiers)) return text.slice(0, index); } catch { /* Preserve an ordinary author message. */ }
+  try {
+    const value: unknown = JSON.parse(text.slice(index + CHANGE_MARKER.length));
+    if (value && typeof value === "object" && "fichiers" in value && Array.isArray(value.fichiers)) return text.slice(0, index);
+  } catch { /* Preserve an ordinary author message. */ }
   return text;
 }
 export function populateDestination(folders: ProjectFolders, path: string): boolean {

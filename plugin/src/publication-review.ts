@@ -16,7 +16,7 @@ export function publicationFeedback(input: PublicationInput): { id: string; sour
     const parts = ["instructions", "style-reference"].includes(source.role)
       ? editorialObjectives(source.path, source.content).filter(goal => goal.level === "essentiel" || goal.level === "a-eviter").map(goal => `[${goal.level}] ${goal.goal}`)
       : source.role === "current-manuscript"
-      ? [...source.content.matchAll(/\(\(\(([\s\S]*?)\)\)\)/g)].map(match => match[1]!)
+      ? [...source.content.matchAll(/\(\(\(([\s\S]*?)\)\)\)/g)].map(match => match[1])
       : (["author-request", "author-feedback"].includes(source.role) || source.role === "editorial-memory" && source.path === "Tracking/Connaissances.md")
         ? source.content.split(/\n\s*\n|\n(?=- )/) : [];
     for (const part of parts) {

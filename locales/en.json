@@ -80,7 +80,7 @@
   "reviseUsingYourCorrectionsOrTheRequestInYour": "Revise {value1} using your corrections or the request in your message.",
   "filesToReportWithTheNextMessage": "View changed files ({value1})",
   "addInstructionsToTheCurrentTask": "Add instructions to the current task…",
-  "messageRevisionInstructionsOrACommentToAttachTo": "Message, revision instructions or a comment to attach to your reaction…",
+  "messageRevisionInstructionsOrACommentToAttachTo": "Message or revision instructions…",
   "ctrlEnterToAddInstructionsToTheCurrentTask": "⌘/Ctrl + Enter to add instructions to the current task",
   "ctrlEnterToSend": "⌘/Ctrl + Enter to send",
   "askAQuestionOrRequestAChangeOriginalsOf": "Ask a question or request a change. Originals of modified files are kept in {value1} at the project root.",
@@ -89,7 +89,6 @@
   "activity": "Activity",
   "oreliusMarkdownRendering": "Orelius: Markdown rendering",
   "reactionsAndHighlights": "Reactions and highlights",
-  "anyMessageInTheChatWillBeAttachedTo": "{value1} — any message in the chat will be attached to this reaction.",
   "clearHighlights": "Clear highlights",
   "clearTheOpenChapterSHighlightsWithoutAcceptingThe": "Clear the open document's highlights without accepting the changes.",
   "codexQuestion": "Codex question",
@@ -706,5 +705,8 @@
   "brainstormExportExists": "This CSV export already exists. Choose another name in the Brainstorm folder to preserve the existing file.",
   "messageQueued": "Queued — will be processed after the current task.",
   "readinessReviewFailed": "The prerequisite review failed technically. The chapter was preserved. You can retry the request. Details: {detail}",
-  "projectFolderRequired": "Choose or create a folder for this project. The vault root cannot be an Orelius project."
+  "projectFolderRequired": "Choose or create a folder for this project. The vault root cannot be an Orelius project.",
+  "deliverChapterBeforeTracking": "The chapter is saved and archived. Finish any other explicitly requested texts, then immediately answer the author with links to the saved texts. Orelius will update summaries, narrative states and tracking in the background afterward; do not delay the reply for those tasks.",
+  "authorCommentsReserved": "Annotations using (((...))) are reserved for the author. Remove annotations you added and express your proposals in ordinary prose. You may preserve existing annotations unchanged or remove those you have addressed.",
+  "ctrlEnterToRevise": "Ctrl/⌘ + Enter to revise the selected note."
 }

@@ -19,7 +19,7 @@ export async function prepareSourceConfig(cwd: string, archive: string, parseYam
   const frontmatter = previous.text.match(/^((?:\uFEFF)?---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))/);
   if (!frontmatter) return;
   let value: unknown;
-  try { value = parseYaml(frontmatter[2]!); } catch { return; }
+  try { value = parseYaml(frontmatter[2]); } catch { return; }
   if (!value || typeof value !== "object" || !("sources" in value) || !Array.isArray(value.sources)) return;
   const entries = value.sources;
   if (!entries.some(source => typeof source === "string") && !previous.text.includes("Indiquez les dossiers accessibles en lecture seule")) return;
@@ -29,10 +29,10 @@ export async function prepareSourceConfig(cwd: string, archive: string, parseYam
   const yaml = "sources:" + (upgraded.length ? "\n" + upgraded.map(source => Object.entries(source as Record<string, unknown>)
     .map(([key, field], index) => `${index ? "    " : "  - "}${["path", "url", "description"].includes(key) ? key : JSON.stringify(key)}: ${JSON.stringify(field)}`).join("\n")).join("\n") : " []");
   const sourceBlock = /^sources:[^\r\n]*(?:\r?\n(?:[ \t]+[^\r\n]*|[ \t]*))*/m;
-  const matched = frontmatter[2]!.match(sourceBlock);
+  const matched = frontmatter[2].match(sourceBlock);
   if (!matched) return;
   const comments = matched[0].split(/\r?\n/).filter(line => /^\s*#/.test(line));
-  const updated = frontmatter[2]!.replace(sourceBlock, () => yaml + (comments.length ? "\n" + comments.join("\n") : "") + (matched[0].endsWith("\n") ? "\n" : ""));
+  const updated = frontmatter[2].replace(sourceBlock, () => yaml + (comments.length ? "\n" + comments.join("\n") : "") + (matched[0].endsWith("\n") ? "\n" : ""));
   try {
     if (JSON.stringify(parseYaml(updated)) !== JSON.stringify({ ...value, sources: upgraded })) return;
   } catch { return; }
@@ -79,7 +79,7 @@ export async function externalSources(cwd: string, args: RpcObject, parseYaml: (
   if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 0 || index >= roots.length
     || typeof path !== "string" || path !== "" && (isAbsolute(path) || path.includes("\\") || path.split("/").some(part => !part || part.startsWith(".")))
     || typeof page !== "number" || !Number.isSafeInteger(page) || page < 0) return fail();
-  const selected = roots[index]!;
+  const selected = roots[index];
   if (selected.url) {
     if (path || page) return fail();
     return JSON.stringify({ source: index, url: selected.url, description: selected.description, consultation: "Utiliser les outils web pour consulter cette URL selon sa description. Cette réponse fournit une référence, pas le contenu de la page ; ne pas annoncer une consultation sans l’avoir effectuée." });

@@ -108,6 +108,10 @@ export async function checkWorkshop(){
   assert.equal((await collectChanges(root,folders)).pending.length,3,'Sans accusé d’envoi, la file persiste.');
   const message=withChanges('Révise la voix.',first);
   assert.equal(withoutChanges(message),'Révise la voix.');
+  for(const value of ['null','42','{}','{"fichiers":null}','{broken']) {
+   const ordinary='Texte de l’auteur\n\n<!-- orelius:changes -->\n'+value;
+   assert.equal(withoutChanges(ordinary),ordinary,'Un bloc invalide ne supprime pas le texte de l’auteur.');
+  }
   assert.equal(authorPrompt(withChanges(POPULATE_PREFIX+'Instructions internes',first)),'Peupler l’atelier à partir de Manuscript, Model et Bible.');
   await deliverChanges(root,folders,first);
   assert.equal((await collectChanges(root,folders)).pending.length,0);

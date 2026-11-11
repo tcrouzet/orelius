@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import {transform} from 'esbuild';
+import {withContext} from '../plugin/src/request-context.ts';
+import {readProjectFile} from '../plugin/src/project-files.ts';
+import {t} from '../plugin/src/i18n.ts';
 import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {brainstormFolder,brainstormRequest,withBrainstorm,checkBrainstormWrite,BRAINSTORM_INPUT} from '../plugin/src/brainstorm.ts';
 import {DEFAULT_PROJECT_FOLDERS as folders} from '../plugin/src/settings.ts';
-import {chapterPath,revisionDocumentPath,revisionPrompt,revisionRequest,archiveWithCorrections,captureCodexVersions} from '../plugin/src/corrections.ts';
+import {chapterPath,revisionDocumentPath,revisionPrompt,revisionRequest,revisionProtections,archiveWithCorrections,captureCodexVersions} from '../plugin/src/corrections.ts';
 import {planRevision} from '../plugin/src/revision.ts';
 import {ChatSession} from '../plugin/src/session.ts';
 import {prepareProject} from '../plugin/src/archives.ts';
@@ -13,6 +17,7 @@ import {authorPrompt} from '../plugin/src/conversation.ts';
 import {FILE_TOOL,CONTEXT_TOOL,REVIEW_TOOL,WORKSHOP_TOOL,INPUTS_TOOL,LINK_TOOL,STATE_TOOL} from '../plugin/src/mcp.ts';
 
 export async function checkBrainstorm(executable,taskPrompts) {
+ await checkSelectedDocument();
  for(const folder of ['Bible/Brainstorm','Manuscript/Brainstorm']) {
   assert.equal(brainstormFolder(folder,folders),folder);
   assert.equal(brainstormFolder(folder+'/Idées.md',folders),folder);
@@ -65,6 +70,11 @@ export async function checkBrainstorm(executable,taskPrompts) {
   const existing=await call(FILE_TOOL,{chemin:'Bible/Brainstorm/Existant.md',contenu:'Ne pas remplacer.'});
   assert.equal(existing.isError,true);assert.match(existing.content[0].text,/Réviser/);
   assert.equal(await readFile(join(root,'Bible/Brainstorm/Existant.md'),'utf8'),'Exploration antérieure.');
+  for(const suffix of ['\n(((Suggestion de Codex)))','\n(((Question non fermée']) {
+   const rejected=await call(FILE_TOOL,{chemin:path,contenu:generated+suffix});
+   assert.equal(rejected.isError,true);assert.match(rejected.content[0].text,/réservées à l’auteur/);
+   await assert.rejects(()=>readFile(join(root,path)),{code:'ENOENT'});
+  }
   const creation=await call(FILE_TOOL,{chemin:path,contenu:generated});
   assert.equal(creation.isError,false,creation.content[0].text);assert.ok(JSON.parse(creation.content[0].text).archives.length);
   const csvPath='Bible/Brainstorm/Construction.csv';
@@ -111,4 +121,41 @@ export async function checkBrainstorm(executable,taskPrompts) {
   const alternative=await call(FILE_TOOL,{chemin:'Manuscript/Brainstorm/Piste.md',contenu:'Piste exploratoire.'});
   assert.equal(alternative.isError,false,alternative.content[0].text);
  } finally {await session.disconnect();await rm(root,{recursive:true,force:true});}
+}
+
+async function checkSelectedDocument(){
+ const source=await readFile('plugin/src/main.ts','utf8');
+ const methods=source.slice(source.indexOf('  get brainstormDirectory()'),source.indexOf('  reactionFor('))
+  +source.slice(source.indexOf('  async send(text:'),source.indexOf('  async compareVersions('));
+ const {code}=await transform(`export default class Harness {${methods}}`,{loader:'ts',format:'cjs'});
+ class TFile{constructor(path){this.path=path;}};
+ const module={exports:{}};
+ new Function('TFile','brainstormFolder','chapterPath','revisionDocumentPath','planRevision','readProjectFile','revisionProtections','revisionPrompt','withBrainstorm','withContext','t','module','exports',code)(
+  TFile,brainstormFolder,chapterPath,revisionDocumentPath,planRevision,readProjectFile,revisionProtections,revisionPrompt,withBrainstorm,withContext,t,module,module.exports);
+ const root=await mkdtemp(join(tmpdir(),'orelius-selected-note-'));
+ try {
+  const selected='Bible/Brainstorm/Juillet.md',other='Manuscript/001.md';
+  for(const path of [selected,other]){await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),'Texte conservé. (((Développe ce passage.)))');}
+  const notes=new Map([selected,other].map(path=>['Roman/'+path,new TFile('Roman/'+path)]));
+  const received=[];
+  const plugin=new module.exports.default();
+  Object.assign(plugin,{settings:{...folders,folder:'Roman',codexVersions:{},threadId:'session'},navigation:{path:'Roman/'+selected},settingsWrite:Promise.resolve(),views:[],
+   session:{busy:false,items:[{modifiedPaths:[selected]}],send:async(...args)=>received.push(args)},
+   app:{vault:{getAbstractFileByPath:path=>notes.get(path)},workspace:{getActiveFile:()=>notes.get('Roman/'+other)}},
+   refreshCorrections:async()=>root,workingDirectory:async()=>root,checkSavedDirectory(){},lockNote(){},releaseNoteLocks(){},contextForRequest:()=>null});
+  assert.equal(plugin.revisionDocument,selected,'La sélection dans l’explorateur prime sur l’ancien éditeur actif.');
+  assert.equal(plugin.revisionChapter,null);
+  await plugin.send('Ajoute les deux matériaux.');
+  const [prompt,,,,plan]=received[0];
+  assert.equal(plan.path,selected);assert.equal(brainstormRequest(prompt).document,selected);
+  assert.equal(revisionRequest(prompt).path,selected);
+  for(const path of ['Roman/Bible/Brainstorm','Roman/Bible','Roman','Roman/config.md','Ailleurs/'+other,null]){
+   plugin.navigation.path=path;assert.equal(plugin.revisionDocument,null,'Un dossier ou une autre sélection ne reprend pas la dernière note.');assert.equal(plugin.revisionChapter,null);
+  }
+  plugin.navigation.path='Roman/'+other;
+  assert.equal(plugin.revisionDocument,other);assert.equal(plugin.revisionChapter,other);assert.equal(plugin.brainstormDirectory,null);
+  plugin.navigation.path='Roman/Bible/Brainstorm';
+  await plugin.send('Une nouvelle exploration.');
+  assert.deepEqual(brainstormRequest(received.at(-1)[0]),{folder:'Bible/Brainstorm'});
+ }finally{await rm(root,{recursive:true,force:true});}
 }

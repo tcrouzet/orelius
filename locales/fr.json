@@ -80,7 +80,7 @@
   "reviseUsingYourCorrectionsOrTheRequestInYour": "Réviser {value1} à partir de vos corrections ou de votre demande dans le message.",
   "filesToReportWithTheNextMessage": "Voir les fichiers modifiés ({value1})",
   "addInstructionsToTheCurrentTask": "Ajouter une consigne à la tâche en cours…",
-  "messageRevisionInstructionsOrACommentToAttachTo": "Message, précisions pour Réviser ou commentaire à joindre à votre réaction…",
+  "messageRevisionInstructionsOrACommentToAttachTo": "Message ou précisions pour Réviser…",
   "ctrlEnterToAddInstructionsToTheCurrentTask": "⌘/Ctrl + Entrée pour ajouter une consigne à la tâche en cours",
   "ctrlEnterToSend": "⌘/Ctrl + Entrée pour envoyer",
   "askAQuestionOrRequestAChangeOriginalsOf": "Posez une question ou demandez une modification. Les originaux des fichiers modifiés sont conservés dans {value1} à la racine du projet.",
@@ -89,7 +89,6 @@
   "activity": "Activité",
   "oreliusMarkdownRendering": "Orelius : rendu Markdown",
   "reactionsAndHighlights": "Réactions et surlignage",
-  "anyMessageInTheChatWillBeAttachedTo": "{value1} — le message éventuel dans le chat sera joint à cette réaction.",
   "clearHighlights": "Effacer le surlignage",
   "clearTheOpenChapterSHighlightsWithoutAcceptingThe": "Effacer le surlignage du document ouvert, sans accepter les modifications.",
   "codexQuestion": "Question de Codex",
@@ -706,5 +705,8 @@
   "brainstormExportExists": "Cet export CSV existe déjà. Choisissez un autre nom dans le dossier Brainstorm pour préserver le fichier existant.",
   "messageQueued": "En attente — sera traité après la tâche en cours.",
   "readinessReviewFailed": "Le contrôle des prérequis a échoué techniquement. Le chapitre est conservé. Vous pouvez relancer la demande. Détail : {detail}",
-  "projectFolderRequired": "Choisissez ou créez un dossier pour ce projet. La racine du coffre ne peut pas être un projet Orelius."
+  "projectFolderRequired": "Choisissez ou créez un dossier pour ce projet. La racine du coffre ne peut pas être un projet Orelius.",
+  "deliverChapterBeforeTracking": "Le chapitre est enregistré et archivé. Termine les autres textes explicitement demandés, puis réponds immédiatement à l’auteur avec les liens vers les textes enregistrés. Orelius actualisera ensuite les résumés, les états narratifs et le suivi en arrière-plan ; ne retarde pas cette réponse pour ces tâches.",
+  "authorCommentsReserved": "Les annotations (((...))) sont réservées à l’auteur. Retire les annotations que tu as ajoutées ; exprime tes propositions en prose ordinaire. Tu peux conserver sans les modifier les annotations déjà présentes ou retirer celles que tu as traitées.",
+  "ctrlEnterToRevise": "Ctrl/⌘ + Entrée pour réviser la note sélectionnée."
 }

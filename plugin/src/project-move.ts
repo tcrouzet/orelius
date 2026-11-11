@@ -12,8 +12,8 @@ export function moveProjects(settings: OreliusSettings, from: string, to: string
   const absolute = (path: string) => `${vault.replace(/\/$/, "")}/${path}`;
   const locations = projects.map(path => [settings.sessions[path]?.cwd || (path === settings.folder ? settings.threadCwd : "") || absolute(path), absolute(movedPath(path, from, to))]);
   const relocate = (path: string) => {
-    const location = locations.slice().sort((a, b) => b[0]!.length - a[0]!.length).find(([old]) => path === old || path.startsWith(old + "/"));
-    return location ? movedPath(path, location[0]!, location[1]!) : path;
+    const location = locations.slice().sort((a, b) => b[0].length - a[0].length).find(([old]) => path === old || path.startsWith(old + "/"));
+    return location ? movedPath(path, location[0], location[1]) : path;
   };
   const remap = <T>(values: Record<string, T>, key: (path: string) => string): Record<string, T> => {
     const entries = Object.entries(values).map(([path, value]) => [key(path), value] as const);
@@ -23,13 +23,14 @@ export function moveProjects(settings: OreliusSettings, from: string, to: string
   const sessions = remap(settings.sessions, path => movedPath(path, from, to));
   for (const [path, value] of Object.entries(sessions)) sessions[path] = { ...value, cwd: relocate(value.cwd) };
   return { ...settings, folder: movedPath(settings.folder, from, to), threadCwd: relocate(settings.threadCwd), sessions,
+    drafts: remap(settings.drafts, path => movedPath(path, from, to)),
     codexVersions: remap(settings.codexVersions, relocate),
     revisionHighlights: remap(settings.revisionHighlights, path => movedPath(path, from, to)),
     reactions: remap(settings.reactions, key => {
       let parts: unknown;
       try { parts = JSON.parse(key); } catch { return key; }
       if (!Array.isArray(parts) || parts.length !== 3 || !parts.every(part => typeof part === "string")) return key;
-      return JSON.stringify([relocate(parts[0] as string), parts[1], parts[2]]);
+      return JSON.stringify([relocate(parts[0]), parts[1], parts[2]]);
     }),
   };
 }

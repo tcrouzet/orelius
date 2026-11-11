@@ -72,7 +72,7 @@ export class NovelView extends ItemView {
       scenes.forEach((scene, index) => {
         const item = node(scene.id), card = container.createDiv({ cls: "orelius-novel-scene" });
         open(card, item);
-        card.createEl("span", { text: t("formattedText4", { value1: SCENE_STATUSES[scene.status], value2: scene.pov || t("pointOfViewNotSpecified") }) });
+        card.createSpan({ text: t("formattedText4", { value1: SCENE_STATUSES[scene.status], value2: scene.pov || t("pointOfViewNotSpecified") }) });
         const edit = (change: Partial<NovelOutline["scenes"][number]>, before: string | null = scenes[index + 1]?.id ?? null) => {
           void this.refresh({ type: "scene", ...scene, ...change, before });
         };
@@ -116,7 +116,7 @@ export class NovelView extends ItemView {
       const actGroup = section(this.contentEl, act.id ?? "unassigned", act.title);
       if (act.id) new Setting(actGroup).setName(t("actTitle")).addText(input => {
         input.setValue(act.title); input.inputEl.maxLength = 200;
-        input.inputEl.onchange = () => { void this.refresh({ type: "act", id: act.id!, title: input.getValue() }); };
+        input.inputEl.onchange = () => { void this.refresh({ type: "act", id: act.id, title: input.getValue() }); };
       });
       const chapters = data.outline.chapters.filter(chapter => chapter.act === act.id);
       if (!chapters.length) actGroup.createEl("p", { text: t("noChapters") });

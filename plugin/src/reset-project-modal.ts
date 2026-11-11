@@ -20,7 +20,7 @@ export class ResetProjectModal extends Modal {
         button.setButtonText(t("cancel")).onClick(() => this.close());
         button.buttonEl.focus();
       })
-      .addButton(button => button.setButtonText(t("reset")).setWarning().onClick(() => {
+      .addButton(button => button.setButtonText(t("reset")).setDestructive().setCta().onClick(() => {
         this.confirmed = true;
         this.close();
       }));

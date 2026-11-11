@@ -14,7 +14,7 @@ export async function checkResetConfirmation(){
     export class Setting {
      constructor(container){this.container=container;}
      addButton(configure){
-      const button={buttonEl:{focus(){button.focused=true;}},setButtonText(text){this.text=text;return this;},setWarning(){this.warning=true;return this;},onClick(callback){this.click=callback;return this;}};
+      const button={buttonEl:{focus(){button.focused=true;}},setButtonText(text){this.text=text;return this;},setDestructive(){this.destructive=true;return this;},setCta(){this.cta=true;return this;},onClick(callback){this.click=callback;return this;}};
       this.container.buttons.push(button);configure(button);return this;
      }
     }
@@ -29,7 +29,7 @@ export async function checkResetConfirmation(){
   assert.ok(modal.title.includes('Mon roman'));
   for(const name of ['Sources','Univers','Roman','Sauvegardes'])assert.ok(modal.contentEl.paragraphs[0].includes(name));
   const [cancel,confirm]=modal.contentEl.buttons;
-  assert.equal(cancel.focused,true);assert.equal(confirm.warning,true);assert.equal(confirm.text,'Reset projet');
+  assert.equal(cancel.focused,true);assert.equal(confirm.destructive,true);assert.equal(confirm.cta,true);assert.equal(confirm.text,'Reset projet');
   if(action==='close')modal.close();else (action==='cancel'?cancel:confirm).click();
   assert.equal(await modal.result,action==='confirm');
  }

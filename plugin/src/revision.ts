@@ -85,6 +85,17 @@ export function planRevision(path: string, source: string, baseline?: string, de
     ...(wholeChapterRequested ? { wholeChapterRequested: true } : {}) };
 }
 
+export function checkAuthorComments(current: string, proposed: string): void {
+  const comments = (text: string) => text.match(/\(\(\([\s\S]*?\)\)\)|\(\(\([\s\S]*$|\)\)\)/g) ?? [];
+  const remaining = new Map<string, number>();
+  for (const comment of comments(current)) remaining.set(comment, (remaining.get(comment) ?? 0) + 1);
+  for (const comment of comments(proposed)) {
+    const count = remaining.get(comment) ?? 0;
+    if (!count) throw new Error(t("authorCommentsReserved"));
+    remaining.set(comment, count - 1);
+  }
+}
+
 export function checkRevision(plan: RevisionPlan, current: string | undefined, proposed: string): void {
   if (current !== plan.expected) throw new Error(t("theChapterChangedSinceTheRevisionRequestYourText"));
   if (!plan.intentRecorded) throw new Error(t("revisionRefusedFirstRecordTheIntentionBehindTheCorrections"));

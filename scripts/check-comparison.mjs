@@ -25,10 +25,13 @@ export async function checkComparison() {
   const args={variantes:[{titre:'Brève',texte:'crie'},{titre:'Autre',texte:'murmure'}]};
   await assert.rejects(saveVariants(cwd,folders,null,args,()=>{}),/sélection/);
   for(const invalid of [{},{variantes:[]},{variantes:[null,null]},{...args,chemin:'../../x'},{variantes:[{titre:'a',texte:''},{titre:'b',texte:'b'}]}]) await assert.rejects(saveVariants(cwd,folders,plan,invalid,()=>{}));
+  await assert.rejects(saveVariants(cwd,folders,plan,{variantes:[{titre:'Brève',texte:'crie (((Suggestion IA)))'},args.variantes[1]]},()=>{}),/réservées à l’auteur/);
   await saveVariants(cwd,folders,plan,args,()=>{});
   assert.equal(await readFile(join(cwd,chapter),'utf8'),before);
   let versions=await comparisonVersions(cwd,folders,chapter,before);
   assert.equal(versions.length,3);assert.equal(versions[1].text,'Louise crie.\n\nNadia attend.\n');
+  await writeFile(join(cwd,'Tracking/Chapters/002/Variants/invalid.md'),'\n<!-- orelius:variants -->\n'+JSON.stringify({chapter,base:before,variants:[null,{},42,{label:'Invalide',text:12},{text:'Sans titre'}]}));
+  assert.deepEqual(await comparisonVersions(cwd,folders,chapter,before),versions,'Les variantes mal formées sont ignorées.');
   let previous=await readProjectFile(cwd,chapter);
   await assert.rejects(applyComparison(cwd,folders,chapter,previous,after,()=>{throw Error('éditeur');}),/éditeur/);
   assert.equal(await readFile(join(cwd,chapter),'utf8'),before);

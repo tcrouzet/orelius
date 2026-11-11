@@ -7,7 +7,7 @@ import {ChatSession} from '../plugin/src/session.ts';
 import {errorText} from '../plugin/src/codex.ts';
 import {loadSettings,applySettings,PROJECT_FOLDER_KEYS,visibleFolder} from '../plugin/src/settings.ts';
 import {prepareProject} from '../plugin/src/archives.ts';
-import {archiveWithCorrections,captureCodexVersions} from '../plugin/src/corrections.ts';
+import {archiveWithCorrections,captureCodexVersions,chapterPath} from '../plugin/src/corrections.ts';
 import {renderAgent} from '../plugin/src/generate-agent.ts';
 import {saveConversation} from '../plugin/src/conversation.ts';
 import {externalSources} from '../plugin/src/external-sources.ts';
@@ -32,8 +32,8 @@ export async function checkProjectSessions(){
  class NovelView{}
  class FileSystemAdapter{constructor(root){this.root=root;}getBasePath(){return this.root;}}
  const module={exports:{}};
- new Function('ChatSession','applySettings','archiveWithCorrections','captureCodexVersions','renderAgent','agentTemplate','taskPrompts','externalSources','parseYaml','saveConversation','MarkdownView','NovelView','FileSystemAdapter','PROJECT_FOLDER_KEYS','visibleFolder','moveProjects','movedPath','realpath','t','Notice','errorText','module','exports',code)(
-  ChatSession,applySettings,archiveWithCorrections,captureCodexVersions,renderAgent,'Projet {folder}',taskPrompts,externalSources,()=>({}),saveConversation,MarkdownView,NovelView,FileSystemAdapter,PROJECT_FOLDER_KEYS,visibleFolder,moveProjects,movedPath,realpath,t,class{},errorText,module,module.exports);
+ new Function('chapterPath','ChatSession','applySettings','archiveWithCorrections','captureCodexVersions','renderAgent','agentTemplate','taskPrompts','externalSources','parseYaml','saveConversation','MarkdownView','NovelView','FileSystemAdapter','PROJECT_FOLDER_KEYS','visibleFolder','moveProjects','movedPath','realpath','t','Notice','errorText','module','exports',code)(
+  chapterPath,ChatSession,applySettings,archiveWithCorrections,captureCodexVersions,renderAgent,'Projet {folder}',taskPrompts,externalSources,()=>({}),saveConversation,MarkdownView,NovelView,FileSystemAdapter,PROJECT_FOLDER_KEYS,visibleFolder,moveProjects,movedPath,realpath,t,class{},errorText,module,module.exports);
  const root=await mkdtemp(join(tmpdir(),'orelius-parallel-'));
  const a='Alpha',b='Beta',path='Manuscript/001.md',cwdA=join(root,a),cwdB=join(root,b);
  const closed={a:0,b:0},opened=[];
@@ -42,7 +42,7 @@ export async function checkProjectSessions(){
   const settings=loadSettings({folder:a,sessions:{[a]:{threadId:'thread-a',cwd:cwdA},[b]:{threadId:'thread-b',cwd:cwdB}}});
   for(const folder of [a,b]){await mkdir(join(root,folder));await prepareProject(join(root,folder),settings);await writeFile(join(root,folder,path),`Texte ${folder}.`);}
   Object.assign(target,{settings,settingsWrite:Promise.resolve(),pendingProjectMoves:[],views:new Set(),highlights:{refresh(){}},navigation:new ChatNavigation(`${a}/${path}`),
-   saveData:async()=>{},prepareProject:async()=>{},configurationDirectory:()=>join(root,'.obsidian'),correctionTask:action=>action(),hideChat(){},
+   saveData:async data=>writeFile(join(root,'data.json'),JSON.stringify(data)),prepareProject:async()=>{},configurationDirectory:()=>join(root,'.obsidian'),correctionTask:action=>action(),hideChat(){},
    openChat:async()=>{opened.push(target.settings.folder);},app:{vault:{adapter:new FileSystemAdapter(root)},workspace:{iterateAllLeaves(){},containerEl:{removeClass(){}}}}});
   const first=target.session;
   target.draft='Brouillon Alpha';
@@ -81,6 +81,14 @@ export async function checkProjectSessions(){
   assert.ok(historyA.includes('Réponse Alpha'));assert.ok(!historyA.includes('Réponse Beta'));
   assert.ok(historyB.includes('Réponse Beta'));assert.ok(!historyB.includes('Réponse Alpha'));
   first.context().lockNote(path);second.context().lockNote(path);
+  first.context().lockNote('Bible/Characters/A.md');
+  first.inputReview=true;
+  target.releaseNoteLocks(a);
+  assert.equal(first.backgroundWork,true);
+  assert.equal(first.busy,true);
+  assert.deepEqual([...target.projectState(a).lockedNotes],[`${a}/Bible/Characters/A.md`.toLowerCase()],'Le chapitre est éditable pendant le suivi, la fiche encore modifiable reste protégée.');
+  assert.equal(target.projectState(b).lockedNotes.size,1,'Le projet parallèle reste protégé.');
+  first.inputReview=false;
   first.busy=false;target.releaseNoteLocks(a);
   assert.equal(target.projectState(a).lockedNotes.size,0);assert.equal(target.projectState(b).lockedNotes.size,1,'Terminer Alpha ne déverrouille pas les notes de Beta.');
   first.busy=true;
@@ -93,6 +101,39 @@ export async function checkProjectSessions(){
   target.moveProjectFolders(a,'Renomme');await target.settingsWrite;await new Promise(resolve=>setImmediate(resolve));
   assert.equal(first.connected,false);assert.equal(second.running,true);assert.equal(closed.a,1);assert.equal(closed.b,0,'Renommer Alpha ne coupe pas Beta.');
   assert.equal(target.projectSession('Renomme'),first);assert.equal(first.context().folder,'Renomme');assert.equal(target.projectState('Renomme').draft,'Brouillon Alpha');
+  const reloaded=new module.exports.default();
+  Object.assign(reloaded,{app:target.app,settings:loadSettings(JSON.parse(await readFile(join(root,'data.json'),'utf8'))),settingsWrite:Promise.resolve(),saveData:target.saveData});
+  assert.equal(reloaded.getDraft('Renomme'),'Brouillon Alpha','Le brouillon survit au rechargement et au déplacement.');
+  assert.equal(reloaded.getDraft(b),'Brouillon Beta','Chaque projet retrouve son brouillon.');
+  assert.equal(reloaded.getDraft(a),'','L’ancien emplacement ne conserve pas un brouillon fantôme.');
+  reloaded.setDraft('',b);
+  await reloaded.settingsWrite;
+  const reopened=new module.exports.default();Object.assign(reopened,{app:target.app,settings:loadSettings(JSON.parse(await readFile(join(root,'data.json'),'utf8')))});
+  assert.equal(reopened.getDraft(b),'','Un brouillon envoyé ne réapparaît pas au prochain lancement.');
+  const otherVault=new module.exports.default();Object.assign(otherVault,{app:{vault:{adapter:new FileSystemAdapter(root+'-other')}},settings:loadSettings(undefined)});
+  assert.equal(otherVault.getDraft('Renomme'),'','Deux coffres ne partagent pas leurs brouillons.');
+  const save=reloaded.saveData;
+  reloaded.saveData=async()=>{throw Error('Stockage indisponible');};
+  try { reloaded.setDraft('Texte conservé malgré une erreur disque',b);await reloaded.settingsWrite;assert.equal(reloaded.getDraft(b),'Texte conservé malgré une erreur disque'); }
+  finally {reloaded.saveData=save;}
+  reloaded.setDraft('Texte récupéré après une erreur disque',b);await reloaded.settingsWrite;
+  assert.equal(JSON.parse(await readFile(join(root,'data.json'),'utf8')).drafts[b],'Texte récupéré après une erreur disque');
+
+  let release,started;
+  const writing=new Promise(resolve=>{started=resolve;});
+  const blocked=new Promise(resolve=>{release=resolve;});
+  reloaded.saveData=async data=>{started();await blocked;await save(data);};
+  const setting=reloaded.saveSettings({codexPath:reloaded.settings.codexPath});
+  await writing;
+  reloaded.setDraft('Saisie pendant l’enregistrement','Renomme');
+  reloaded.setDraft('Dernière saisie','Renomme');
+  reloaded.setDraft('Autre projet',b);
+  release();await setting;await reloaded.settingsWrite;
+  const persisted=loadSettings(JSON.parse(await readFile(join(root,'data.json'),'utf8')));
+  assert.equal(persisted.drafts.Renomme,'Dernière saisie');assert.equal(persisted.drafts[b],'Autre projet');
+  assert.equal(persisted.sessions.Renomme.threadId,'thread-a','La sauvegarde des brouillons conserve les sessions.');
+
+
   target.onunload();await Promise.all([first.closing,second.closing]);
   assert.equal(closed.b,1,'Le déchargement du plugin arrête aussi les tâches en arrière-plan.');
  }finally{for(const project of target.projects.values())await project.session?.disconnect();await rm(root,{recursive:true,force:true});}

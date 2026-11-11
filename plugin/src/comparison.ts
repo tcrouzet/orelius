@@ -7,7 +7,7 @@ import { chapterPath } from "./corrections.ts";
 import { diffToGroups } from "./diff.ts";
 import { statePath } from "./narrative-context.ts";
 import { readProjectFile, writeProjectFile, type ProjectFile } from "./project-files.ts";
-import type { RevisionPlan } from "./revision.ts";
+import { checkAuthorComments, type RevisionPlan } from "./revision.ts";
 import { validateProjectFolders, type ProjectFolders } from "./settings.ts";
 
 export interface ComparisonVersion { label: string; text: string; archive?: string; base?: string }
@@ -30,7 +30,10 @@ export async function saveVariants(cwd: string, folders: ProjectFolders, revisio
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(t("invalidAlternative"));
     const item = value as Record<string, unknown>;
     if (Object.keys(item).some(key => !["titre", "texte"].includes(key)) || typeof item.titre !== "string" || !item.titre.trim() || item.titre.length > 200 || typeof item.texte !== "string" || !item.texte.trim() || item.texte.length > 200_000) throw new Error(t("invalidAlternativeTitleOrText"));
-    return { label: item.titre, text: revision.source.slice(0, revision.selection!.from) + item.texte + revision.source.slice(revision.selection!.to) };
+    const text = revision.source.slice(0, revision.selection!.from) + item.texte + revision.source.slice(revision.selection!.to);
+    checkAuthorComments("", item.titre);
+    checkAuthorComments(revision.source, text);
+    return { label: item.titre, text };
   });
   const source = await readProjectFile(cwd, revision.path);
   if (source?.text !== revision.source) throw new Error(t("theChapterChangedSinceTheSelection"));
@@ -61,8 +64,9 @@ export async function comparisonVersions(cwd: string, folders: ProjectFolders, c
     if (!value || typeof value !== "object") continue;
     const bundle = value as { chapter?: unknown; base?: unknown; variants?: unknown };
     if (bundle.chapter !== chapter || typeof bundle.base !== "string" || !Array.isArray(bundle.variants)) continue;
-    for (const item of bundle.variants) {
-      if (!item || typeof item !== "object" || typeof item.label !== "string" || typeof item.text !== "string") continue;
+    const variants: unknown[] = bundle.variants;
+    for (const item of variants) {
+      if (!item || typeof item !== "object" || !("label" in item) || typeof item.label !== "string" || !("text" in item) || typeof item.text !== "string") continue;
       versions.push({ label: `${item.label} — ${name.slice(0, 19)}${bundle.base !== current ? t("olderVersion") : ""}`, text: item.text, base: bundle.base });
     }
   }

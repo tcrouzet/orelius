@@ -52,7 +52,7 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
         if (acceptedChapters.has(key)) continue;
         acceptedChapters.add(key);
         role = "approved-example";
-        const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(file.text)?.[1]?.replace(/^    /gm, "").trim();
+        const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(file.text)?.[1]?.replace(/^ {4}/gm, "").trim();
         const versionKey = JSON.stringify([JSON.parse(chapter), prose]);
         if (prose && !ratedVersions.has(versionKey)) ratedVersions.set(versionKey, "up");
       }
@@ -73,10 +73,10 @@ export async function readEditorialContext(cwd: string, folders: ProjectFolders,
     sources.push({ path, content: file.text, role });
   }
   for (let index = sources.length - 1; index >= 0; index--) {
-    const source = sources[index]!;
+    const source = sources[index];
     if (source.role !== "approved-example") continue;
     const path = /^Chapitre : \[("(?:[^"\\]|\\.)*")\]/m.exec(source.content)?.[1];
-    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(source.content)?.[1]?.replace(/^    /gm, "").trim();
+    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(source.content)?.[1]?.replace(/^ {4}/gm, "").trim();
     if (path && prose && ratedVersions.get(JSON.stringify([JSON.parse(path), prose])) === "down") sources.splice(index, 1);
   }
   for (const [path, baseline] of Object.entries(versions)) {

@@ -11,7 +11,7 @@ export function reviewChunks(text: string, target = 2000): { start: number; end:
   const chunks: ReturnType<typeof reviewChunks> = [];
   const blocks = [...text.matchAll(/[^\n](?:[\s\S]*?)(?=\n\s*\n|$(?![\s\S]))/g)];
   for (const block of blocks) {
-    const start = block.index!;
+    const start = block.index;
     const end = start + block[0].length;
     const last = chunks.at(-1);
     if (last && end - last.start <= target) { last.end = end; last.text = text.slice(last.start, end); }

@@ -21,6 +21,10 @@ export async function checkChatSelection() {
  const failure='La publication a échoué.\n'+('Diagnostic exact et copiable. '.repeat(1200));
  const session={turns:[],items:[],requests:[],models:[],model:'',reasoningEffort:null,modelChangePending:false,status:'Statut',failure:{message:failure},busy:false,connected:false,contextRemaining:null};
  const plugin={settings:{...DEFAULT_PROJECT_FOLDERS,folder:'Roman',debugMode:false},session,draft:'',acceptanceChapter:null,revisionChapter:null,revisionDocument:null,highlightedDocument:null,activeStoryNode:null};
+ const drafts=new Map();
+ plugin.getDraft=folder=>drafts.get(folder)??'';
+ plugin.setDraft=(text,folder)=>drafts.set(folder,text);
+ Object.defineProperty(plugin,'draft',{enumerable:true,get:()=>plugin.getDraft(plugin.settings.folder),set:text=>plugin.setDraft(text,plugin.settings.folder)});
  const view=new OreliusView({contentEl:content},plugin);
  for(const field of ['projectTitleEl','resetButton','statusEl','failureEl','failureMessageEl','retryButton','modelSelect','effortSelect','modelPendingEl','contextEl','sendButton','reviseButton','rewriteButton','acceptButton','stopButton','decisionLabel','decisionSelect','input','hintEl','messagesEl','requestsEl','timelineEl'])view[field]=new Element();
  view.render();const fields=['projectTitleEl','statusEl','failureMessageEl','contextEl','sendButton','hintEl'];
@@ -30,6 +34,24 @@ export async function checkChatSelection() {
  assert.equal(view.messagesEl.querySelector('.orelius-empty'),emptyMessage,'Le texte d’accueil conserve aussi ses nœuds.');
  plugin.settings.archiveFolder='Copies';view.render();assert.equal(view.messagesEl.querySelector('.orelius-empty'),emptyMessage);assert.ok(emptyMessage.textContent.includes('Copies'));
  assert.equal(view.failureMessageEl.textContent,failure,'Le diagnostic complet reste disponible.');
+ view.input.value='Mon commentaire non envoyé — à conserver.';
+ session.busy=true;view.render();session.busy=false;view.render();
+ assert.equal(view.input.value,'Mon commentaire non envoyé — à conserver.','Un rafraîchissement pendant la saisie ne vide pas le champ.');
+ assert.equal(plugin.draft,view.input.value);
+ view.input.value+=' Encore en cours de saisie.';
+ const firstDraft=view.input.value;
+ plugin.settings.folder='Projet voisin';view.render();
+ assert.equal(plugin.getDraft('Roman'),firstDraft,'La saisie encore visible reste rattachée à son projet.');
+ assert.equal(view.input.value,'');
+ view.input.value='Autre commentaire.';view.render();
+ plugin.settings.folder='Roman';view.render();assert.equal(view.input.value,firstDraft);
+ assert.equal(plugin.getDraft('Projet voisin'),'Autre commentaire.');
+ plugin.draft='';view.render();assert.equal(view.input.value,'','Un envoi validé peut effacer le texte inchangé.');
+ plugin.draft='Texte envoyé';view.render();
+ view.input.value='Nouveau texte saisi pendant l’envoi';plugin.draft='';view.render();
+ assert.equal(view.input.value,'Nouveau texte saisi pendant l’envoi','La fin d’un envoi ne détruit pas la saisie suivante.');
+ plugin.draft='';view.render();
+
  session.failure.message='Nouveau diagnostic';view.render();assert.equal(view.failureMessageEl.textContent,'Nouveau diagnostic');
  assert.equal(view.failureMessageEl.writes,writes[2]+1);
  plugin.settings.folder='Autre projet';view.render();
@@ -44,14 +66,44 @@ export async function checkChatSelection() {
  const revisionCalls=[];plugin.send=async(...args)=>revisionCalls.push(args);
  plugin.revisionDocument='Bible/Characters/Personnage.md';view.render();
  assert.equal(view.reviseButton.visible,true);assert.equal(view.reviseButton.disabled,false);
+ assert.equal(view.sendButton.visible,false,'Envoyer disparaît lorsqu’une note est sélectionnée.');
+ assert.match(view.hintEl.textContent,/réviser/);
  assert.equal(view.rewriteButton.visible,false,'La reprise narrative reste propre aux chapitres.');
  view.input.value='';await view.send(true);
  assert.deepEqual(revisionCalls,[['',plugin.revisionDocument,false]],'Les annotations de la fiche suffisent pour lancer Réviser.');
+ view.input.value='Ajoute les deux matériaux.';await view.send();
+ assert.deepEqual(revisionCalls.at(-1),['Ajoute les deux matériaux.',plugin.revisionDocument,false],'Le raccourci par défaut révise la note sélectionnée.');
+ view.input.value='';
+
  const cleared=[];plugin.clearRevisionHighlights=async path=>cleared.push(path);
  plugin.highlightedDocument=plugin.revisionDocument;await view.clearHighlights();
  assert.deepEqual(cleared,[plugin.revisionDocument],'La gomme fonctionne aussi pour une fiche révisée.');
+ session.busy=true;session.backgroundWork=true;
+ const reactions=[];plugin.react=async(...args)=>reactions.push(args);plugin.reactionFor=()=>undefined;
+ await view.clearHighlights();
+ assert.equal(cleared.length,2,'La gomme reste utilisable pendant le suivi.');
+ view.input.value='Garde cette voix.';
+ for(const reaction of ['heart','up','down']) {
+  await view.react('réponse',reaction);view.render();
+  assert.deepEqual(reactions.at(-1),['réponse',reaction,''],'Le vote ne transmet pas le brouillon non envoyé.');
+  assert.equal(view.input.value,'Garde cette voix.','Le vote conserve le texte dans le champ.');
+  assert.equal(plugin.draft,'Garde cette voix.','Le brouillon sauvegardé reste intact.');
+ }
+ view.exchanges=new Map([['réponse',{}]]);
+ const buttons=['heart','up','down'].map(reaction=>({dataset:{reaction},setAttribute(){}}));
+ const clear={};const controls={querySelectorAll:()=>buttons,querySelector:()=>clear};
+ view.renderReactions({id:'réponse',paths:[plugin.revisionDocument]},{querySelector:()=>controls});
+ assert.ok(buttons.every(button=>button.disabled===false));assert.equal(clear.disabled,false);
+ session.backgroundWork=false;
+ view.renderReactions({id:'réponse',paths:[plugin.revisionDocument]},{querySelector:()=>controls});
+ assert.ok(buttons.every(button=>button.disabled===true));assert.equal(clear.disabled,true);
+ await view.react('réponse','down');await view.clearHighlights();
+ assert.equal(reactions.length,3);assert.equal(cleared.length,2,'Le travail principal reste protégé.');
+ session.busy=false;view.input.value='';
+
  plugin.highlightedDocument=null;
- plugin.revisionDocument=null;view.render();assert.equal(view.reviseButton.visible,false);
+ plugin.revisionDocument=null;view.render();assert.equal(view.reviseButton.visible,false);assert.equal(view.sendButton.visible,true);
+ view.input.value='Une question générale.';await view.send();assert.deepEqual(revisionCalls.at(-1),['Une question générale.',undefined,false]);view.input.value='';
  view.active=true;view.timelineEl.scrollTop=40;view.timelineEl.scrollHeight=500;
  selection={isCollapsed:false,anchorNode:{inChat:true},focusNode:{inChat:true}};
  view.scrollMessages();assert.equal(callbacks.length,0,'Sélectionner un texte du panneau suspend le défilement.');
@@ -83,7 +135,9 @@ export async function checkChatSelection() {
   lifecycle.modelSelect.value='model-a';lifecycle.modelSelect.onchange();
   lifecycle.effortSelect.value='high';lifecycle.effortSelect.onchange();await new Promise(resolve=>setImmediate(resolve));
   assert.deepEqual(selections,[['model','model-a'],['effort','high']]);assert.equal(connections,1,'Changer les choix ne relance pas la connexion.');
+  lifecycle.input.value='À conserver même en fermant le panneau.';
   await lifecycle.onClose();
+  assert.equal(plugin.getDraft(plugin.settings.folder),'À conserver même en fermant le panneau.');
  }finally{
   if(savedNode===undefined)delete globalThis.Node;else globalThis.Node=savedNode;
   if(savedResize===undefined)delete globalThis.ResizeObserver;else globalThis.ResizeObserver=savedResize;

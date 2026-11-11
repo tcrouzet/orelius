@@ -66,6 +66,7 @@ export interface OreliusSettings extends ProjectFolders {
   threadId: string;
   threadCwd: string;
   sessions: Record<string, FolderSession>;
+  drafts: Record<string, string>;
   codexVersions: Record<string, Record<string, string>>;
   revisionHighlights: Record<string, RevisionHighlight>;
   reactions: Record<string, ReactionRating>;
@@ -99,7 +100,7 @@ export function loadSettings(value: unknown): OreliusSettings {
   const saved = object(value);
   const settings: OreliusSettings = {
     ...DEFAULT_PROJECT_FOLDERS, debugMode: saved.debugMode === true, showActivity: saved.showActivity === true,
-    codexPath: "", folder: "", threadId: "", threadCwd: "", sessions: {}, codexVersions: {}, revisionHighlights: {}, reactions: {},
+    codexPath: "", folder: "", threadId: "", threadCwd: "", sessions: {}, drafts: {}, codexVersions: {}, revisionHighlights: {}, reactions: {},
   };
   for (const key of ["codexPath", "folder", "threadId", "threadCwd"] as const) {
     if (typeof saved[key] === "string") settings[key] = saved[key];
@@ -120,6 +121,7 @@ export function loadSettings(value: unknown): OreliusSettings {
     }
     return [folder, { threadId: session.threadId, cwd: session.cwd }];
   }));
+  settings.drafts = Object.fromEntries(Object.entries(object(saved.drafts)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   if (saved.codexVersions !== undefined && (saved.codexVersions === null || typeof saved.codexVersions !== "object" || Array.isArray(saved.codexVersions))) {
     throw new Error(t("invalidCorrectionReferences"));
   }

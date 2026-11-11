@@ -26,7 +26,7 @@ export function bibleReference(path: string, folders: Pick<ProjectFolders, "bibl
 export function editorialObjectives(path: string, content: string): EditorialObjective[] {
   const body = content.replace(/<!-- orelius:priorities:start -->[\s\S]*?<!-- orelius:priorities:end -->/g, "");
   return [...body.matchAll(/^- \[(essentiel|secondaire|a-eviter|suspendu)\] (\S[^\r\n]*)$/gm)]
-    .map(match => ({ path, level: match[1] as EditorialObjective["level"], goal: match[2]!.trim() }));
+    .map(match => ({ path, level: match[1] as EditorialObjective["level"], goal: match[2].trim() }));
 }
 
 export function introducedObjectives(path: string, before: string, after: string, folders: ProjectFolders): EditorialObjective[] {
@@ -61,8 +61,8 @@ export async function rateEditorialObjectives(cwd: string, folders: ProjectFolde
     if (start !== -1 || end !== -1) {
       if (start < 0 || end < start || start !== file.text.lastIndexOf(START) || end !== file.text.lastIndexOf(END)) throw new Error(t("priorityMarkersInvalid"));
       const saved = /^\n<!-- orelius:priorities-content:([a-f0-9]{64}) -->\n([\s\S]*)$/.exec(file.text.slice(start + START.length, end));
-      if (!saved || key(saved[2]!) !== saved[1]) throw new Error(t("priorityManualChanges"));
-      const encoded = /^Données : (.+)$/m.exec(saved[2]!)?.[1];
+      if (!saved || key(saved[2]) !== saved[1]) throw new Error(t("priorityManualChanges"));
+      const encoded = /^Données : (.+)$/m.exec(saved[2])?.[1];
       const data: unknown = encoded ? JSON.parse(encoded) : null;
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error(t("priorityDataInvalid"));
       for (const [id, item] of Object.entries(data as Record<string, unknown>)) {

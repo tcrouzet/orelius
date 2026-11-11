@@ -36,7 +36,7 @@ export class ComparisonModal extends Modal {
       changes.forEach((change, index) => {
         const label = choices.createEl("label", { cls: "orelius-comparison-change" });
         const input = label.createEl("input", { type: "checkbox" });
-        label.createEl("span", { text: t("formattedText2", { value1: index + 1, value2: change.delText || "(insertion)", value3: change.insText || "(suppression)" }) });
+        label.createSpan({ text: t("formattedText2", { value1: index + 1, value2: change.delText || "(insertion)", value3: change.insText || "(suppression)" }) });
         input.onchange = () => { if (input.checked) selected.add(index); else selected.delete(index); update(); };
       });
       if (!changes.length) choices.createEl("p", { text: t("theseVersionsAreIdentical") });
@@ -55,7 +55,7 @@ export class ComparisonModal extends Modal {
     };
     for (const side of ["left", "right"] as const) new Setting(selectors).setName(side === "left" ? t("startingVersion") : t("comparedVersion"))
       .addDropdown(dropdown => {
-        this.versions.forEach((version, index) => dropdown.addOption(String(index), version.label));
+        this.versions.forEach((version, index) => { dropdown.addOption(String(index), version.label); });
         dropdown.setValue(String(side === "left" ? left : right)).onChange(value => { if (side === "left") left = Number(value); else right = Number(value); render(); });
       });
     render();

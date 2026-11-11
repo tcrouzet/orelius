@@ -29,7 +29,7 @@ import { ProjectMcp, FILE_TOOL, CONTEXT_TOOL, SOURCES_TOOL, STRUCTURE_TOOL } fro
 import { readProjectFile, writeProjectFile } from "./project-files.ts";
 import { CodexClient, errorText, findCodex, object, stringValue, type RpcId, type RpcObject, type ServerRequest } from "./codex.ts";
 import type { ConversationTurn } from "./conversation.ts";
-import { checkRevision, planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
+import { checkAuthorComments, checkRevision, planRevision, revisionFor, revisionKey, revisionPath, type RevisionHighlight, type RevisionPlan } from "./revision.ts";
 import { chapterPath, revisionDocumentPath, revisionPrompt, revisionProtections, revisionRequest } from "./corrections.ts";
 import { buildSceneContext, saveSceneContext, type SceneContext } from "./scene-context.ts";
 import { ChapterReview } from "./chapter-review.ts";
@@ -131,6 +131,7 @@ export class ChatSession {
   }
 
   get running(): boolean { return this.connected && this.busy && Boolean(this.turnId) && !this.interrupting; }
+  get backgroundWork(): boolean { return this.busy && (this.maintenance || this.inputReview); }
   get canRetry(): boolean { return !this.busy && Boolean(this.failure?.retryable && this.lastRequest?.threadId === this.threadId); }
   get populateActive(): boolean { return (this.populating || this.enrichingBible) && !this.maintenance && !this.inputReview; }
   get modelChangePending(): boolean { return this.running && ((this.taskOptions.model ?? "") !== this.model || (this.taskOptions.effort ?? null) !== this.reasoningEffort); }
@@ -385,6 +386,16 @@ export class ChatSession {
     this.changed();
   }
 
+  async saveFeedback(write: () => Promise<void>): Promise<void> {
+    const generation = this.generation;
+    const work = this.recording.then(() => {
+      if (generation !== this.generation || this.busy && !this.backgroundWork) throw new Error(t("waitForTheTaskOrMessageToFinishBefore"));
+      return write();
+    });
+    this.recording = work.then(() => {}, () => {});
+    await work;
+  }
+
   async interrupt(): Promise<void> {
     if (!this.busy) return;
     const operation = this.operation;
@@ -564,6 +575,7 @@ export class ChatSession {
         if (this.brainstorm && !this.brainstorm.document && previous) throw new Error(t("brainstormUseRevise"));
         if (this.populating) checkPopulateChapter(this.context(), path, content, previous?.text, this.workshop.sources);
         original = previous?.text ?? "";
+        if (revisionDocumentPath(cwd, this.context(), path) && !(this.populating && chapterPath(cwd, this.context(), path))) checkAuthorComments(original, content);
         if (bibleReference(path, this.context())) preservePriorityHistory(original, content);
         ensureActive();
         if (protection) checkRevision(protection, previous?.text, content);
@@ -612,7 +624,7 @@ export class ChatSession {
           this.changed();
         }
         return JSON.stringify({ fichier: path, modifie: previous?.text !== content, archives, objectifs: previous?.text !== content ? objectives : [], resultat: t("fileWrittenAndGeneratedVersionArchived"),
-          ...(chapterPath(cwd, this.context(), path) ? { empreinte: fingerprint(content), suite: t("updateTheSummaryAndProgressionsWithEnregistrerEtatNarratif") } : {}) });
+          ...(chapterPath(cwd, this.context(), path) ? { empreinte: fingerprint(content), suite: t("deliverChapterBeforeTracking") } : {}) });
       });
       this.recording = write.then(() => {}, () => {});
       return write.catch(error => {
@@ -1020,6 +1032,8 @@ export class ChatSession {
           return;
         }
       }
+      await this.recording;
+      if (generation !== this.generation || params.threadId !== this.threadId) return;
       this.populating = false;
       this.enrichingBible = false;
       this.maintenance = false;

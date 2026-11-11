@@ -48,7 +48,7 @@ export function renderConditions(template: string, variables: Record<string, str
         visible = frame.parent && !frame.condition;
       } else { stack.pop(); visible = frame.parent; }
     }
-    cursor = match.index! + match[0].length;
+    cursor = match.index + match[0].length;
   }
   if (stack.length) throw new Error(t("unclosedPromptCondition"));
   if (visible) output += template.slice(cursor);

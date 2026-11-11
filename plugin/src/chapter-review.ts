@@ -18,7 +18,7 @@ export class ChapterReview {
     this.objectives = [];
     this.documentation = [];
     const fields = ["personnages", "situation", "objectif", "connaissances", "arrivee", "corrections", "incertitudes"];
-    if (args.chemin !== context.chapter || fields.some(key => typeof args[key] !== "string" || !(args[key] as string).trim())
+    if (args.chemin !== context.chapter || fields.some(key => typeof args[key] !== "string" || !args[key].trim())
       || !Array.isArray(args.actions) || !args.actions.length || args.actions.some(action => typeof action !== "string" || !action.trim())
       || Object.keys(args).some(key => !["chemin", "actions", "objectifs", "documentation", ...fields].includes(key))) {
       throw new Error(t("prepareTheTargetChapterSituationGoalOrderedConcreteActions"));

@@ -28,7 +28,8 @@ export async function chapterFiles(cwd: string, folders: ProjectFolders): Promis
     }
   }
   await walk(`${folders.manuscriptFolder}`);
-  return result.sort(new Intl.Collator("fr", { numeric: true }).compare);
+  const collator = new Intl.Collator("fr", { numeric: true });
+  return result.sort((a, b) => collator.compare(a, b));
 }
 
 export async function pendingStates(cwd: string, folders: ProjectFolders, chapters?: string[]): Promise<PendingState[]> {

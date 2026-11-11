@@ -74,13 +74,13 @@ export function parseConfig(value: unknown, folders: ProjectFolders): NarrativeC
     return item as unknown as Reference;
   });
   for (const list of [chapters, references]) if (new Set(list.map(r => r.path)).size !== list.length) throw new Error(t("duplicateNarrativePath"));
-  const methods: Record<string, MethodPreset> = Object.create(null);
+  const methods = Object.create(null) as Record<string, MethodPreset>;
   if (root.methods !== undefined) for (const [name, value] of Object.entries(record(root.methods))) {
     const preset = record(value);
     keys(preset, ["instructions", "persona", "targetWords"]);
     for (const field of ["instructions", "persona"]) if (preset[field] !== undefined) text(preset[field]);
     if (preset.targetWords !== undefined && (!Number.isSafeInteger(preset.targetWords) || Number(preset.targetWords) < 1)) throw new Error(t("aPositiveTargetLengthIsRequired"));
-    methods[name] = preset as MethodPreset;
+    methods[name] = preset;
   }
   const chapterNames = new Set(chapters.map(c => c.path));
   for (const chapter of chapters) {
@@ -95,7 +95,7 @@ export function parseConfig(value: unknown, folders: ProjectFolders): NarrativeC
   if (root.maxCharacters !== undefined && (!Number.isSafeInteger(root.maxCharacters) || Number(root.maxCharacters) < 1000)) throw new Error(t("invalidContextBudgetCharactersMinimum"));
   if (root.referenceBudget !== undefined && (!Number.isSafeInteger(root.referenceBudget) || Number(root.referenceBudget) < 0)) throw new Error(t("invalidReferenceBudget"));
   if (root.recursiveReferences !== undefined && typeof root.recursiveReferences !== "boolean") throw new Error(t("recursivereferencesMustBeABoolean"));
-  return { chapters, references, methods, referenceBudget: root.referenceBudget as number | undefined, recursiveReferences: root.recursiveReferences as boolean | undefined, ...(root.maxCharacters === undefined ? {} : { maxCharacters: Number(root.maxCharacters) }) };
+  return { chapters, references, methods, referenceBudget: root.referenceBudget as number | undefined, recursiveReferences: root.recursiveReferences, ...(root.maxCharacters === undefined ? {} : { maxCharacters: Number(root.maxCharacters) }) };
 }
 export function selectReferences(references: Reference[], selection: string, explicit: string[]): { selected: Reference[]; mentions: string[] } {
   const selected = new Map<string, Reference>();
@@ -183,18 +183,19 @@ export function parseState(value: unknown, chapter: string, manuscript: string):
       if (visited.has(current.id)) throw new Error(t("timeCycleAmongMoments"));
       visited.add(current.id);
       if (!current.after || current.after.includes("#")) break;
-      const parent: typeof moment | undefined = moments.find(m => m.id === current!.after);
+      const after: string = current.after;
+      const parent: typeof moment | undefined = moments.find(m => m.id === after);
       if (!parent) throw new Error(t("unknownTimeReference"));
       current = parent;
     }
   }
-  const dependencies: Record<string, string> = Object.create(null);
+  const dependencies = Object.create(null) as Record<string, string>;
   if (data.dependencies !== undefined) for (const [file, hash] of Object.entries(record(data.dependencies))) {
     path(file);
     if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)) throw new Error(t("invalidDependencyFingerprint"));
     dependencies[file] = hash;
   }
-  return { chapter, hash: data.hash as string, summary: data.summary as string, facts, moments, dependencies };
+  return { chapter, hash: data.hash, summary: data.summary as string, facts, moments, dependencies };
 }
 export function projectStates(states: NarrativeState[], references: Reference[]): (NarrativeState["facts"][number] & { chapter: string })[] {
   const result: ReturnType<typeof projectStates> = [];

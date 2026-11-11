@@ -107,7 +107,7 @@ var en_default = {
   reviseUsingYourCorrectionsOrTheRequestInYour: "Revise {value1} using your corrections or the request in your message.",
   filesToReportWithTheNextMessage: "View changed files ({value1})",
   addInstructionsToTheCurrentTask: "Add instructions to the current task\u2026",
-  messageRevisionInstructionsOrACommentToAttachTo: "Message, revision instructions or a comment to attach to your reaction\u2026",
+  messageRevisionInstructionsOrACommentToAttachTo: "Message or revision instructions\u2026",
   ctrlEnterToAddInstructionsToTheCurrentTask: "\u2318/Ctrl + Enter to add instructions to the current task",
   ctrlEnterToSend: "\u2318/Ctrl + Enter to send",
   askAQuestionOrRequestAChangeOriginalsOf: "Ask a question or request a change. Originals of modified files are kept in {value1} at the project root.",
@@ -116,7 +116,6 @@ var en_default = {
   activity: "Activity",
   oreliusMarkdownRendering: "Orelius: Markdown rendering",
   reactionsAndHighlights: "Reactions and highlights",
-  anyMessageInTheChatWillBeAttachedTo: "{value1} \u2014 any message in the chat will be attached to this reaction.",
   clearHighlights: "Clear highlights",
   clearTheOpenChapterSHighlightsWithoutAcceptingThe: "Clear the open document's highlights without accepting the changes.",
   codexQuestion: "Codex question",
@@ -733,7 +732,10 @@ var en_default = {
   brainstormExportExists: "This CSV export already exists. Choose another name in the Brainstorm folder to preserve the existing file.",
   messageQueued: "Queued \u2014 will be processed after the current task.",
   readinessReviewFailed: "The prerequisite review failed technically. The chapter was preserved. You can retry the request. Details: {detail}",
-  projectFolderRequired: "Choose or create a folder for this project. The vault root cannot be an Orelius project."
+  projectFolderRequired: "Choose or create a folder for this project. The vault root cannot be an Orelius project.",
+  deliverChapterBeforeTracking: "The chapter is saved and archived. Finish any other explicitly requested texts, then immediately answer the author with links to the saved texts. Orelius will update summaries, narrative states and tracking in the background afterward; do not delay the reply for those tasks.",
+  authorCommentsReserved: "Annotations using (((...))) are reserved for the author. Remove annotations you added and express your proposals in ordinary prose. You may preserve existing annotations unchanged or remove those you have addressed.",
+  ctrlEnterToRevise: "Ctrl/\u2318 + Enter to revise the selected note."
 };
 
 // locales/fr.json
@@ -819,7 +821,7 @@ var fr_default = {
   reviseUsingYourCorrectionsOrTheRequestInYour: "R\xE9viser {value1} \xE0 partir de vos corrections ou de votre demande dans le message.",
   filesToReportWithTheNextMessage: "Voir les fichiers modifi\xE9s ({value1})",
   addInstructionsToTheCurrentTask: "Ajouter une consigne \xE0 la t\xE2che en cours\u2026",
-  messageRevisionInstructionsOrACommentToAttachTo: "Message, pr\xE9cisions pour R\xE9viser ou commentaire \xE0 joindre \xE0 votre r\xE9action\u2026",
+  messageRevisionInstructionsOrACommentToAttachTo: "Message ou pr\xE9cisions pour R\xE9viser\u2026",
   ctrlEnterToAddInstructionsToTheCurrentTask: "\u2318/Ctrl + Entr\xE9e pour ajouter une consigne \xE0 la t\xE2che en cours",
   ctrlEnterToSend: "\u2318/Ctrl + Entr\xE9e pour envoyer",
   askAQuestionOrRequestAChangeOriginalsOf: "Posez une question ou demandez une modification. Les originaux des fichiers modifi\xE9s sont conserv\xE9s dans {value1} \xE0 la racine du projet.",
@@ -828,7 +830,6 @@ var fr_default = {
   activity: "Activit\xE9",
   oreliusMarkdownRendering: "Orelius : rendu Markdown",
   reactionsAndHighlights: "R\xE9actions et surlignage",
-  anyMessageInTheChatWillBeAttachedTo: "{value1} \u2014 le message \xE9ventuel dans le chat sera joint \xE0 cette r\xE9action.",
   clearHighlights: "Effacer le surlignage",
   clearTheOpenChapterSHighlightsWithoutAcceptingThe: "Effacer le surlignage du document ouvert, sans accepter les modifications.",
   codexQuestion: "Question de Codex",
@@ -1445,7 +1446,10 @@ var fr_default = {
   brainstormExportExists: "Cet export CSV existe d\xE9j\xE0. Choisissez un autre nom dans le dossier Brainstorm pour pr\xE9server le fichier existant.",
   messageQueued: "En attente \u2014 sera trait\xE9 apr\xE8s la t\xE2che en cours.",
   readinessReviewFailed: "Le contr\xF4le des pr\xE9requis a \xE9chou\xE9 techniquement. Le chapitre est conserv\xE9. Vous pouvez relancer la demande. D\xE9tail : {detail}",
-  projectFolderRequired: "Choisissez ou cr\xE9ez un dossier pour ce projet. La racine du coffre ne peut pas \xEAtre un projet Orelius."
+  projectFolderRequired: "Choisissez ou cr\xE9ez un dossier pour ce projet. La racine du coffre ne peut pas \xEAtre un projet Orelius.",
+  deliverChapterBeforeTracking: "Le chapitre est enregistr\xE9 et archiv\xE9. Termine les autres textes explicitement demand\xE9s, puis r\xE9ponds imm\xE9diatement \xE0 l\u2019auteur avec les liens vers les textes enregistr\xE9s. Orelius actualisera ensuite les r\xE9sum\xE9s, les \xE9tats narratifs et le suivi en arri\xE8re-plan ; ne retarde pas cette r\xE9ponse pour ces t\xE2ches.",
+  authorCommentsReserved: "Les annotations (((...))) sont r\xE9serv\xE9es \xE0 l\u2019auteur. Retire les annotations que tu as ajout\xE9es ; exprime tes propositions en prose ordinaire. Tu peux conserver sans les modifier les annotations d\xE9j\xE0 pr\xE9sentes ou retirer celles que tu as trait\xE9es.",
+  ctrlEnterToRevise: "Ctrl/\u2318 + Entr\xE9e pour r\xE9viser la note s\xE9lectionn\xE9e."
 };
 
 // plugin/src/i18n.ts
@@ -1838,6 +1842,7 @@ function loadSettings(value) {
     threadId: "",
     threadCwd: "",
     sessions: {},
+    drafts: {},
     codexVersions: {},
     revisionHighlights: {},
     reactions: {}
@@ -1861,6 +1866,7 @@ function loadSettings(value) {
     }
     return [folder, { threadId: session.threadId, cwd: session.cwd }];
   }));
+  settings.drafts = Object.fromEntries(Object.entries(object(saved.drafts)).filter((entry) => typeof entry[1] === "string"));
   if (saved.codexVersions !== void 0 && (saved.codexVersions === null || typeof saved.codexVersions !== "object" || Array.isArray(saved.codexVersions))) {
     throw new Error(t("invalidCorrectionReferences"));
   }
@@ -2452,6 +2458,16 @@ function planRevision(path2, source, baseline, details = "", wholeChapterRequest
     ...wholeChapterRequested ? { wholeChapterRequested: true } : {}
   };
 }
+function checkAuthorComments(current, proposed) {
+  const comments = (text2) => text2.match(/\(\(\([\s\S]*?\)\)\)|\(\(\([\s\S]*$|\)\)\)/g) ?? [];
+  const remaining = /* @__PURE__ */ new Map();
+  for (const comment of comments(current)) remaining.set(comment, (remaining.get(comment) ?? 0) + 1);
+  for (const comment of comments(proposed)) {
+    const count = remaining.get(comment) ?? 0;
+    if (!count) throw new Error(t("authorCommentsReserved"));
+    remaining.set(comment, count - 1);
+  }
+}
 function checkRevision(plan, current, proposed) {
   if (current !== plan.expected) throw new Error(t("theChapterChangedSinceTheRevisionRequestYourText"));
   if (!plan.intentRecorded) throw new Error(t("revisionRefusedFirstRecordTheIntentionBehindTheCorrections"));
@@ -2733,7 +2749,8 @@ function parseState(value, chapter, manuscript) {
       if (visited.has(current.id)) throw new Error(t("timeCycleAmongMoments"));
       visited.add(current.id);
       if (!current.after || current.after.includes("#")) break;
-      const parent = moments.find((m) => m.id === current.after);
+      const after = current.after;
+      const parent = moments.find((m) => m.id === after);
       if (!parent) throw new Error(t("unknownTimeReference"));
       current = parent;
     }
@@ -3204,6 +3221,7 @@ function moveProjects(settings, from, to, vault) {
     folder: movedPath(settings.folder, from, to),
     threadCwd: relocate(settings.threadCwd),
     sessions,
+    drafts: remap(settings.drafts, (path2) => movedPath(path2, from, to)),
     codexVersions: remap(settings.codexVersions, relocate),
     revisionHighlights: remap(settings.revisionHighlights, (path2) => movedPath(path2, from, to)),
     reactions: remap(settings.reactions, (key2) => {
@@ -3242,7 +3260,7 @@ var ResetProjectModal = class extends import_obsidian.Modal {
     new import_obsidian.Setting(this.contentEl).addButton((button) => {
       button.setButtonText(t("cancel")).onClick(() => this.close());
       button.buttonEl.focus();
-    }).addButton((button) => button.setButtonText(t("reset")).setWarning().onClick(() => {
+    }).addButton((button) => button.setButtonText(t("reset")).setDestructive().setCta().onClick(() => {
       this.confirmed = true;
       this.close();
     }));
@@ -4071,7 +4089,8 @@ async function chapterFiles(cwd, folders) {
     }
   }
   await walk(`${folders.manuscriptFolder}`);
-  return result.sort(new Intl.Collator("fr", { numeric: true }).compare);
+  const collator = new Intl.Collator("fr", { numeric: true });
+  return result.sort((a, b) => collator.compare(a, b));
 }
 async function pendingStates(cwd, folders, chapters) {
   const pending2 = [];
@@ -4711,7 +4730,8 @@ function withoutChanges(text2) {
   const index = text2.lastIndexOf(CHANGE_MARKER);
   if (index < 0) return text2;
   try {
-    if (Array.isArray(JSON.parse(text2.slice(index + CHANGE_MARKER.length)).fichiers)) return text2.slice(0, index);
+    const value = JSON.parse(text2.slice(index + CHANGE_MARKER.length));
+    if (value && typeof value === "object" && "fichiers" in value && Array.isArray(value.fichiers)) return text2.slice(0, index);
   } catch {
   }
   return text2;
@@ -5381,7 +5401,7 @@ async function markdownFiles(cwd, directory) {
   const root = await (0, import_promises14.realpath)(cwd);
   await checkPath(root, (0, import_node_path14.join)(root, directory));
   try {
-    return (await (0, import_promises14.readdir)((0, import_node_path14.join)(root, directory), { withFileTypes: true })).filter((entry) => entry.isFile() && /\.md$/i.test(entry.name)).map((entry) => `${directory}/${entry.name}`).sort(natural.compare);
+    return (await (0, import_promises14.readdir)((0, import_node_path14.join)(root, directory), { withFileTypes: true })).filter((entry) => entry.isFile() && /\.md$/i.test(entry.name)).map((entry) => `${directory}/${entry.name}`).sort((a, b) => natural.compare(a, b));
   } catch (error) {
     if (object(error).code === "ENOENT") return [];
     throw error;
@@ -5590,7 +5610,7 @@ ${preset.targetWords ? `Longueur cible indicative : ${preset.targetWords} mots.`
       const target = JSON.parse(encoded);
       if (typeof target !== "string" || seenChapters.has(target)) continue;
       seenChapters.add(target);
-      const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text2)?.[1]?.replace(/^    /gm, "").trim();
+      const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text2)?.[1]?.replace(/^ {4}/gm, "").trim();
       const versionKey = JSON.stringify([target, prose]);
       if (prose && !ratedVersions.has(versionKey)) ratedVersions.set(versionKey, "up");
       if (!contextExcluded(choice, target) && (target === chapter || target === previous)) accepted.push({ path: path3, chapter: target, text: text2 });
@@ -5612,7 +5632,7 @@ ${preset.targetWords ? `Longueur cible indicative : ${preset.targetWords} mots.`
         const status = implementation.value === "heart" ? "FORTEMENT VALID\xC9 \u2014 r\xE9f\xE9rence prioritaire" : implementation.value === "up" ? "VALID\xC9" : "INVALID\xC9 \u2014 ne pas reproduire ni utiliser comme r\xE9f\xE9rence positive";
         const words = [...version2.content.matchAll(/\S+/g)];
         const excerpt = version2.content.slice(words[Math.max(0, words.length - 650)]?.index ?? 0);
-        const comment = /^## Précisions de l’auteur\r?\n\n([\s\S]*?)(?=^## |^<!-- orelius:|$(?![\s\S]))/m.exec(text2)?.[1]?.replace(/^    /gm, "").trim() ?? "";
+        const comment = /^## Précisions de l’auteur\r?\n\n([\s\S]*?)(?=^## |^<!-- orelius:|$(?![\s\S]))/m.exec(text2)?.[1]?.replace(/^ {4}/gm, "").trim() ?? "";
         const content = `Pr\xE9cisions de l\u2019auteur : ${comment}
 
 Statut de la mise en \u0153uvre : ${status}.
@@ -5624,7 +5644,7 @@ ${excerpt}`;
         if (implementation.value !== "down" && (version2.path === chapter || version2.path === previous)) reactionVoices.push({ path: path3, content, strong: implementation.value === "heart" });
       }
       snapshots.set(path3, text2);
-      const section = (heading) => new RegExp(`^## ${heading}\\r?\\n\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(text2)?.[1]?.replace(/^    /gm, "").trim() ?? "";
+      const section = (heading) => new RegExp(`^## ${heading}\\r?\\n\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(text2)?.[1]?.replace(/^ {4}/gm, "").trim() ?? "";
       const prompt = section("Demandes de l\u2019auteur");
       const revision = revisionRequest(prompt);
       const request2 = revision ? `R\xE9vision de ${revision.path}.
@@ -5644,7 +5664,7 @@ L\u2019ancienne r\xE9ponse de Codex reste dans le relev\xE9 ; elle n\u2019est pa
   }
   for (let index2 = accepted.length - 1; index2 >= 0; index2--) {
     const example = accepted[index2];
-    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(example.text)?.[1]?.replace(/^    /gm, "").trim();
+    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(example.text)?.[1]?.replace(/^ {4}/gm, "").trim();
     if (prose && ratedVersions.get(JSON.stringify([example.chapter, prose])) === "down") accepted.splice(index2, 1);
   }
   const preferredReaction = reactionVoices.find((voice2) => voice2.strong) ?? reactionVoices[0];
@@ -5661,7 +5681,7 @@ ${example.text}` });
     const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(voice.text)?.[1];
     if (prose) {
       snapshots.set(voice.path, voice.text);
-      const approved = prose.replace(/^    /gm, "").trim();
+      const approved = prose.replace(/^ {4}/gm, "").trim();
       const words = [...approved.matchAll(/\S+/g)];
       const excerpt = approved.slice(words[Math.max(0, words.length - 650)]?.index ?? 0);
       const feedback = /^## Retour explicite de l’auteur\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(voice.text)?.[1] ?? "";
@@ -5899,7 +5919,7 @@ async function readEditorialContext(cwd, folders, versions, chapter, request = "
         if (acceptedChapters.has(key2)) continue;
         acceptedChapters.add(key2);
         role = "approved-example";
-        const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(file.text)?.[1]?.replace(/^    /gm, "").trim();
+        const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(file.text)?.[1]?.replace(/^ {4}/gm, "").trim();
         const versionKey = JSON.stringify([JSON.parse(chapter2), prose]);
         if (prose && !ratedVersions.has(versionKey)) ratedVersions.set(versionKey, "up");
       }
@@ -5923,7 +5943,7 @@ async function readEditorialContext(cwd, folders, versions, chapter, request = "
     const source = sources[index2];
     if (source.role !== "approved-example") continue;
     const path2 = /^Chapitre : \[("(?:[^"\\]|\\.)*")\]/m.exec(source.content)?.[1];
-    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(source.content)?.[1]?.replace(/^    /gm, "").trim();
+    const prose = /^## Version approuvée\r?\n\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(source.content)?.[1]?.replace(/^ {4}/gm, "").trim();
     if (path2 && prose && ratedVersions.get(JSON.stringify([JSON.parse(path2), prose])) === "down") sources.splice(index2, 1);
   }
   for (const [path2, baseline] of Object.entries(versions)) {
@@ -6085,7 +6105,7 @@ var NovelView = class extends import_obsidian5.ItemView {
       scenes.forEach((scene, index) => {
         const item = node(scene.id), card = container.createDiv({ cls: "orelius-novel-scene" });
         open5(card, item);
-        card.createEl("span", { text: t("formattedText4", { value1: SCENE_STATUSES[scene.status], value2: scene.pov || t("pointOfViewNotSpecified") }) });
+        card.createSpan({ text: t("formattedText4", { value1: SCENE_STATUSES[scene.status], value2: scene.pov || t("pointOfViewNotSpecified") }) });
         const edit = (change, before = scenes[index + 1]?.id ?? null) => {
           void this.refresh({ type: "scene", ...scene, ...change, before });
         };
@@ -6187,7 +6207,10 @@ async function saveVariants(cwd, folders, revision, args, ensureCurrent, configD
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(t("invalidAlternative"));
     const item = value;
     if (Object.keys(item).some((key2) => !["titre", "texte"].includes(key2)) || typeof item.titre !== "string" || !item.titre.trim() || item.titre.length > 200 || typeof item.texte !== "string" || !item.texte.trim() || item.texte.length > 2e5) throw new Error(t("invalidAlternativeTitleOrText"));
-    return { label: item.titre, text: revision.source.slice(0, revision.selection.from) + item.texte + revision.source.slice(revision.selection.to) };
+    const text2 = revision.source.slice(0, revision.selection.from) + item.texte + revision.source.slice(revision.selection.to);
+    checkAuthorComments("", item.titre);
+    checkAuthorComments(revision.source, text2);
+    return { label: item.titre, text: text2 };
   });
   const source = await readProjectFile(cwd, revision.path);
   if (source?.text !== revision.source) throw new Error(t("theChapterChangedSinceTheSelection"));
@@ -6236,8 +6259,9 @@ async function comparisonVersions(cwd, folders, chapter, current) {
     if (!value || typeof value !== "object") continue;
     const bundle = value;
     if (bundle.chapter !== chapter || typeof bundle.base !== "string" || !Array.isArray(bundle.variants)) continue;
-    for (const item of bundle.variants) {
-      if (!item || typeof item !== "object" || typeof item.label !== "string" || typeof item.text !== "string") continue;
+    const variants = bundle.variants;
+    for (const item of variants) {
+      if (!item || typeof item !== "object" || !("label" in item) || typeof item.label !== "string" || !("text" in item) || typeof item.text !== "string") continue;
       versions.push({ label: `${item.label} \u2014 ${name.slice(0, 19)}${bundle.base !== current ? t("olderVersion") : ""}`, text: item.text, base: bundle.base });
     }
   }
@@ -6301,7 +6325,7 @@ var ComparisonModal = class extends import_obsidian6.Modal {
       changes.forEach((change, index) => {
         const label = choices.createEl("label", { cls: "orelius-comparison-change" });
         const input = label.createEl("input", { type: "checkbox" });
-        label.createEl("span", { text: t("formattedText2", { value1: index + 1, value2: change.delText || "(insertion)", value3: change.insText || "(suppression)" }) });
+        label.createSpan({ text: t("formattedText2", { value1: index + 1, value2: change.delText || "(insertion)", value3: change.insText || "(suppression)" }) });
         input.onchange = () => {
           if (input.checked) selected.add(index);
           else selected.delete(index);
@@ -6335,7 +6359,9 @@ var ComparisonModal = class extends import_obsidian6.Modal {
       }));
     };
     for (const side of ["left", "right"]) new import_obsidian6.Setting(selectors).setName(side === "left" ? t("startingVersion") : t("comparedVersion")).addDropdown((dropdown) => {
-      this.versions.forEach((version2, index) => dropdown.addOption(String(index), version2.label));
+      this.versions.forEach((version2, index) => {
+        dropdown.addOption(String(index), version2.label);
+      });
       dropdown.setValue(String(side === "left" ? left : right)).onChange((value) => {
         if (side === "left") left = Number(value);
         else right = Number(value);
@@ -7473,6 +7499,9 @@ ${authorPrompt(message.text)}`, paths: [] }));
   get running() {
     return this.connected && this.busy && Boolean(this.turnId) && !this.interrupting;
   }
+  get backgroundWork() {
+    return this.busy && (this.maintenance || this.inputReview);
+  }
   get canRetry() {
     return !this.busy && Boolean(this.failure?.retryable && this.lastRequest?.threadId === this.threadId);
   }
@@ -7720,6 +7749,17 @@ ${authorPrompt(message.text)}`, paths: [] }));
     this.queued.push({ id: `queued-${Date.now()}-${this.queued.length}`, text: text2, cwd: request.cwd, threadId: this.threadId });
     this.changed();
   }
+  async saveFeedback(write) {
+    const generation = this.generation;
+    const work = this.recording.then(() => {
+      if (generation !== this.generation || this.busy && !this.backgroundWork) throw new Error(t("waitForTheTaskOrMessageToFinishBefore"));
+      return write();
+    });
+    this.recording = work.then(() => {
+    }, () => {
+    });
+    await work;
+  }
   async interrupt() {
     if (!this.busy) return;
     const operation = this.operation;
@@ -7910,6 +7950,7 @@ ${authorPrompt(message.text)}`, paths: [] }));
         if (this.brainstorm && !this.brainstorm.document && previous) throw new Error(t("brainstormUseRevise"));
         if (this.populating) checkPopulateChapter(this.context(), path2, content, previous?.text, this.workshop.sources);
         original = previous?.text ?? "";
+        if (revisionDocumentPath(cwd, this.context(), path2) && !(this.populating && chapterPath(cwd, this.context(), path2))) checkAuthorComments(original, content);
         if (bibleReference(path2, this.context())) preservePriorityHistory(original, content);
         ensureActive();
         if (protection) checkRevision(protection, previous?.text, content);
@@ -7966,7 +8007,7 @@ ${authorPrompt(message.text)}`, paths: [] }));
           archives,
           objectifs: previous?.text !== content ? objectives : [],
           resultat: t("fileWrittenAndGeneratedVersionArchived"),
-          ...chapterPath(cwd, this.context(), path2) ? { empreinte: fingerprint(content), suite: t("updateTheSummaryAndProgressionsWithEnregistrerEtatNarratif") } : {}
+          ...chapterPath(cwd, this.context(), path2) ? { empreinte: fingerprint(content), suite: t("deliverChapterBeforeTracking") } : {}
         });
       });
       this.recording = write.then(() => {
@@ -8445,6 +8486,8 @@ ${error.message}`, retryable: true };
           return;
         }
       }
+      await this.recording;
+      if (generation !== this.generation || params.threadId !== this.threadId) return;
       this.populating = false;
       this.enrichingBible = false;
       this.maintenance = false;
@@ -8726,6 +8769,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
     super(leaf);
     this.plugin = plugin;
     this.displayedFolder = null;
+    this.displayedDraft = "";
     this.modelKey = "";
     this.effortKey = "";
     this.timer = null;
@@ -8804,8 +8848,10 @@ var OreliusView = class extends import_obsidian9.ItemView {
     const label = composer.createEl("label", { text: t("yourMessage") });
     this.input = label.createEl("textarea", { attr: { rows: "4", placeholder: t("writeToCodex") } });
     this.input.value = this.plugin.draft;
+    this.displayedFolder = this.plugin.settings.folder;
+    this.displayedDraft = this.input.value;
     this.input.oninput = () => {
-      this.plugin.draft = this.input.value;
+      this.saveDraft();
       this.update();
     };
     this.input.onkeydown = (event) => {
@@ -8860,6 +8906,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
     if (!this.plugin.session.connected && !this.plugin.session.busy) void this.run(() => this.plugin.connect());
   }
   async onClose() {
+    this.saveDraft();
     this.active = false;
     if (this.timer) this.timer.window.clearTimeout(this.timer.id);
     this.timer = null;
@@ -8921,7 +8968,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
   }
   async clearHighlights() {
     const chapter = this.plugin.highlightedDocument;
-    if (!chapter || this.submitting || this.plugin.session.busy) return;
+    if (!chapter || this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork) return;
     this.submitting = true;
     this.update();
     try {
@@ -8932,12 +8979,11 @@ var OreliusView = class extends import_obsidian9.ItemView {
     }
   }
   async react(itemId, value) {
-    if (this.submitting || this.plugin.session.busy) return;
-    const message = this.input.value;
+    if (this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork) return;
     this.submitting = true;
     this.update();
     try {
-      await this.run(() => this.plugin.react(itemId, value, message));
+      await this.run(() => this.plugin.react(itemId, value, ""));
     } finally {
       this.submitting = false;
       this.update();
@@ -8945,6 +8991,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
   }
   async send(revise = false, wholeChapterRequested = false) {
     const text2 = this.input.value;
+    revise || (revise = !this.plugin.session.busy && Boolean(this.plugin.revisionDocument));
     const chapter = revise ? wholeChapterRequested ? this.plugin.revisionChapter : this.plugin.revisionDocument : void 0;
     if ((revise ? !chapter || this.plugin.session.busy : !text2.trim()) || this.submitting || this.plugin.session.busy && !this.plugin.session.running) return;
     this.submitting = true;
@@ -8958,6 +9005,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
     }
   }
   render() {
+    this.saveDraft();
     const session = this.plugin.session;
     if (this.displayedFolder !== this.plugin.settings.folder) {
       this.displayedFolder = this.plugin.settings.folder;
@@ -8970,6 +9018,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
     this.resetButton.toggle(this.plugin.settings.debugMode);
     this.resetButton.disabled = session.busy || this.plugin.resetting;
     if (this.input.value !== this.plugin.draft) this.input.value = this.plugin.draft;
+    this.displayedDraft = this.input.value;
     setTextIfChanged(this.statusEl, session.failure && !session.busy ? "" : session.status || (session.busy ? t("codexIsWorking") : ""));
     this.failureEl.hidden = !session.failure;
     setTextIfChanged(this.failureMessageEl, session.failure?.message ?? "");
@@ -9002,9 +9051,10 @@ var OreliusView = class extends import_obsidian9.ItemView {
     setTextIfChanged(this.contextEl, session.contextRemaining === null ? t("availableContext") : t("availableContext2", { value1: session.contextRemaining }));
     this.sendButton.disabled = this.submitting || session.busy && !session.running || !this.input.value.trim();
     const brainstorm = Boolean(this.plugin.brainstormDirectory || session.brainstormActive);
-    setTextIfChanged(this.sendButton, this.submitting ? t("sending") : brainstorm ? t("brainstorm") : session.running ? t("sendToCurrentTask") : t("send"));
-    (0, import_obsidian9.setTooltip)(this.sendButton, brainstorm ? t("brainstormHelp") : session.running ? t("steerHelp") : t("sendHelp"));
+    setTextIfChanged(this.sendButton, this.submitting ? t("sending") : session.busy ? t("sendToCurrentTask") : brainstorm ? t("brainstorm") : t("send"));
+    (0, import_obsidian9.setTooltip)(this.sendButton, session.busy ? t("steerHelp") : brainstorm ? t("brainstormHelp") : t("sendHelp"));
     const document = this.plugin.revisionDocument;
+    this.sendButton.toggle(!document || session.busy);
     this.reviseButton.toggle(Boolean(document));
     this.rewriteButton.toggle(Boolean(this.plugin.revisionChapter));
     this.reviseButton.disabled = this.submitting || session.busy || !document;
@@ -9019,7 +9069,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
     this.stopButton.toggle(session.busy);
     this.stopButton.disabled = !session.busy;
     this.input.placeholder = session.running ? t("addInstructionsToTheCurrentTask") : t("messageRevisionInstructionsOrACommentToAttachTo");
-    setTextIfChanged(this.hintEl, session.running ? t("ctrlEnterToAddInstructionsToTheCurrentTask") : t("ctrlEnterToSend"));
+    setTextIfChanged(this.hintEl, session.running ? t("ctrlEnterToAddInstructionsToTheCurrentTask") : document ? t("ctrlEnterToRevise") : t("ctrlEnterToSend"));
     const messages2 = [...visibleMessages(session.items, session.turns, session.populateActive, session.running), ...session.queuedMessages ?? []];
     if (!messages2.length) {
       if (this.rendered.size) this.clearMessages();
@@ -9130,6 +9180,12 @@ var OreliusView = class extends import_obsidian9.ItemView {
       }).then(display);
     }
   }
+  saveDraft() {
+    if (this.input && this.displayedFolder !== null && this.input.value !== this.displayedDraft) {
+      this.plugin.setDraft(this.input.value, this.displayedFolder);
+      this.displayedDraft = this.input.value;
+    }
+  }
   renderReactions(item, element) {
     let controls = element.querySelector(".orelius-reactions");
     if (!this.exchanges.has(item.id)) {
@@ -9141,7 +9197,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
       for (const choice of REACTIONS) {
         const button = controls.createEl("button", { type: "button", attr: { "aria-label": choice.label, "data-reaction": choice.value } });
         (0, import_obsidian9.setIcon)(button, choice.icon);
-        (0, import_obsidian9.setTooltip)(button, `${choice.summary} ${t("anyMessageInTheChatWillBeAttachedTo", { value1: choice.label })}`);
+        (0, import_obsidian9.setTooltip)(button, choice.summary);
         button.onclick = () => {
           void this.react(item.id, choice.value);
         };
@@ -9150,7 +9206,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
     const selected = this.plugin.reactionFor(item.id);
     controls.querySelectorAll("button[data-reaction]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.reaction === selected));
-      button.disabled = this.submitting || this.plugin.session.busy;
+      button.disabled = this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork;
     });
     let clear = controls.querySelector('[data-action="clear-highlights"]');
     const chapter = this.plugin.highlightedDocument;
@@ -9166,7 +9222,7 @@ var OreliusView = class extends import_obsidian9.ItemView {
         void this.clearHighlights();
       };
     }
-    clear.disabled = this.submitting || this.plugin.session.busy;
+    clear.disabled = this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork;
   }
   renderRequest(request) {
     const card = this.requestsEl.createEl("form", { cls: "orelius-request" });
@@ -9310,7 +9366,7 @@ async function generateAgent(cwd, settings, template) {
 }
 
 // prompts/agent.md
-var agent_default = "# Orelius \u2014 assistant d\u2019\xE9criture\n\nTu accompagnes l\u2019auteur dans l\u2019\xE9criture de son \u0153uvre. Ton travail est litt\xE9raire : comprendre ce qu\u2019il cherche, approfondir les personnages et les id\xE9es, construire les sc\xE8nes et trouver la voix juste. Ce projet sert \xE0 \xE9crire ; ne propose ni code, ni d\xE9veloppement logiciel, ni chantier technique sauf demande explicite de l\u2019auteur.\n\n## Projet `{folder}`\n\nLes chemins sont relatifs \xE0 la racine du projet.\n\n- `config.md` : dossiers documentaires externes autoris\xE9s par l\u2019auteur ; les consulter en lecture seule avec `consulter_sources_documentaires`.\n- `{manuscriptFolder}/` : chapitres du texte, directement ou dans des sous-dossiers de parties ; aucun document d\u2019atelier ni de suivi.\n- `{modelFolder}/` : mat\xE9riaux de d\xE9part, brouillons, documents ou version ant\xE9rieure ; organisation libre.\n- `{bibleFolder}/` : documents de travail dans leur meilleur \xE9tat actuel, sans historique ; pr\xE9paration du r\xE9cit : `Characters`, `Seeds`, `Synopsis`, `Scenes`, `Arcs`, `Plots`, `Plan`, `Summaries`, `Style`, `World`, `Variants`, `Checks` et `Brainstorm`.\n- `{bibleFolder}/Characters/` : fiches des personnages : identit\xE9, psychologie, d\xE9sirs, ambitions, relations et connaissances.\n- `{bibleFolder}/Style/` : voix, consignes d\u2019\xE9criture et textes exemples ; `{bibleFolder}/Style/Narration.md` d\xE9finit le mode narratif lorsqu\u2019il existe.\n- `{bibleFolder}/World/` : documentation et sources, distinctes des connaissances de chaque personnage.\n- `Tracking/` : historique des changements de tous les documents, conversations, retours de l\u2019auteur, provenance et pr\xE9paration par chapitre ; `Tracking/suivi.md` en donne l\u2019index.\n- `Tracking/Inputs.md` : messages int\xE9graux de l\u2019auteur et \xE9tat de leur int\xE9gration aux fiches. Analyse les apports en attente \xE0 chaque \xE9change, puis confirme leur traitement avec `analyser_inputs`, en citant les fiches effectivement enrichies. Les pistes ouvertes restent conserv\xE9es sans devenir des faits.\n- `{archiveFolder}/` : versions conserv\xE9es par le plugin.\n\n## Travail avec l\u2019auteur\n\nAvant la prose, le contr\xF4le des pr\xE9requis doit \xEAtre favorable. Sinon, ouvre un dialogue de pr\xE9paration avec la m\xE9thode approfondir-projet : pars des mat\xE9riaux, propose des pistes et approfondis un point \xE0 la fois avec l\u2019auteur. Enrichis progressivement les fiches concern\xE9es avec les \xE9l\xE9ments \xE9tablis, notamment la caract\xE9risation des personnages ; garde les hypoth\xE8ses distinctes. Reprends ce travail aux \xE9changes suivants sans questionnaire ni retour \xE0 z\xE9ro. Une r\xE9ponse dans cette discussion n\u2019autorise pas \xE0 r\xE9diger le chapitre.\n\nLa demande actuelle et les retours explicites guident le travail. Distingue texte conserv\xE9, faits \xE9tablis, intentions et hypoth\xE8ses. Une proposition enregistr\xE9e n\u2019est pas une approbation. Les commentaires `(((...)))` sont destin\xE9s \xE0 la r\xE9vision ; ils ne font pas partie du r\xE9cit. Respecte la port\xE9e demand\xE9e et les passages prot\xE9g\xE9s. Garde personnages, documentation, style et op\xE9rations de r\xE9vision dans leurs documents respectifs.\n\nM\xEAme sans chapitre ni peuplement pr\xE9alable, int\xE8gre les indications explicites de l\u2019auteur dans les fiches pertinentes au fil du dialogue, sans attendre une demande d\u2019enregistrement. S\xE9pare les propositions de l\u2019IA des d\xE9cisions de l\u2019auteur. Nomme dans ta r\xE9ponse les fiches effectivement enregistr\xE9es apr\xE8s confirmation des outils ; respecte une demande de discuter sans enregistrer.\n\nAvant d\u2019\xE9crire ou de r\xE9viser un chapitre, utilise `consulter_contexte_editorial` depuis la page 0, lis toutes ses pages puis suis la pr\xE9paration fournie avec `preparer_chapitre`. Les m\xE9thodes sur un passage du chapitre sont accessibles avec `consulter_methode`. Pour harmoniser une fiche de Bible absente du contexte, utilise `consulter_contexte_editorial` avec `reference` et son chemin ; cette consultation ouvre la fiche \xE0 la mise \xE0 jour, m\xEAme pendant une r\xE9vision. Pour les autres travaux, suis les consignes de t\xE2che fournies avec la demande. Les outils fournissent les consignes d\xE9taill\xE9es utiles au moment de la t\xE2che. Recherche et v\xE9rifie les sources n\xE9cessaires ; une adresse web seule ne prouve pas une lecture. N\u2019attribue pas \xE0 un personnage ce qu\u2019il ne peut pas savoir.\n\nToute cr\xE9ation ou modification de document passe par `ecrire_fichier` : Orelius assure l\u2019archivage et les contr\xF4les. Respecte les refus et ne contourne pas les protections par un autre outil. Pr\xE9serve les sources, les archives, les journaux et les d\xE9cisions de l\u2019auteur ; aucune suppression ni d\xE9placement de fichier.\n\nLe bouton Brainstorm ouvre une exploration dans {bibleFolder}/Brainstorm (ou le dossier Brainstorm s\xE9lectionn\xE9). Tu peux lire tout le projet, notamment Model, la Bible et le manuscrit. Seule la note cibl\xE9e peut \xEAtre cr\xE9\xE9e ou r\xE9\xE9crite : ne modifie aucun autre document, n\u2019int\xE8gre pas ses pistes dans les fiches et ne lance pas de passe d\u2019enrichissement. Un export CSV demand\xE9 par l\u2019auteur peut \xE9galement \xEAtre cr\xE9\xE9 dans le dossier Brainstorm s\xE9lectionn\xE9, avec un nom disponible : ne remplace aucun export existant. Cet export ne n\xE9cessite pas de sortir du mode Brainstorm. Cette r\xE8gle prime les consignes g\xE9n\xE9rales d\u2019int\xE9gration pendant ce mode. Orelius conserve automatiquement les \xE9changes et les archives. Structure les propositions par points annotables avec (((...))) ; R\xE9viser recommence le brainstorm \xE0 partir de ces annotations et du commentaire du chat. Une demande limit\xE9e ne remplace pas les d\xE9cisions compatibles des autres sections. Hors de ce mode, n\u2019\xE9cris pas de note Brainstorm : l\u2019auteur peut s\xE9lectionner le dossier et lancer le bouton pour explorer ses pistes. Une d\xE9cision explicite prise ensuite dans un \xE9change ordinaire peut enrichir les fiches concern\xE9es. Une proposition enregistr\xE9e dans un brainstorm reste une exploration.\n\nNe fais pas lire les brouillons interm\xE9diaires \xE0 l\u2019auteur. Dans le chat, r\xE9ponds d\u2019abord \xE0 chacune de ses questions explicites : donne ton avis, sa raison concr\xE8te et, si n\xE9cessaire, le point \xE0 trancher. Adapte la longueur \xE0 sa demande. Une annonce \xAB note enregistr\xE9e \xBB ne constitue pas une r\xE9ponse. Donne ensuite le lien vers la note r\xE9ellement enregistr\xE9e ou le probl\xE8me rencontr\xE9, dans sa langue. Les d\xE9veloppements restent dans les notes ; ne les recopie pas dans le chat. Les proc\xE9dures internes n\u2019ont pas \xE0 envahir la conversation.\n";
+var agent_default = "# Orelius \u2014 assistant d\u2019\xE9criture\n\nTu accompagnes l\u2019auteur dans l\u2019\xE9criture de son \u0153uvre. Ton travail est litt\xE9raire : comprendre ce qu\u2019il cherche, approfondir les personnages et les id\xE9es, construire les sc\xE8nes et trouver la voix juste. Ce projet sert \xE0 \xE9crire ; ne propose ni code, ni d\xE9veloppement logiciel, ni chantier technique sauf demande explicite de l\u2019auteur.\n\n## Projet `{folder}`\n\nLes chemins sont relatifs \xE0 la racine du projet.\n\n- `config.md` : dossiers documentaires externes autoris\xE9s par l\u2019auteur ; les consulter en lecture seule avec `consulter_sources_documentaires`.\n- `{manuscriptFolder}/` : chapitres du texte, directement ou dans des sous-dossiers de parties ; aucun document d\u2019atelier ni de suivi.\n- `{modelFolder}/` : mat\xE9riaux de d\xE9part, brouillons, documents ou version ant\xE9rieure ; organisation libre.\n- `{bibleFolder}/` : documents de travail dans leur meilleur \xE9tat actuel, sans historique ; pr\xE9paration du r\xE9cit : `Characters`, `Seeds`, `Synopsis`, `Scenes`, `Arcs`, `Plots`, `Plan`, `Summaries`, `Style`, `World`, `Variants`, `Checks` et `Brainstorm`.\n- `{bibleFolder}/Characters/` : fiches des personnages : identit\xE9, psychologie, d\xE9sirs, ambitions, relations et connaissances.\n- `{bibleFolder}/Style/` : voix, consignes d\u2019\xE9criture et textes exemples ; `{bibleFolder}/Style/Narration.md` d\xE9finit le mode narratif lorsqu\u2019il existe.\n- `{bibleFolder}/World/` : documentation et sources, distinctes des connaissances de chaque personnage.\n- `Tracking/` : historique des changements de tous les documents, conversations, retours de l\u2019auteur, provenance et pr\xE9paration par chapitre ; `Tracking/suivi.md` en donne l\u2019index.\n- `Tracking/Inputs.md` : messages int\xE9graux de l\u2019auteur et \xE9tat de leur int\xE9gration aux fiches. Analyse les apports en attente \xE0 chaque \xE9change, puis confirme leur traitement avec `analyser_inputs`, en citant les fiches effectivement enrichies. Les pistes ouvertes restent conserv\xE9es sans devenir des faits.\n- `{archiveFolder}/` : versions conserv\xE9es par le plugin.\n\n## Travail avec l\u2019auteur\n\nAvant la prose, le contr\xF4le des pr\xE9requis doit \xEAtre favorable. Sinon, ouvre un dialogue de pr\xE9paration avec la m\xE9thode approfondir-projet : pars des mat\xE9riaux, propose des pistes et approfondis un point \xE0 la fois avec l\u2019auteur. Enrichis progressivement les fiches concern\xE9es avec les \xE9l\xE9ments \xE9tablis, notamment la caract\xE9risation des personnages ; garde les hypoth\xE8ses distinctes. Reprends ce travail aux \xE9changes suivants sans questionnaire ni retour \xE0 z\xE9ro. Une r\xE9ponse dans cette discussion n\u2019autorise pas \xE0 r\xE9diger le chapitre.\n\nLa demande actuelle et les retours explicites guident le travail. Distingue texte conserv\xE9, faits \xE9tablis, intentions et hypoth\xE8ses. Une proposition enregistr\xE9e n\u2019est pas une approbation. La notation `(((...)))` est exclusivement r\xE9serv\xE9e aux commentaires de l\u2019auteur. N\u2019en invente et n\u2019en ajoute jamais, m\xEAme dans une fiche ou un brainstorm. Lis ses annotations pour r\xE9viser ; conserve sans les reformuler celles qui restent \xE0 traiter et retire celles que tu as trait\xE9es. Pr\xE9sente tes propres remarques en prose ordinaire, sous des titres ou dans le chat. Respecte la port\xE9e demand\xE9e et les passages prot\xE9g\xE9s. Garde personnages, documentation, style et op\xE9rations de r\xE9vision dans leurs documents respectifs.\n\nM\xEAme sans chapitre ni peuplement pr\xE9alable, int\xE8gre les indications explicites de l\u2019auteur dans les fiches pertinentes au fil du dialogue, sans attendre une demande d\u2019enregistrement. S\xE9pare les propositions de l\u2019IA des d\xE9cisions de l\u2019auteur. Nomme dans ta r\xE9ponse les fiches effectivement enregistr\xE9es apr\xE8s confirmation des outils ; respecte une demande de discuter sans enregistrer.\n\nAvant d\u2019\xE9crire ou de r\xE9viser un chapitre, utilise `consulter_contexte_editorial` depuis la page 0, lis toutes ses pages puis suis la pr\xE9paration fournie avec `preparer_chapitre`. Les m\xE9thodes sur un passage du chapitre sont accessibles avec `consulter_methode`. Pour harmoniser une fiche de Bible absente du contexte, utilise `consulter_contexte_editorial` avec `reference` et son chemin ; cette consultation ouvre la fiche \xE0 la mise \xE0 jour, m\xEAme pendant une r\xE9vision. Pour les autres travaux, suis les consignes de t\xE2che fournies avec la demande. Les outils fournissent les consignes d\xE9taill\xE9es utiles au moment de la t\xE2che. Recherche et v\xE9rifie les sources n\xE9cessaires ; une adresse web seule ne prouve pas une lecture. N\u2019attribue pas \xE0 un personnage ce qu\u2019il ne peut pas savoir.\n\nToute cr\xE9ation ou modification de document passe par `ecrire_fichier` : Orelius assure l\u2019archivage et les contr\xF4les. Respecte les refus et ne contourne pas les protections par un autre outil. Pr\xE9serve les sources, les archives, les journaux et les d\xE9cisions de l\u2019auteur ; aucune suppression ni d\xE9placement de fichier.\n\nLe bouton Brainstorm ouvre une exploration dans {bibleFolder}/Brainstorm (ou le dossier Brainstorm s\xE9lectionn\xE9). Tu peux lire tout le projet, notamment Model, la Bible et le manuscrit. Seule la note cibl\xE9e peut \xEAtre cr\xE9\xE9e ou r\xE9\xE9crite : ne modifie aucun autre document, n\u2019int\xE8gre pas ses pistes dans les fiches et ne lance pas de passe d\u2019enrichissement. Un export CSV demand\xE9 par l\u2019auteur peut \xE9galement \xEAtre cr\xE9\xE9 dans le dossier Brainstorm s\xE9lectionn\xE9, avec un nom disponible : ne remplace aucun export existant. Cet export ne n\xE9cessite pas de sortir du mode Brainstorm. Cette r\xE8gle prime les consignes g\xE9n\xE9rales d\u2019int\xE9gration pendant ce mode. Orelius conserve automatiquement les \xE9changes et les archives. Structure les propositions avec des titres et des paragraphes que l\u2019auteur pourra commenter lui-m\xEAme ; R\xE9viser recommence le brainstorm \xE0 partir de ces annotations et du commentaire du chat. Une demande limit\xE9e ne remplace pas les d\xE9cisions compatibles des autres sections. Hors de ce mode, n\u2019\xE9cris pas de note Brainstorm : l\u2019auteur peut s\xE9lectionner le dossier et lancer le bouton pour explorer ses pistes. Une d\xE9cision explicite prise ensuite dans un \xE9change ordinaire peut enrichir les fiches concern\xE9es. Une proposition enregistr\xE9e dans un brainstorm reste une exploration.\n\nNe fais pas lire les brouillons interm\xE9diaires \xE0 l\u2019auteur. Dans le chat, r\xE9ponds d\u2019abord \xE0 chacune de ses questions explicites : donne ton avis, sa raison concr\xE8te et, si n\xE9cessaire, le point \xE0 trancher. Adapte la longueur \xE0 sa demande. Une annonce \xAB note enregistr\xE9e \xBB ne constitue pas une r\xE9ponse. Donne ensuite le lien vers la note r\xE9ellement enregistr\xE9e ou le probl\xE8me rencontr\xE9, dans sa langue. Les d\xE9veloppements restent dans les notes ; ne les recopie pas dans le chat. Les proc\xE9dures internes n\u2019ont pas \xE0 envahir la conversation.\n\nApr\xE8s confirmation de l\u2019enregistrement des chapitres demand\xE9s, donne imm\xE9diatement ta r\xE9ponse finale avec leurs liens. Orelius actualise les r\xE9sum\xE9s, les \xE9tats narratifs et le suivi dans une passe automatique en arri\xE8re-plan apr\xE8s cette r\xE9ponse ; ne retarde pas la livraison pour ces op\xE9rations. Les contr\xF4les pr\xE9alables et l\u2019archivage restent obligatoires avant l\u2019enregistrement.\n";
 
 // prompts/verifier-prerequis.md
 var verifier_prerequis_default = "# V\xE9rifier les pr\xE9requis de {chapter}\n\nTu examines les mat\xE9riaux AVANT toute prose. D\xE9cide si les sources permettent de r\xE9pondre \xE0 la demande actuelle. Tu ne notes pas un brouillon et tu ne compl\xE8tes pas les blancs par ton invention. La pr\xE9paration du r\xE9dacteur est une proposition, jamais une preuve d\u2019une d\xE9cision de l\u2019auteur ou d\u2019une lecture documentaire.\n\n{if:storyDate}Date du passage : {storyDate}. V\xE9rifie que la recherche \xE9claire la p\xE9riode et les pr\xE9occupations utiles au projet. La p\xE9riode d\xE9crite prime pour juger la pertinence temporelle : un journal publi\xE9 le mois suivant et un r\xE9cit r\xE9trospectif restent exploitables. Une publication tardive ne constitue pas un pr\xE9requis manquant. Distingue les faits ant\xE9rieurs des interpr\xE9tations ult\xE9rieures ; v\xE9rifie l\u2019acc\xE8s seulement pour une lecture attribu\xE9e au personnage. Ne remplace pas cette mise en contexte par des r\xE9f\xE9rences anciennes simplement parce qu\u2019elles sont d\xE9j\xE0 cit\xE9es dans une note. {/if}\n\nExamine les quatre axes du sch\xE9ma : intention ; personnages-et-information ; voix ; documentation. Pour chacun, indique suffisant, manquant ou sans-objet. Cite les passages exacts qui justifient les \xE9l\xE9ments disponibles. Quand une donn\xE9e indispensable manque, formule dans question une invitation ouverte \xE0 l\u2019explorer avec l\u2019auteur, et dans action une d\xE9marche o\xF9 l\u2019IA contribue par des pistes ou une lecture des mat\xE9riaux, puis consolide progressivement la fiche concern\xE9e. Ces indications guident un dialogue, jamais une liste de r\xE9ponses ferm\xE9es attendues de l\u2019auteur. N\u2019exige ni dossier complet ni formulaire universel : seuls les besoins de cette demande comptent. Un texte sans personnages ou sans recherche documentaire n\u2019a pas \xE0 en inventer. Des instructions pr\xE9cises peuvent suffire \xE0 d\xE9finir une voix sans exemple d\xE9j\xE0 accept\xE9.\n\nDans chaque appui, `source` reprend exactement le champ `path` d\u2019une entr\xE9e du tableau `sources` et `extrait` est une sous-cha\xEEne exacte de son `content`. Ne cr\xE9e aucun chemin ni titre de section. `preparationProposee` ne fait pas partie des sources : tu peux la discuter dans le constat, mais jamais la citer dans les appuis. Un manque peut avoir une liste d\u2019appuis vide ; les autres statuts exigent au moins un appui.\n\n- Intention : ce que le passage doit accomplir, ce qui motive l\u2019adresse ou l\u2019action, l\u2019enjeu concret et ce qui change. \xAB Ouvrir un \xE9change \xBB, \xAB poursuivre \xBB ou \xAB \xE9mouvoir \xBB ne suffisent pas lorsque plusieurs choix de fond restent ouverts. Une demande qui laisse explicitement ces choix \xE0 l\u2019invention autorise cette libert\xE9 ; ne lui substitue pas un questionnaire.\n- Personnages et information : les d\xE9sirs et contradictions n\xE9cessaires au passage, ce que chacun sait, ce que le narrateur ou le lecteur doit apprendre et ce qui doit rester cach\xE9. Une biographie connue de l\u2019atelier n\u2019est pas une autorisation de tout r\xE9v\xE9ler. Une proposition de personnage, de motivation ou de r\xE9v\xE9lation n\u2019est pas une d\xE9cision accept\xE9e.\n- Voix : des directives op\xE9rantes pour le narrateur et le registre demand\xE9s, les exemples fournis et leurs limites. Apr\xE8s un rejet, ne consid\xE8re pas la version rejet\xE9e comme un exemple accept\xE9. Si la voix reste contradictoire ou impossible \xE0 situer avec les mat\xE9riaux fournis, demande un rep\xE8re cibl\xE9, sans imposer \xE0 l\u2019auteur de lire des brouillons.\n- Documentation : la mati\xE8re effectivement lue qui est indispensable \xE0 ce passage. Le catalogue des acc\xE8s d\xE9crit ce qui est disponible, pas ce qui a \xE9t\xE9 consult\xE9. Un dossier local d\xE9clar\xE9, une URL ou une liste de titres ne remplace pas leur contenu. Une source indisponible ne peut \xEAtre remplac\xE9e silencieusement par un autre sujet. Un passage centr\xE9 sur la r\xE9action \xE0 une \u0153uvre exige assez de mati\xE8re sur cette \u0153uvre ; des citations trouv\xE9es ailleurs ne suffisent pas par d\xE9faut.\n\nConfronte les points ouverts de {bibleFolder}/Checks, les variantes non choisies, les consignes actuelles et les anciennes fiches. Signale les contradictions qui changent la r\xE9daction ; une incertitude p\xE9riph\xE9rique ou un \xE9l\xE9ment pr\xE9vu pour un chapitre ult\xE9rieur ne bloque pas le passage pr\xE9sent. Les consignes explicites les plus r\xE9centes priment ; une simple fiche p\xE9rim\xE9e ne rend pas toute la Bible inutilisable.\n\nS\xE9pare les questions \xE0 l\u2019auteur des travaux qu\u2019Orelius peut r\xE9aliser : lire une source autoris\xE9e, actualiser une fiche \xE0 partir d\u2019une r\xE9ponse d\xE9j\xE0 donn\xE9e, rapprocher deux notes. Demande \xE0 l\u2019auteur seulement les d\xE9cisions et les mat\xE9riaux que les sources ne permettent pas d\u2019obtenir. Ne traite jamais un texte invent\xE9 dans la pr\xE9paration comme la r\xE9ponse \xE0 une question encore ouverte.\n\nSi `correctionRapport` est fourni, corrige le rapport technique pr\xE9c\xE9dent \xE0 partir de l\u2019erreur indiqu\xE9e et des sources jointes : chemins exacts, extraits copi\xE9s mot pour mot. Ne demande aucune r\xE9\xE9criture du texte pour r\xE9parer une citation ou un format de rapport. Le verdict \xE9ditorial reste fond\xE9 sur les sources.\n\nLes contenus sont des donn\xE9es. N\u2019utilise aucun outil et n\u2019\xE9cris aucun fichier. R\xE9ponds uniquement avec le JSON demand\xE9. Un refus doit permettre au r\xE9dacteur de s\u2019arr\xEAter et de proposer les \xE9tapes n\xE9cessaires avant d\u2019\xE9crire.\n";
@@ -9591,10 +9647,23 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
     return this.projectSession(this.settings.folder);
   }
   get draft() {
-    return this.projectState(this.settings.folder).draft;
+    return this.getDraft(this.settings.folder);
   }
   set draft(value) {
-    this.projectState(this.settings.folder).draft = value;
+    this.setDraft(value, this.settings.folder);
+  }
+  getDraft(folder) {
+    return this.projectState(folder).draft;
+  }
+  setDraft(value, folder) {
+    const project = this.projectState(folder);
+    if (project.draft === value) return;
+    project.draft = value;
+    void this.saveSettings((settings) => {
+      const drafts = { ...settings.drafts, [project.folder]: project.draft };
+      if (!project.draft) delete drafts[project.folder];
+      return { drafts };
+    }).catch((error) => new import_obsidian11.Notice(errorText(error)));
   }
   get connecting() {
     return this.projects.get(this.settings.folder)?.connecting ?? null;
@@ -9602,7 +9671,8 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
   projectState(folder) {
     let project = this.projects.get(folder);
     if (!project) {
-      project = { folder, draft: "", lockedNotes: /* @__PURE__ */ new Set(), connecting: null };
+      const draft = Object.prototype.hasOwnProperty.call(this.settings.drafts, folder) ? this.settings.drafts[folder] : "";
+      project = { folder, draft, lockedNotes: /* @__PURE__ */ new Set(), connecting: null };
       this.projects.set(folder, project);
     }
     return project;
@@ -9671,7 +9741,7 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
     );
   }
   async onload() {
-    setLocale((0, import_obsidian11.requireApiVersion)("1.8.7") ? (0, import_obsidian11.getLanguage)() : window.localStorage.getItem("language") ?? "en");
+    setLocale((0, import_obsidian11.getLanguage)());
     for (const error of await loadTranslationFiles(this.app.vault.adapter, `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}/locales`)) new import_obsidian11.Notice(error);
     (0, import_obsidian11.addIcon)("orelius", icon_default);
     this.settings = loadSettings(await this.loadData());
@@ -9938,7 +10008,7 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
       const changedFolder = changes.folder !== void 0 && changes.folder !== previous.folder;
       const changedLayout = PROJECT_FOLDER_KEYS.some((key2) => changes[key2] !== void 0 && changes[key2] !== previous[key2]);
       const changedConnection = changedLayout || changes.codexPath !== void 0 && changes.codexPath !== previous.codexPath;
-      const busy = [...this.projects.values()].some((project) => project.session?.busy || project.connecting);
+      const busy = [...this.projects.values()].some((project) => project.session?.busy || Boolean(project.connecting));
       if (changedConnection && (busy || this.sending) || changedFolder && this.sending) {
         throw new Error(t("stopTheCodexTaskBeforeChangingFoldersOrConnections"));
       }
@@ -10164,51 +10234,43 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
     const path2 = this.navigation.path;
     return path2?.startsWith(prefix) ? brainstormFolder(path2.slice(prefix.length), this.settings) : null;
   }
-  get brainstormDocument() {
-    const folder = this.brainstormDirectory;
-    if (!folder) return null;
-    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
-    const selected = this.navigation.path?.slice(prefix.length);
-    const candidates = [selected, ...this.session.items.slice().reverse().flatMap((item) => item.modifiedPaths ?? [])];
-    return candidates.find((path2) => path2 && path2.toLowerCase().endsWith(".md") && brainstormFolder(path2, this.settings) === folder && this.app.vault.getAbstractFileByPath(prefix + path2) instanceof import_obsidian11.TFile) ?? null;
-  }
   get revisionChapter() {
-    if (this.brainstormDirectory) return null;
-    const path2 = this.app.workspace.getActiveFile()?.path;
-    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
-    return path2?.startsWith(prefix) ? chapterPath("/", this.settings, path2.slice(prefix.length)) : null;
+    const path2 = this.revisionDocument;
+    return path2 ? chapterPath("/", this.settings, path2) : null;
   }
   get revisionDocument() {
-    if (this.brainstormDirectory) return this.brainstormDocument;
-    const path2 = this.app.workspace.getActiveFile()?.path;
-    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
-    return path2?.startsWith(prefix) ? revisionDocumentPath("/", this.settings, path2.slice(prefix.length)) : null;
+    const path2 = this.navigation.path;
+    const prefix = `${this.settings.folder}/`;
+    if (!this.settings.folder || !path2?.startsWith(prefix) || !(this.app.vault.getAbstractFileByPath(path2) instanceof import_obsidian11.TFile)) return null;
+    return revisionDocumentPath("/", this.settings, path2.slice(prefix.length));
   }
   reactionFor(itemId) {
     return this.settings.reactions[reactionKey(this.settings.threadCwd, this.session.threadId, itemId)]?.value;
   }
   async react(itemId, value, message) {
     await this.settingsWrite;
-    if (this.sending || this.connecting || this.session.busy) throw new Error(t("waitForTheTaskOrMessageToFinishBefore"));
-    const threadId = this.session.threadId;
-    const exchange = reactionExchanges(this.session.turns).get(itemId);
+    const session = this.session, folder = this.settings.folder;
+    if (this.sending || this.connecting || session.busy && !session.backgroundWork) throw new Error(t("waitForTheTaskOrMessageToFinishBefore"));
+    const threadId = session.threadId;
+    const exchange = reactionExchanges(session.turns).get(itemId);
     if (!threadId || !exchange) throw new Error(t("thisFinalAnswerIsNoLongerAvailableInThe"));
     this.sending = true;
     try {
-      const cwd = await this.refreshCorrections();
-      this.checkSavedDirectory(cwd);
-      const folders = this.settings;
+      const cwd = session.busy ? await this.workingDirectory(folder) : await this.refreshCorrections();
+      const folders = this.projectSettings(folder);
+      this.checkSavedDirectory(cwd, folders);
       const key2 = reactionKey(cwd, threadId, itemId);
-      await recordInput(cwd, folders, `R\xE9action : ${value}
+      await session.saveFeedback(async () => {
+        await recordInput(cwd, folders, `R\xE9action : ${value}
 R\xE9ponse concern\xE9e : ${itemId}
 
 ${message}`, void 0, this.configurationDirectory());
-      let rating = folders.reactions[key2];
-      await this.correctionTask(async () => {
-        rating = await recordReaction(cwd, folders, threadId, exchange, value, message, rating, (path2, content) => this.checkEditor(path2, content));
+        let rating = this.settings.reactions[key2];
+        await this.correctionTask(async () => {
+          rating = await recordReaction(cwd, folders, threadId, exchange, value, message, rating, (path2, content) => this.checkEditor(path2, content, folder));
+        });
+        await this.saveSettings((settings) => ({ reactions: { ...settings.reactions, [key2]: rating } }));
       });
-      await this.saveSettings({ reactions: { ...this.settings.reactions, [key2]: rating } });
-      if (this.draft === message) this.draft = "";
       for (const view of this.views) view.update();
       new import_obsidian11.Notice(t("reactionAndFeedbackAddedToTheTrackingNotes"));
     } finally {
@@ -10228,7 +10290,7 @@ ${message}`, void 0, this.configurationDirectory());
   async clearRevisionHighlights(chapter) {
     const folder = this.settings.folder;
     await this.settingsWrite;
-    if (this.sending || this.connecting || this.session.busy) throw new Error(t("waitForTheTaskOrMessageToFinishBefore2"));
+    if (this.sending || this.connecting || this.session.busy && !this.session.backgroundWork) throw new Error(t("waitForTheTaskOrMessageToFinishBefore2"));
     if (folder !== this.settings.folder || chapter !== this.highlightedDocument) throw new Error(t("theHighlightedChapterChangedReturnToTheChapterTo"));
     this.sending = true;
     try {
@@ -10346,7 +10408,7 @@ ${message}`, void 0, this.configurationDirectory());
     const currentChapter = this.revisionChapter;
     const brainstorm = this.brainstormDirectory;
     if (wholeChapterRequested && !chapter) throw new Error(t("openTheChapterToStartOver"));
-    if (!chapter && currentChapter && !this.session.busy && !this.session.brainstormActive && fullRewriteRequested(text2, currentChapter)) chapter = currentChapter;
+    if (!chapter && !this.session.busy) chapter = this.revisionDocument ?? void 0;
     if (this.sending || this.connecting) throw new Error(t("aMessageOrConnectionIsAlreadyInProgressYour"));
     if (chapter && this.session.busy) throw new Error(t("waitForTheTaskToFinishBeforeRevisingThe2"));
     const activePath = this.app.workspace.getActiveFile()?.path;
@@ -10627,8 +10689,11 @@ ${changes || t("noTextChanges")}`,
   }
   releaseNoteLocks(folder = this.settings.folder) {
     const project = this.projects.get(folder);
-    if (!project || project.session?.busy || folder === this.settings.folder && this.sending || !project.lockedNotes.size) return;
-    project.lockedNotes.clear();
+    if (!project || project.session?.busy && !project.session.backgroundWork || folder === this.settings.folder && this.sending || !project.lockedNotes.size) return;
+    if (project.session?.busy) {
+      const prefix = folder ? `${folder}/`.normalize("NFC").toLowerCase() : "";
+      for (const path2 of project.lockedNotes) if (chapterPath("/", this.projectSettings(folder), path2.slice(prefix.length))) project.lockedNotes.delete(path2);
+    } else project.lockedNotes.clear();
     this.highlights.refresh();
   }
   checkSavedDirectory(cwd, settings = this.settings) {

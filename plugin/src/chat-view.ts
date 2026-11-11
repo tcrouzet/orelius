@@ -15,6 +15,7 @@ function setTextIfChanged(element: HTMLElement, text: string): void {
 
 export class OreliusView extends ItemView {
   private displayedFolder: string | null = null;
+  private displayedDraft = "";
   private resetButton!: HTMLButtonElement;
   private projectTitleEl!: HTMLElement;
   private statusEl!: HTMLElement;
@@ -104,7 +105,9 @@ export class OreliusView extends ItemView {
     const label = composer.createEl("label", { text: t("yourMessage") });
     this.input = label.createEl("textarea", { attr: { rows: "4", placeholder: t("writeToCodex") } });
     this.input.value = this.plugin.draft;
-    this.input.oninput = () => { this.plugin.draft = this.input.value; this.update(); };
+    this.displayedFolder = this.plugin.settings.folder;
+    this.displayedDraft = this.input.value;
+    this.input.oninput = () => { this.saveDraft(); this.update(); };
     this.input.onkeydown = event => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) {
         event.preventDefault();
@@ -143,6 +146,7 @@ export class OreliusView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.saveDraft();
     this.active = false;
     if (this.timer) this.timer.window.clearTimeout(this.timer.id);
     this.timer = null;
@@ -196,7 +200,7 @@ export class OreliusView extends ItemView {
 
   private async clearHighlights(): Promise<void> {
     const chapter = this.plugin.highlightedDocument;
-    if (!chapter || this.submitting || this.plugin.session.busy) return;
+    if (!chapter || this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork) return;
     this.submitting = true;
     this.update();
     try { await this.run(() => this.plugin.clearRevisionHighlights(chapter)); }
@@ -204,16 +208,16 @@ export class OreliusView extends ItemView {
   }
 
   private async react(itemId: string, value: Reaction): Promise<void> {
-    if (this.submitting || this.plugin.session.busy) return;
-    const message = this.input.value;
+    if (this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork) return;
     this.submitting = true;
     this.update();
-    try { await this.run(() => this.plugin.react(itemId, value, message)); }
+    try { await this.run(() => this.plugin.react(itemId, value, "")); }
     finally { this.submitting = false; this.update(); }
   }
 
   private async send(revise = false, wholeChapterRequested = false): Promise<void> {
     const text = this.input.value;
+    revise ||= !this.plugin.session.busy && Boolean(this.plugin.revisionDocument);
     const chapter = revise ? (wholeChapterRequested ? this.plugin.revisionChapter : this.plugin.revisionDocument) : undefined;
     if ((revise ? !chapter || this.plugin.session.busy : !text.trim()) || this.submitting
       || (this.plugin.session.busy && !this.plugin.session.running)) return;
@@ -225,6 +229,7 @@ export class OreliusView extends ItemView {
   }
 
   private render(): void {
+    this.saveDraft();
     const session = this.plugin.session;
     if (this.displayedFolder !== this.plugin.settings.folder) {
       this.displayedFolder = this.plugin.settings.folder;
@@ -237,6 +242,7 @@ export class OreliusView extends ItemView {
     this.resetButton.toggle(this.plugin.settings.debugMode);
     this.resetButton.disabled = session.busy || this.plugin.resetting;
     if (this.input.value !== this.plugin.draft) this.input.value = this.plugin.draft;
+    this.displayedDraft = this.input.value;
     setTextIfChanged(this.statusEl, session.failure && !session.busy ? "" : session.status || (session.busy ? t("codexIsWorking") : ""));
     this.failureEl.hidden = !session.failure;
     setTextIfChanged(this.failureMessageEl, session.failure?.message ?? "");
@@ -270,9 +276,10 @@ export class OreliusView extends ItemView {
       : t("availableContext2", { value1: session.contextRemaining }));
     this.sendButton.disabled = this.submitting || (session.busy && !session.running) || !this.input.value.trim();
     const brainstorm = Boolean(this.plugin.brainstormDirectory || session.brainstormActive);
-    setTextIfChanged(this.sendButton, this.submitting ? t("sending") : brainstorm ? t("brainstorm") : session.running ? t("sendToCurrentTask") : t("send"));
-    setTooltip(this.sendButton, brainstorm ? t("brainstormHelp") : session.running ? t("steerHelp") : t("sendHelp"));
+    setTextIfChanged(this.sendButton, this.submitting ? t("sending") : session.busy ? t("sendToCurrentTask") : brainstorm ? t("brainstorm") : t("send"));
+    setTooltip(this.sendButton, session.busy ? t("steerHelp") : brainstorm ? t("brainstormHelp") : t("sendHelp"));
     const document = this.plugin.revisionDocument;
+    this.sendButton.toggle(!document || session.busy);
     this.reviseButton.toggle(Boolean(document));
     this.rewriteButton.toggle(Boolean(this.plugin.revisionChapter));
     this.reviseButton.disabled = this.submitting || session.busy || !document;
@@ -290,7 +297,7 @@ export class OreliusView extends ItemView {
     this.stopButton.disabled = !session.busy;
     this.input.placeholder = session.running ? t("addInstructionsToTheCurrentTask") : t("messageRevisionInstructionsOrACommentToAttachTo");
     setTextIfChanged(this.hintEl, session.running ? t("ctrlEnterToAddInstructionsToTheCurrentTask")
-      : t("ctrlEnterToSend"));
+      : document ? t("ctrlEnterToRevise") : t("ctrlEnterToSend"));
     const messages = [...visibleMessages(session.items, session.turns, session.populateActive, session.running), ...(session.queuedMessages ?? [])];
     if (!messages.length) {
       if (this.rendered.size) this.clearMessages();
@@ -401,6 +408,13 @@ export class OreliusView extends ItemView {
     }
   }
 
+  private saveDraft(): void {
+    if (this.input && this.displayedFolder !== null && this.input.value !== this.displayedDraft) {
+      this.plugin.setDraft(this.input.value, this.displayedFolder);
+      this.displayedDraft = this.input.value;
+    }
+  }
+
   private renderReactions(item: ChatItem, element: HTMLElement): void {
     let controls = element.querySelector<HTMLElement>(".orelius-reactions");
     if (!this.exchanges.has(item.id)) { controls?.remove(); return; }
@@ -409,14 +423,14 @@ export class OreliusView extends ItemView {
       for (const choice of REACTIONS) {
         const button = controls.createEl("button", { type: "button", attr: { "aria-label": choice.label, "data-reaction": choice.value } });
         setIcon(button, choice.icon);
-        setTooltip(button, `${choice.summary} ${t("anyMessageInTheChatWillBeAttachedTo", { value1: choice.label })}`);
+        setTooltip(button, choice.summary);
         button.onclick = () => { void this.react(item.id, choice.value); };
       }
     }
     const selected = this.plugin.reactionFor(item.id);
     controls.querySelectorAll<HTMLButtonElement>("button[data-reaction]").forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.reaction === selected));
-      button.disabled = this.submitting || this.plugin.session.busy;
+      button.disabled = this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork;
     });
     let clear = controls.querySelector<HTMLButtonElement>('[data-action="clear-highlights"]');
     const chapter = this.plugin.highlightedDocument;
@@ -427,7 +441,7 @@ export class OreliusView extends ItemView {
       setTooltip(clear, t("clearTheOpenChapterSHighlightsWithoutAcceptingThe"));
       clear.onclick = () => { void this.clearHighlights(); };
     }
-    clear.disabled = this.submitting || this.plugin.session.busy;
+    clear.disabled = this.submitting || this.plugin.session.busy && !this.plugin.session.backgroundWork;
   }
 
   private renderRequest(request: ServerRequest): void {

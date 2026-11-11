@@ -30,7 +30,7 @@ import { syncStructure, type StoryStructure, type Decision } from "./story-struc
 import { POPULATE_PREFIX, collectChanges } from "./workshop";
 import populateTemplate from "../../prompts/peupler.md";
 import { maintenancePrompt, pendingStates } from "./editorial-workflow";
-import { parseYaml, addIcon, getLanguage, requireApiVersion, type Editor, editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { parseYaml, addIcon, getLanguage, type Editor, editorInfoField, FileSystemAdapter, FileView, MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
 import oreliusIcon from "../icon.svg";
 import { readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -71,7 +71,7 @@ import task12 from "../../prompts/decrire.md";
 import task13 from "../../prompts/continuer.md";
 
 import { readProjectFile } from "./project-files.ts";
-import { fullRewriteRequested, planRevision } from "./revision.ts";
+import { planRevision } from "./revision.ts";
 import { revisionHighlights } from "./revision-highlights";
 import { editorLock } from "./editor-lock";
 import { recordAcceptance } from "./acceptance";
@@ -94,8 +94,19 @@ export default class OreliusPlugin extends Plugin {
   private explorerActions: ExplorerActions | null = null;
   private projects = new Map<string, ProjectState>();
   get session(): ChatSession { return this.projectSession(this.settings.folder); }
-  get draft(): string { return this.projectState(this.settings.folder).draft; }
-  set draft(value: string) { this.projectState(this.settings.folder).draft = value; }
+  get draft(): string { return this.getDraft(this.settings.folder); }
+  set draft(value: string) { this.setDraft(value, this.settings.folder); }
+  getDraft(folder: string): string { return this.projectState(folder).draft; }
+  setDraft(value: string, folder: string): void {
+    const project = this.projectState(folder);
+    if (project.draft === value) return;
+    project.draft = value;
+    void this.saveSettings(settings => {
+      const drafts = { ...settings.drafts, [project.folder]: project.draft };
+      if (!project.draft) delete drafts[project.folder];
+      return { drafts };
+    }).catch(error => new Notice(errorText(error)));
+  }
   private get connecting(): Promise<void> | null { return this.projects.get(this.settings.folder)?.connecting ?? null; }
   private requestContext: { folder: string; choice: ContextChoice } | null = null;
   private views = new Set<OreliusView>();
@@ -116,7 +127,8 @@ export default class OreliusPlugin extends Plugin {
   private projectState(folder: string): ProjectState {
     let project = this.projects.get(folder);
     if (!project) {
-      project = { folder, draft: "", lockedNotes: new Set(), connecting: null };
+      const draft = Object.prototype.hasOwnProperty.call(this.settings.drafts, folder) ? this.settings.drafts[folder] : "";
+      project = { folder, draft, lockedNotes: new Set(), connecting: null };
       this.projects.set(folder, project);
     }
     return project;
@@ -172,7 +184,7 @@ export default class OreliusPlugin extends Plugin {
   }
 
   async onload(): Promise<void> {
-    setLocale(requireApiVersion("1.8.7") ? getLanguage() : window.localStorage.getItem("language") ?? "en");
+    setLocale(getLanguage());
     for (const error of await loadTranslationFiles(this.app.vault.adapter, `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}/locales`)) new Notice(error);
     addIcon("orelius", oreliusIcon);
     this.settings = loadSettings(await this.loadData());
@@ -410,7 +422,7 @@ export default class OreliusPlugin extends Plugin {
       const changedFolder = changes.folder !== undefined && changes.folder !== previous.folder;
       const changedLayout = PROJECT_FOLDER_KEYS.some(key => changes[key] !== undefined && changes[key] !== previous[key]);
       const changedConnection = changedLayout || (changes.codexPath !== undefined && changes.codexPath !== previous.codexPath);
-      const busy = [...this.projects.values()].some(project => project.session?.busy || project.connecting);
+      const busy = [...this.projects.values()].some(project => project.session?.busy || Boolean(project.connecting));
       if (changedConnection && (busy || this.sending) || changedFolder && this.sending) {
         throw new Error(t("stopTheCodexTaskBeforeChangingFoldersOrConnections"));
       }
@@ -638,28 +650,16 @@ export default class OreliusPlugin extends Plugin {
     return path?.startsWith(prefix) ? brainstormFolder(path.slice(prefix.length), this.settings) : null;
   }
 
-  get brainstormDocument(): string | null {
-    const folder = this.brainstormDirectory;
-    if (!folder) return null;
-    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
-    const selected = this.navigation.path?.slice(prefix.length);
-    const candidates = [selected, ...this.session.items.slice().reverse().flatMap(item => item.modifiedPaths ?? [])];
-    return candidates.find(path => path && path.toLowerCase().endsWith(".md") && brainstormFolder(path, this.settings) === folder
-      && this.app.vault.getAbstractFileByPath(prefix + path) instanceof TFile) ?? null;
-  }
-
   get revisionChapter(): string | null {
-    if (this.brainstormDirectory) return null;
-    const path = this.app.workspace.getActiveFile()?.path;
-    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
-    return path?.startsWith(prefix) ? chapterPath("/", this.settings, path.slice(prefix.length)) : null;
+    const path = this.revisionDocument;
+    return path ? chapterPath("/", this.settings, path) : null;
   }
 
   get revisionDocument(): string | null {
-    if (this.brainstormDirectory) return this.brainstormDocument;
-    const path = this.app.workspace.getActiveFile()?.path;
-    const prefix = this.settings.folder ? `${this.settings.folder}/` : "";
-    return path?.startsWith(prefix) ? revisionDocumentPath("/", this.settings, path.slice(prefix.length)) : null;
+    const path = this.navigation.path;
+    const prefix = `${this.settings.folder}/`;
+    if (!this.settings.folder || !path?.startsWith(prefix) || !(this.app.vault.getAbstractFileByPath(path) instanceof TFile)) return null;
+    return revisionDocumentPath("/", this.settings, path.slice(prefix.length));
   }
 
   reactionFor(itemId: string): Reaction | undefined {
@@ -668,23 +668,25 @@ export default class OreliusPlugin extends Plugin {
 
   async react(itemId: string, value: Reaction, message: string): Promise<void> {
     await this.settingsWrite;
-    if (this.sending || this.connecting || this.session.busy) throw new Error(t("waitForTheTaskOrMessageToFinishBefore"));
-    const threadId = this.session.threadId;
-    const exchange = reactionExchanges(this.session.turns).get(itemId);
+    const session = this.session, folder = this.settings.folder;
+    if (this.sending || this.connecting || session.busy && !session.backgroundWork) throw new Error(t("waitForTheTaskOrMessageToFinishBefore"));
+    const threadId = session.threadId;
+    const exchange = reactionExchanges(session.turns).get(itemId);
     if (!threadId || !exchange) throw new Error(t("thisFinalAnswerIsNoLongerAvailableInThe"));
     this.sending = true;
     try {
-      const cwd = await this.refreshCorrections();
-      this.checkSavedDirectory(cwd);
-      const folders = this.settings;
+      const cwd = session.busy ? await this.workingDirectory(folder) : await this.refreshCorrections();
+      const folders = this.projectSettings(folder);
+      this.checkSavedDirectory(cwd, folders);
       const key = reactionKey(cwd, threadId, itemId);
-      await recordInput(cwd,folders,`Réaction : ${value}\nRéponse concernée : ${itemId}\n\n${message}`,undefined,this.configurationDirectory());
-      let rating = folders.reactions[key];
-      await this.correctionTask(async () => {
-        rating = await recordReaction(cwd, folders, threadId, exchange, value, message, rating, (path, content) => this.checkEditor(path, content));
+      await session.saveFeedback(async () => {
+        await recordInput(cwd,folders,`Réaction : ${value}\nRéponse concernée : ${itemId}\n\n${message}`,undefined,this.configurationDirectory());
+        let rating = this.settings.reactions[key];
+        await this.correctionTask(async () => {
+          rating = await recordReaction(cwd, folders, threadId, exchange, value, message, rating, (path, content) => this.checkEditor(path, content, folder));
+        });
+        await this.saveSettings(settings => ({ reactions: { ...settings.reactions, [key]: rating } }));
       });
-      await this.saveSettings({ reactions: { ...this.settings.reactions, [key]: rating } });
-      if (this.draft === message) this.draft = "";
       for (const view of this.views) view.update();
       new Notice(t("reactionAndFeedbackAddedToTheTrackingNotes"));
     } finally { this.sending = false; this.releaseNoteLocks(); }
@@ -704,7 +706,7 @@ export default class OreliusPlugin extends Plugin {
   async clearRevisionHighlights(chapter: string): Promise<void> {
     const folder = this.settings.folder;
     await this.settingsWrite;
-    if (this.sending || this.connecting || this.session.busy) throw new Error(t("waitForTheTaskOrMessageToFinishBefore2"));
+    if (this.sending || this.connecting || this.session.busy && !this.session.backgroundWork) throw new Error(t("waitForTheTaskOrMessageToFinishBefore2"));
     if (folder !== this.settings.folder || chapter !== this.highlightedDocument) throw new Error(t("theHighlightedChapterChangedReturnToTheChapterTo"));
     this.sending = true;
     try {
@@ -811,7 +813,7 @@ export default class OreliusPlugin extends Plugin {
     const currentChapter = this.revisionChapter;
     const brainstorm = this.brainstormDirectory;
     if (wholeChapterRequested && !chapter) throw new Error(t("openTheChapterToStartOver"));
-    if (!chapter && currentChapter && !this.session.busy && !this.session.brainstormActive && fullRewriteRequested(text, currentChapter)) chapter = currentChapter;
+    if (!chapter && !this.session.busy) chapter = this.revisionDocument ?? undefined;
     if (this.sending || this.connecting) throw new Error(t("aMessageOrConnectionIsAlreadyInProgressYour"));
     if (chapter && this.session.busy) throw new Error(t("waitForTheTaskToFinishBeforeRevisingThe2"));
     const activePath = this.app.workspace.getActiveFile()?.path;
@@ -1050,8 +1052,11 @@ export default class OreliusPlugin extends Plugin {
 
   private releaseNoteLocks(folder = this.settings.folder): void {
     const project = this.projects.get(folder);
-    if (!project || project.session?.busy || folder === this.settings.folder && this.sending || !project.lockedNotes.size) return;
-    project.lockedNotes.clear();
+    if (!project || project.session?.busy && !project.session.backgroundWork || folder === this.settings.folder && this.sending || !project.lockedNotes.size) return;
+    if (project.session?.busy) {
+      const prefix = folder ? `${folder}/`.normalize("NFC").toLowerCase() : "";
+      for (const path of project.lockedNotes) if (chapterPath("/", this.projectSettings(folder), path.slice(prefix.length))) project.lockedNotes.delete(path);
+    } else project.lockedNotes.clear();
     this.highlights.refresh();
   }
 
