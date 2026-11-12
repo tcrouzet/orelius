@@ -6,10 +6,11 @@ export function movedPath(path: string, from: string, to: string): string {
 }
 
 export function moveProjects(settings: OreliusSettings, from: string, to: string, vault: string): OreliusSettings | null {
-  const projects = [...new Set([settings.folder, ...Object.keys(settings.sessions)])]
-    .filter(path => path && movedPath(path, from, to) !== path);
-  if (!projects.length) return null;
   const absolute = (path: string) => `${vault.replace(/\/$/, "")}/${path}`;
+  const projects = [...new Set([settings.folder, ...Object.keys(settings.sessions)])]
+    .filter(path => path && (path === from || path.startsWith(from + "/"))
+      && (movedPath(path, from, to) !== path || Boolean(settings.sessions[path]?.cwd && settings.sessions[path].cwd !== absolute(path))));
+  if (!projects.length) return null;
   const locations = projects.map(path => [settings.sessions[path]?.cwd || (path === settings.folder ? settings.threadCwd : "") || absolute(path), absolute(movedPath(path, from, to))]);
   const relocate = (path: string) => {
     const location = locations.slice().sort((a, b) => b[0].length - a[0].length).find(([old]) => path === old || path.startsWith(old + "/"));
@@ -33,4 +34,12 @@ export function moveProjects(settings: OreliusSettings, from: string, to: string
       return JSON.stringify([relocate(parts[0]), parts[1], parts[2]]);
     }),
   };
+}
+
+export function relocateVault(settings: OreliusSettings, vault: string): OreliusSettings | null {
+  let relocated = settings;
+  for (const folder of Object.keys(settings.sessions)) {
+    if (folder) relocated = moveProjects(relocated, folder, folder, vault) ?? relocated;
+  }
+  return relocated === settings ? null : relocated;
 }

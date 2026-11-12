@@ -63,7 +63,7 @@ async function scan(root: string, folders: ProjectFolders): Promise<Map<string, 
       else if (entry.isFile()) { const content = await bytes(root, path); if (content) result.set(path, content); }
     }
   };
-  for (const directory of [folders.manuscriptFolder, folders.bibleFolder, folders.modelFolder, "Tracking"]) await walk(directory);
+  for (const directory of [folders.manuscriptFolder, folders.bibleFolder, folders.modelFolder, "Brainstorm", "Tracking"]) await walk(directory);
   for (const path of ["config.md", "AGENTS.md"]) { const content = await bytes(root, path); if (content) result.set(path, content); }
   return result;
 }

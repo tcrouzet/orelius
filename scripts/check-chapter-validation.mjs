@@ -1,0 +1,112 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {prepareValidation,validationRequest,validationPath,checkValidation,validationWriteAllowed,completeValidation} from '../plugin/src/chapter-validation.ts';
+import {DEFAULT_PROJECT_FOLDERS as folders} from '../plugin/src/settings.ts';
+import {prepareProject} from '../plugin/src/archives.ts';
+import {archiveWithCorrections} from '../plugin/src/corrections.ts';
+import {writeProjectFile,readProjectFile} from '../plugin/src/project-files.ts';
+import {readEditorialContext} from '../plugin/src/editorial-context.ts';
+import {authorPrompt} from '../plugin/src/conversation.ts';
+import {pendingInputs,recordInput} from '../plugin/src/author-inputs.ts';
+import {ChatSession} from '../plugin/src/session.ts';
+import {t} from '../plugin/src/i18n.ts';
+import {FILE_TOOL,INPUTS_TOOL,LINK_TOOL,STATE_TOOL,REVIEW_TOOL,WORKSHOP_TOOL} from '../plugin/src/mcp.ts';
+
+export async function checkChapterValidation(executable,taskPrompts) {
+ const root=await mkdtemp(join(tmpdir(),'orelius-validation-'));
+ const chapter='Manuscript/Partie I/001.md';
+ const baseline='# 001\n\nElle était très triste.\n\nIl referma la porte.\n';
+ const approved='# 001\n\nElle replie la lettre en quatre.\n\nIl referma la porte.\n\nElle glisse la lettre sous la tasse.\n';
+ const comment='Conserver les gestes concrets, sans nommer les émotions.';
+ const template=await readFile('prompts/valider-chapitre.md','utf8');
+ const sent=[],locks=[];
+ const session=new ChatSession(()=>{},async()=>{},(cwd,changes)=>archiveWithCorrections(cwd,folders,changes,{[chapter]:baseline},()=>{}),()=>({...folders,taskPrompts,lockNote:path=>locks.push(path)}));
+ const content=path=>readFile(join(root,path),'utf8');
+ try {
+  await prepareProject(root,folders);
+  await mkdir(join(root,'Manuscript/Partie I'),{recursive:true});
+  await writeFile(join(root,chapter),baseline);
+  await writeProjectFile(root,chapter,approved,await readProjectFile(root,chapter),folders.archiveFolder);
+  const prompt=await prepareValidation(root,folders,chapter,baseline,comment,template,()=>{});
+  const validation=validationRequest(prompt);
+  assert.equal(validation.chapter,chapter);assert.equal(validation.report,'Tracking/Partie I/001/bilan-validation.md');
+  assert.equal(authorPrompt(prompt),`Valider le chapitre ${chapter}.\n\n${comment}`);
+  assert.equal(validationRequest('Discutons du chapitre.'),null);
+  assert.throws(()=>validationRequest('[Orelius : validation du chapitre]\n{}'),/validation/i);
+  const evidence=await content(validation.evidence);
+  for(const expected of ['## Version approuvée','## Dernières corrections humaines','Elle était très triste.','Elle replie la lettre en quatre.','Elle glisse la lettre sous la tasse.',comment,'Archives/Manuscript/Partie I/001.'])assert.ok(evidence.includes(expected),expected);
+  assert.match(await content(validationPath(folders,chapter)),/"analysis": "pending"/);
+  assert.equal(await content(chapter),approved);
+  await checkValidation(root,folders,validation);
+  const sources=(await readEditorialContext(root,folders,{})).flatMap(page=>JSON.parse(page).sources);
+  assert.ok(sources.some(source=>source.path===validation.evidence&&source.role==='approved-example'),'Le texte approuvé devient un exemple pour les prochains échanges.');
+  for(const path of [chapter,'Model/Source.md','Brainstorm/Idee.md','Tracking/Inputs.md','Tracking/Partie I/001/validation.md','Bible/../Model/Source.md','/Bible/Style/Test.md'])assert.equal(validationWriteAllowed(folders,validation,path),false,path);
+  for(const path of [validation.report,'Bible/Style/Narration.md','Tracking/Connaissances.md'])assert.equal(validationWriteAllowed(folders,validation,path),true,path);
+  await assert.rejects(completeValidation(root,folders,validation,false,()=>{}),/bilan/i);
+  await assert.rejects(prepareValidation(root,folders,'Bible/Style/Test.md',undefined,'',template,()=>{}));
+  await writeFile(join(root,'Manuscript/vide.md'),'');
+  await assert.rejects(prepareValidation(root,folders,'Manuscript/vide.md',undefined,'',template,()=>{}),{message:t('chapterValidationEmpty')});
+  const unrelated=await recordInput(root,folders,'Ancienne question sur un autre chapitre.');
+  await session.connect(executable,root,'');
+  const native=session.client.request.bind(session.client);
+  const {thread}=await native('thread/start',{cwd:root,ephemeral:true,sandbox:'read-only',approvalPolicy:'never',approvalsReviewer:'user'});
+  session.threadId=thread.id;
+  session.client.request=async(method,args)=>{
+   if(method==='turn/start'){sent.push(args);return {turn:{id:'validation-'+sent.length}};}
+   if(method==='thread/turns/list')return {data:[],nextCursor:null};
+   return native(method,args);
+  };
+  const call=(tool,args)=>native('mcpServer/tool/call',{threadId:thread.id,server:'orelius',tool,arguments:args});
+  const finish=()=>session.notification('turn/completed',{threadId:thread.id,turn:{status:'completed'}},root);
+  await session.send(prompt,executable,root,thread.id);
+  assert.ok(locks.includes(chapter));
+  const payload=JSON.parse(sent.at(-1).input[0].text.split('<!-- orelius:material-search -->\n')[1]);
+  assert.deepEqual(payload.validation,validation);
+  assert.equal(payload.preparationEnCours,undefined);
+  assert.equal(payload.inputsAuteur.enAttente.length,1,'La validation ne relance pas les discussions sans rapport.');
+  assert.equal(payload.inputsAuteur.enAttente[0].text,authorPrompt(prompt));
+  for(const path of [chapter,'Model/Source.md','Brainstorm/Idee.md','Tracking/suivi.md','Tracking/Partie I/001/validation.md',join(root,chapter),'Bible/../Manuscript/Partie I/001.md']) {
+   const result=await call(FILE_TOOL,{chemin:path,contenu:'Changement interdit.'});assert.equal(result.isError,true,path);
+  }
+  for(const tool of [LINK_TOOL,STATE_TOOL,REVIEW_TOOL,WORKSHOP_TOOL])assert.equal((await call(tool,{})).isError,true,tool);
+  const style='# Voix\n\nConserver les gestes concrets, sans nommer les émotions.\n';
+  const written=await call(FILE_TOOL,{chemin:'Bible/Style/Narration.md',contenu:style});
+  assert.equal(written.isError,false,written.content[0].text);
+  const input=payload.inputsAuteur.enAttente[0];
+  const analysed=await call(INPUTS_TOOL,{analyses:[{id:input.id,statut:'integre',synthese:'Préférence stylistique étayée par les corrections et le commentaire.',references:[{chemin:'Bible/Style/Narration.md',extrait:comment}]}]});
+  assert.equal(analysed.isError,false,analysed.content[0].text);
+  await finish();
+  assert.equal(session.busy,false);assert.equal(session.canRetry,true,'Un bilan manquant propose réellement Réessayer.');
+  assert.match(session.failure.message,/bilan/);
+  assert.match(await content(validationPath(folders,chapter)),/"analysis": "pending"/);
+  assert.equal(await content(chapter),approved);
+  await session.retry(executable,root,thread.id);
+  const report='# Bilan\n\nConservé : « Il referma la porte. »\n\nÉcarté et réécrit : « Elle était très triste. » devient « Elle replie la lettre en quatre. »\n\nAjouté par l’auteur : « Elle glisse la lettre sous la tasse. »\n\nConsigne étayée : '+comment+'\n';
+  const reported=await call(FILE_TOOL,{chemin:validation.report,contenu:report});assert.equal(reported.isError,false,reported.content[0].text);
+  const knowledge=await content('Tracking/Connaissances.md');
+  const memorized=await call(FILE_TOOL,{chemin:'Tracking/Connaissances.md',contenu:knowledge+'\n## Consignes actives\n\n'+comment+'\n'});assert.equal(memorized.isError,false,memorized.content[0].text);
+  await finish();
+  assert.equal(session.failure,null);assert.equal(session.busy,false);assert.equal(sent.length,2,'Aucun cycle automatique de réécriture ne suit la validation.');
+  assert.match(await content(validationPath(folders,chapter)),/"analysis": "complete"/);
+  assert.equal(await content(chapter),approved);
+  assert.ok((await pendingInputs(root)).some(item=>item.id===unrelated));
+  const future=(await readEditorialContext(root,folders,{})).flatMap(page=>JSON.parse(page).sources);
+  assert.ok(future.some(source=>source.content.includes(comment)),'Les enseignements enregistrés sont disponibles pour la suite.');
+
+  const same=validationRequest(await prepareValidation(root,folders,chapter,approved,'',template,()=>{}));
+  assert.match(await content(same.evidence),/Aucune différence/,'Valider fonctionne sans modification humaine récente.');
+  const unknown=validationRequest(await prepareValidation(root,folders,chapter,undefined,'',template,()=>{}));
+  assert.match(await content(unknown.evidence),/Aucune version Codex de référence connue/);
+  const next=approved+'\nUn ajout ultérieur.\n';
+  await writeFile(join(root,chapter),next);
+  await assert.rejects(checkValidation(root,folders,validation),/changé/);
+  const nextPrompt=await prepareValidation(root,folders,chapter,approved,'',template,()=>{});
+  assert.notEqual(validationRequest(nextPrompt).hash,validation.hash,'Une reprise puis une nouvelle validation portent sur une autre version.');
+  await session.send(nextPrompt,executable,root,thread.id);
+  await writeFile(join(root,chapter),next+'Un changement extérieur pendant l’analyse.');
+  const stale=await call(FILE_TOOL,{chemin:validation.report,contenu:report});assert.equal(stale.isError,true);assert.match(stale.content[0].text,/changé/);
+  assert.equal(await content(validation.report),report,'Une analyse périmée ne remplace pas le bilan.');
+ } finally {await session.disconnect();await rm(root,{recursive:true,force:true});}
+}

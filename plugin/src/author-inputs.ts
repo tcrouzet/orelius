@@ -94,6 +94,12 @@ export async function pendingInputs(cwd: string): Promise<AuthorInput[]> {
   }
   return pending;
 }
+export async function brainstormInputs(cwd: string, threadId: string, inputId?: string): Promise<AuthorInput[]> {
+  const root = await realpath(cwd);
+  await writes.get(root);
+  const note = await readProjectFile(root, INPUTS_PATH);
+  return note ? parse(note.text).filter(row => row.id === inputId || row.threadId === threadId && row.text.startsWith(BRAINSTORM_INPUT)) : [];
+}
 export async function analyseInputs(cwd: string, folders: ProjectFolders, args: Record<string,unknown>, ensureCurrent: () => void, configDir?: string): Promise<string> {
   if (!Object.keys(args).length) return JSON.stringify({fichier:INPUTS_PATH,enAttente:await pendingInputs(cwd)});
   if (Object.keys(args).some(key => key !== "analyses") || !Array.isArray(args.analyses) || !args.analyses.length) throw new Error(t("inputsInvalidAnalysis"));

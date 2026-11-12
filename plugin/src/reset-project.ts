@@ -9,7 +9,7 @@ export async function resetProject(cwd: string, folders: ProjectFolders, configD
   vault?: { mkdir: (path: string) => Promise<void>; remove: (path: string) => Promise<void> }): Promise<void> {
   const paths = projectPaths(folders);
   const root = await realpath(cwd);
-  const names = [...new Set([folders.archiveFolder, folders.bibleFolder, folders.manuscriptFolder, "Tracking", "_Archives",
+  const names = [...new Set([folders.archiveFolder, folders.bibleFolder, folders.manuscriptFolder, "Brainstorm", "Tracking", "_Archives",
     ...(await readdir(root)).filter(name => name.toLowerCase() === "context")])];
   const present: string[] = [];
   for (const name of names) {

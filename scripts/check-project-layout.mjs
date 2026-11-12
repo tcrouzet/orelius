@@ -1,10 +1,11 @@
+import {relocateVault} from "../plugin/src/project-move.ts";
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,readdir,rm,realpath} from 'node:fs/promises';
 import {join,resolve,relative,isAbsolute} from 'node:path';
 import {transform} from 'esbuild';
 import {tmpdir} from 'node:os';
 import {prepareProject,checkPath} from '../plugin/src/archives.ts';
-import {DEFAULT_PROJECT_FOLDERS,isChapterPath,loadSettings,applySettings,PROJECT_FOLDER_KEYS,validateFolderName,associatedFolder,visibleFolder,modelProject} from '../plugin/src/settings.ts';
+import {DEFAULT_PROJECT_FOLDERS,isChapterPath,loadSettings,applySettings,PROJECT_FOLDER_KEYS,validateFolderName,validateProjectFolders,associatedFolder,visibleFolder,modelProject} from '../plugin/src/settings.ts';
 import {ChatNavigation} from '../plugin/src/navigation.ts';
 import {t} from '../plugin/src/i18n.ts';
 import {errorText} from '../plugin/src/codex.ts';
@@ -19,6 +20,7 @@ import {readData,parseConfig} from '../plugin/src/narrative-context.ts';
 
 export async function checkProjectLayout(){
  await checkFirstInstall();
+ assert.throws(()=>validateProjectFolders({...DEFAULT_PROJECT_FOLDERS,modelFolder:"Brainstorm"}),/réservés|reserved/);
  await checkProjectCreation();
  for(const name of await readdir(new URL('../prompts/',import.meta.url))){
   if(name.endsWith('.md'))assert.doesNotMatch(await readFile(new URL(`../prompts/${name}`,import.meta.url),'utf8'),/\bdans Context\b/,'Les prompts doivent désigner Tracking.');
@@ -31,7 +33,8 @@ export async function checkProjectLayout(){
   const {manuscriptFolder:ms,bibleFolder:bible,modelFolder:model}=folders;
   try{
    await prepareProject(root,folders);assert.deepEqual(await readdir(join(root,ms)),[]);
-   assert.deepEqual((await readdir(join(root,bible))).sort(),['Arcs','Brainstorm','Characters','Checks','Plan','Plots','Scenes','Seeds','Style','Summaries','Synopsis','Variants','World']);
+   assert.deepEqual(await readdir(join(root,'Brainstorm')),[],'Brainstorm est créé à la racine du projet.');
+   assert.deepEqual((await readdir(join(root,bible))).sort(),['Arcs','Characters','Checks','Plan','Plots','Scenes','Seeds','Style','Summaries','Synopsis','Variants','World']);
    await put(`${model}/original.md`,'Source à préserver.');
    const paths=[`${ms}/001.md`,`${ms}/Partie 1/002.md`,`${ms}/Partie 2/003.md`];
    for(const [index,path] of paths.entries())await put(path,`Scène ${index+1}.`);
@@ -50,6 +53,12 @@ export async function checkProjectLayout(){
    await put('Tracking/Provenance.md','Anciennes sources.');
    const inventory=await projectSources(root,folders);
    assert.equal(inventory.some(item=>item.content.includes('Historique technique')||item.content.includes('Anciennes sources')||item.content.includes('Ancienne fiche à exclure')),false);
+   await put('Brainstorm/Piste.md','Piste exploratoire.');
+   assert.ok((await projectSources(root,folders)).some(item=>item.path==='Brainstorm/Piste.md'));
+   await rememberGenerated(root,folders,'Brainstorm/Piste.md','Piste exploratoire.');
+   assert.ok(!(await collectChanges(root,folders)).pending.some(change=>change.path==='Brainstorm/Piste.md'),'La note générée ne devient pas une correction humaine.');
+   await put('Brainstorm/Piste.md','Piste exploratoire. (((Autre direction.)))');
+   assert.ok((await collectChanges(root,folders)).pending.some(change=>change.path==='Brainstorm/Piste.md'),'Les annotations du dossier racine sont transmises.');
    const context=await buildSceneContext(root,folders,{},paths[2],'Reprends cette scène.');
    assert.equal(context.path,'Tracking/Partie 2/003/sources.md');
    assert.equal(context.sources.find(source=>source.role==='previous-manuscript').path,paths[1],'Le raccord traverse les parties.');
@@ -70,6 +79,7 @@ export async function checkProjectLayout(){
    assert.equal(await readFile(join(root,model,'original.md'),'utf8'),'Source à préserver.');
    assert.deepEqual(await readdir(join(root,folders.archiveFolder)),[]);
    assert.deepEqual(await readdir(join(root,'Tracking')),[]);
+   assert.deepEqual(await readdir(join(root,'Brainstorm')),[],'Reset vide aussi Brainstorm.');
    await prepareProject(root,folders);assert.deepEqual(await readdir(join(root,ms)),[]);
   }finally{await rm(root,{recursive:true,force:true});}
  }
@@ -133,7 +143,7 @@ async function checkFirstInstall(){
  const events=new Map(),noop=()=>{};
  class TFolder{constructor(path){this.path=path;}}
  class FileSystemAdapter{getBasePath(){return root;}}
- const dependencies={t,loadSettings,associatedFolder,visibleFolder,ChatNavigation,TFolder,FileSystemAdapter,resolve,relative,isAbsolute,realpath,
+ const dependencies={t,loadSettings,relocateVault,associatedFolder,visibleFolder,ChatNavigation,TFolder,FileSystemAdapter,resolve,relative,isAbsolute,realpath,
   setLocale:noop,requireApiVersion:()=>true,getLanguage:()=> 'fr',loadTranslationFiles:async()=>[],addIcon:noop,oreliusIcon:'',editorLock:noop,
   NOVEL_VIEW:'novel',VIEW_TYPE:'orelius',NovelView:class{},OreliusView:class{},OreliusSettingTab:class{},SELECTION_ACTIONS:[],
   ExplorerActions:class{refresh(){}},prepareProject,prepareSourceConfig:noop,prepareBible:noop,generateAgent:noop,agentTemplate:''};
@@ -156,6 +166,15 @@ async function checkFirstInstall(){
   assert.deepEqual(await readdir(root),['Note.md'],'Installer, renommer, modifier et ouvrir sans projet ne créent aucun dossier à la racine.');
   assert.equal(await readFile(join(root,'Note.md'),'utf8'),'Note personnelle.');
   assert.equal(target.documentTracking.size,0);
+  let saved;
+  target.loadData=async()=>({folder:'Roman',threadId:'session-conservee',threadCwd:'/ancien/coffre/Roman',sessions:{Roman:{threadId:'session-conservee',cwd:'/ancien/coffre/Roman'}}});
+  target.saveData=async data=>{saved=data;};
+  await target.onload();
+  assert.equal(saved.sessions.Roman.threadId,'session-conservee');
+  assert.equal(saved.sessions.Roman.cwd,join(await realpath(root),'Roman'));
+  assert.equal(target.settings.threadCwd,saved.sessions.Roman.cwd,'Les nouvelles associations sont actives avant toute connexion.');
+  assert.deepEqual(await readdir(root),['Note.md'],'Réassocier les sessions ne crée ni projet ni document.');
+
   const legacy=loadSettings({sessions:{'':{threadId:'ancienne-racine',cwd:root}}});
   assert.equal(associatedFolder(legacy,'Note.md'),undefined);
   assert.equal(modelProject(legacy,'Model'),undefined);

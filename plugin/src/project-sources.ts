@@ -30,7 +30,7 @@ export async function projectSources(cwd: string, folders: ProjectFolders, only?
       }
     }
   }
-  for (const path of only ?? [folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Tracking"]) await walk(path);
+  for (const path of only ?? [folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Brainstorm", "Tracking"]) await walk(path);
   return sources.sort((a, b) => a.path.localeCompare(b.path, "fr", { numeric: true }));
 }
 

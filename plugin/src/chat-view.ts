@@ -34,6 +34,7 @@ export class OreliusView extends ItemView {
   private sendButton!: HTMLButtonElement;
   private reviseButton!: HTMLButtonElement;
   private rewriteButton!: HTMLButtonElement;
+  private validateButton!: HTMLButtonElement;
   private acceptButton!: HTMLButtonElement;
   private stopButton!: HTMLButtonElement;
   private notice!: HTMLElement;
@@ -125,6 +126,9 @@ export class OreliusView extends ItemView {
     this.acceptButton = buttons.createEl("button", { text: t("accept"), cls: "mod-cta" });
     setTooltip(this.acceptButton, t("acceptTheCurrentVersionClearHighlightsAndAttachAny"));
     this.acceptButton.onclick = () => { void this.accept(); };
+    this.validateButton = buttons.createEl("button", { text: t("validateChapter") });
+    setTooltip(this.validateButton, t("validateChapterHelp"));
+    this.validateButton.onclick = () => { void this.validate(); };
     this.decisionLabel = composer.createEl("label", { text: t("thisNote") });
     this.decisionSelect = this.decisionLabel.createEl("select");
     for (const [value, text] of [["propose", t("proposed")], ["retenu", t("selected")], ["abandonne", t("discarded")]]) this.decisionSelect.createEl("option", { value, text });
@@ -188,6 +192,17 @@ export class OreliusView extends ItemView {
     finally { this.submitting = false; this.update(); }
   }
 
+  private async validate(): Promise<void> {
+    const chapter = this.plugin.revisionChapter;
+    if (!chapter || this.submitting || this.plugin.session.busy) return;
+    const message = this.input.value;
+    this.submitting = true;
+    this.followMessages = true;
+    this.update();
+    try { await this.run(() => this.plugin.validateChapter(message, chapter)); }
+    finally { this.submitting = false; this.update(); }
+  }
+
   private async accept(): Promise<void> {
     const chapter = this.plugin.acceptanceChapter;
     if (!chapter || this.submitting || this.plugin.session.busy) return;
@@ -217,7 +232,7 @@ export class OreliusView extends ItemView {
 
   private async send(revise = false, wholeChapterRequested = false): Promise<void> {
     const text = this.input.value;
-    revise ||= !this.plugin.session.busy && Boolean(this.plugin.revisionDocument);
+    revise ||= !this.plugin.session.busy && !this.plugin.brainstormDirectory && !this.plugin.session.brainstormActive && Boolean(this.plugin.revisionDocument);
     const chapter = revise ? (wholeChapterRequested ? this.plugin.revisionChapter : this.plugin.revisionDocument) : undefined;
     if ((revise ? !chapter || this.plugin.session.busy : !text.trim()) || this.submitting
       || (this.plugin.session.busy && !this.plugin.session.running)) return;
@@ -279,11 +294,13 @@ export class OreliusView extends ItemView {
     setTextIfChanged(this.sendButton, this.submitting ? t("sending") : session.busy ? t("sendToCurrentTask") : brainstorm ? t("brainstorm") : t("send"));
     setTooltip(this.sendButton, session.busy ? t("steerHelp") : brainstorm ? t("brainstormHelp") : t("sendHelp"));
     const document = this.plugin.revisionDocument;
-    this.sendButton.toggle(!document || session.busy);
+    this.sendButton.toggle(brainstorm || !document || session.busy);
     this.reviseButton.toggle(Boolean(document));
     this.rewriteButton.toggle(Boolean(this.plugin.revisionChapter));
     this.reviseButton.disabled = this.submitting || session.busy || !document;
     this.rewriteButton.disabled = this.submitting || session.busy || !this.plugin.revisionChapter;
+    this.validateButton.toggle(Boolean(this.plugin.revisionChapter));
+    this.validateButton.disabled = this.submitting || session.busy;
     this.acceptButton.toggle(Boolean(this.plugin.acceptanceChapter));
     this.acceptButton.disabled = this.submitting || session.busy;
     setTooltip(this.reviseButton, !document ? t("openAProjectNoteToReviseIt")
@@ -297,7 +314,7 @@ export class OreliusView extends ItemView {
     this.stopButton.disabled = !session.busy;
     this.input.placeholder = session.running ? t("addInstructionsToTheCurrentTask") : t("messageRevisionInstructionsOrACommentToAttachTo");
     setTextIfChanged(this.hintEl, session.running ? t("ctrlEnterToAddInstructionsToTheCurrentTask")
-      : document ? t("ctrlEnterToRevise") : t("ctrlEnterToSend"));
+      : document && !brainstorm ? t("ctrlEnterToRevise") : t("ctrlEnterToSend"));
     const messages = [...visibleMessages(session.items, session.turns, session.populateActive, session.running), ...(session.queuedMessages ?? [])];
     if (!messages.length) {
       if (this.rendered.size) this.clearMessages();

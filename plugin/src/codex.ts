@@ -1,9 +1,10 @@
 import { t } from "./i18n.ts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { constants } from "node:fs";
-import { access, readdir, stat } from "node:fs/promises";
+import { access, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { clearTimeout, setTimeout } from "node:timers";
 
 export type RpcObject = Record<string, unknown>;
@@ -68,6 +69,33 @@ export async function findCodex(configured: string, extended = false): Promise<s
   throw new Error(t("codexNotFoundInstallCodexCliThenEnterIts"));
 }
 
+async function codexExecutable(executable: string): Promise<string> {
+  const resolved = await realpath(executable);
+  if (basename(resolved) !== "codex.js") return executable;
+  const root = dirname(dirname(resolved));
+  const metadata: unknown = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  if (object(metadata).name !== "@openai/codex") return executable;
+  const targets: Record<string, string> = {
+    "darwin:arm64": "aarch64-apple-darwin", "darwin:x64": "x86_64-apple-darwin",
+    "linux:arm64": "aarch64-unknown-linux-musl", "linux:x64": "x86_64-unknown-linux-musl",
+    "win32:arm64": "aarch64-pc-windows-msvc", "win32:x64": "x86_64-pc-windows-msvc",
+  };
+  const target = targets[`${process.platform}:${process.arch}`];
+  const roots = [join(root, "vendor")];
+  try {
+    const dependency = createRequire(resolved).resolve(`@openai/codex-${process.platform}-${process.arch}/package.json`);
+    roots.unshift(join(dirname(dependency), "vendor"));
+  } catch { /* Older CLI installations bundle the native executable in their own vendor directory. */ }
+  if (target) for (const vendor of roots) for (const folder of ["bin", "codex"]) {
+    const binary = join(vendor, target, folder, process.platform === "win32" ? "codex.exe" : "codex");
+    try {
+      await access(binary, constants.X_OK);
+      if ((await stat(binary)).isFile()) return binary;
+    } catch { continue; }
+  }
+  throw new Error(t("codexNativeBinaryMissing"));
+}
+
 export class CodexClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private buffer = "";
@@ -94,7 +122,10 @@ export class CodexClient {
     this.version = t("notProvided");
     this.threadConfig = {};
     // Only Orelius may write project files, after archiving their originals.
-    const child = spawn(executable, ["app-server", "--listen", "stdio://",
+    const binary = await codexExecutable(executable);
+    if (this.stopping) throw new Error(t("codexConnectionClosed"));
+    if (this.child) throw new Error(t("aCodexConnectionIsAlreadyOpen"));
+    const child = spawn(binary, ["app-server", "--listen", "stdio://",
       "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent", "--disable", "multi_agent_v2"], {
       cwd, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32",
       env: files ? { ...process.env, ORELIUS_MCP_TOKEN: files.token } : process.env,
@@ -134,7 +165,7 @@ export class CodexClient {
         url: files.url, bearer_token_env_var: "ORELIUS_MCP_TOKEN", enabled: true, required: true,
         // The publication reviewer has a three-minute deadline inside the write call.
         tool_timeout_sec: 210,
-        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial", "preparer_chapitre", "consulter_methode", "enregistrer_etat_narratif", "revoir_lots", "consulter_suivi_narratif", "consulter_atelier", "consulter_structure", "relier_elements", "proposer_variantes", "consulter_sources_documentaires", "analyser_inputs"],
+        default_tools_approval_mode: "approve", enabled_tools: ["ecrire_fichier", "consulter_contexte_editorial", "preparer_chapitre", "consulter_methode", "enregistrer_etat_narratif", "revoir_lots", "consulter_suivi_narratif", "consulter_atelier", "consulter_structure", "relier_elements", "proposer_variantes", "consulter_sources_documentaires", "analyser_inputs", "explorer_brainstorm"],
       } } };
       const models = await this.request("model/list", { limit: 1 });
       if (!Array.isArray(models.data)) throw new Error(t("codexInvalidModelCatalogUpdateCodexAndOrelius", { value1: this.version }));

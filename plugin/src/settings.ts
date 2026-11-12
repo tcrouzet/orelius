@@ -34,7 +34,7 @@ export function validateProjectFolders(folders: ProjectFolders): void {
     return folders[key].normalize("NFC").toLowerCase();
   });
   if (new Set(names).size !== names.length || names.slice(1).includes("_archives")
-    || names.some(name => name === "agents.md" || name === "agents.override.md" || name === "context" || name === "tracking")) {
+    || names.some(name => name === "agents.md" || name === "agents.override.md" || name === "context" || name === "tracking" || name === "brainstorm")) {
     throw new Error(t("foldersMustHaveDistinctNamesAgentsMdAgentsOverride"));
   }
 }
@@ -53,8 +53,8 @@ export function isChapterPath(path: string, folders: Pick<ProjectFolders, "manus
 export function projectPaths(folders: ProjectFolders): string[] {
   validateProjectFolders(folders);
   const content = [folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder,
-    ...[...WORKSHOP_FOLDERS, "Plan", "Summaries", "Characters", "Style", "World", "Brainstorm"].map(name => `${folders.bibleFolder}/${name}`),
-    "Tracking"];
+    ...[...WORKSHOP_FOLDERS, "Plan", "Summaries", "Characters", "Style", "World"].map(name => `${folders.bibleFolder}/${name}`),
+    "Brainstorm", "Tracking"];
   return [folders.archiveFolder, ...content];
 }
 

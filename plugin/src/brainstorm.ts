@@ -8,7 +8,7 @@ export interface BrainstormRequest { folder: string; document?: string }
 export function brainstormFolder(path: string | null | undefined, folders: ProjectFolders): string | null {
   if (!path || path.includes("\\") || path.includes("\0") || path.split("/").some(part => !part || part.startsWith("."))) return null;
   const key = path.normalize("NFC").toLowerCase();
-  return [folders.bibleFolder, folders.manuscriptFolder].map(folder => `${folder}/Brainstorm`)
+  return ["Brainstorm", `${folders.bibleFolder}/Brainstorm`, `${folders.manuscriptFolder}/Brainstorm`]
     .find(folder => key === folder.normalize("NFC").toLowerCase() || key.startsWith(folder.normalize("NFC").toLowerCase() + "/")) ?? null;
 }
 

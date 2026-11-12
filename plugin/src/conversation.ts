@@ -1,3 +1,4 @@
+import { validationRequest } from "./chapter-validation.ts";
 import { BRAINSTORM_INPUT, brainstormRequest, withoutBrainstorm } from "./brainstorm.ts";
 import { POPULATE_BRIEF_MARKER } from "./populate-brief.ts";
 import { t, getLocale } from "./i18n.ts";
@@ -33,6 +34,10 @@ export function finalResponses(turn: ConversationTurn): ChatItem[] {
 export function authorPrompt(text: string): string {
   text = withoutChanges(text);
   try { text = withoutContext(text); } catch { return text; }
+  try {
+    const validation = validationRequest(text);
+    if (validation) return t("validateChapterRequest", { chapter: validation.chapter }) + (validation.message ? "\n\n" + validation.message : "");
+  } catch { return text; }
   if (brainstormRequest(text)) return BRAINSTORM_INPUT + authorPrompt(withoutBrainstorm(text));
   if (text.startsWith(POPULATE_PREFIX)) {
     const index = text.indexOf(POPULATE_BRIEF_MARKER);

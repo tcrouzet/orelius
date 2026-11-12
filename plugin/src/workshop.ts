@@ -66,7 +66,7 @@ export async function deliverChanges(cwd: string, folders: ProjectFolders, deliv
   await saveQueue(cwd, folders, latest, configDir);
 }
 export async function rememberGenerated(cwd: string, folders: ProjectFolders, path: string, content: string, configDir?: string): Promise<void> {
-  if (!/\.md$/i.test(path) || ![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Tracking"].some(root => path.startsWith(`${root}/`))) return;
+  if (!/\.md$/i.test(path) || ![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Brainstorm", "Tracking"].some(root => path.startsWith(`${root}/`))) return;
   if (path.startsWith("Tracking/") && path !== "Tracking/configuration.md" && path !== "Tracking/Connaissances.md" && !path.startsWith("Tracking/Prompts/")) return;
   const latest = await loadQueue(cwd, folders);
   latest.known[path] = fingerprint(content);
@@ -127,7 +127,7 @@ export class WorkshopContext {
         } else if (file) model.push({ ...candidate, content: file.text, hash: fingerprint(file.text) });
       }
       this.candidates = model;
-      this.sources = [...await projectSources(cwd, folders, [folders.manuscriptFolder, folders.bibleFolder, "Tracking"]), ...model]
+      this.sources = [...await projectSources(cwd, folders, [folders.manuscriptFolder, folders.bibleFolder, "Brainstorm", "Tracking"]), ...model]
         .sort((a, b) => a.path.localeCompare(b.path, "fr", { numeric: true }));
       const text = this.sources.map(source => JSON.stringify(source)).join("\n");
       this.pages = text.match(/[\s\S]{1,8000}/g) ?? [""];
@@ -139,7 +139,7 @@ export class WorkshopContext {
   }
   async check(cwd: string, folders: ProjectFolders): Promise<void> {
     if (!this.pages.length || this.read.size !== this.pages.length) throw new Error(t("readEveryPageOfConsulterAtelierBeforePopulating"));
-    const actual: ModelSource[] = await projectSources(cwd, folders, [folders.manuscriptFolder, folders.bibleFolder, "Tracking"]);
+    const actual: ModelSource[] = await projectSources(cwd, folders, [folders.manuscriptFolder, folders.bibleFolder, "Brainstorm", "Tracking"]);
     for (const candidate of this.candidates ?? []) {
       const file = await readProjectFile(cwd, candidate.path);
       if (file) actual.push({ path: candidate.path, content: file.text, hash: fingerprint(file.text) });

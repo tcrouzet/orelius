@@ -1,6 +1,14 @@
 {
+  "validateChapter": "Valider",
+  "validateChapterHelp": "Achever provisoirement ce chapitre, analyser vos dernières corrections et dégager des consignes pour la suite. Le commentaire saisi sera transmis.",
+  "validateChapterRequest": "Valider le chapitre {chapter}.",
+  "chapterValidationInvalid": "Demande de validation du chapitre invalide.",
+  "chapterValidationEmpty": "Le chapitre doit contenir du texte avant sa validation.",
+  "chapterValidationChanged": "Le chapitre a changé depuis sa validation. Le bilan n’est pas validé pour cette nouvelle version ; cliquez de nouveau sur Valider.",
+  "chapterValidationWriteOnly": "La validation analyse la version approuvée : seules les fiches de Bible, les consignes et le bilan peuvent être écrits. Le chapitre reste inchangé.",
+  "chapterValidationIncomplete": "Le chapitre est approuvé, mais son bilan de validation n’a pas été achevé. Relancez l’analyse avec Réessayer.",
   "resetProjectChanged": "Le projet ou ses réglages ont changé : réinitialisation annulée.",
-  "resetProjectWarning": "Cette action supprime définitivement tout le contenu de {bible}, {manuscript}, {archive} et Tracking, ainsi que l’ancien dossier Context et les anciennes archives _Archives s’ils existent. {bible} retrouve ses sous-dossiers vides ; {manuscript}, {archive} et Tracking restent entièrement vides. La conversation et le suivi du projet sont effacés. {model} et son contenu sont conservés. Aucune sauvegarde de reset ne sera créée. Confirmer la remise à zéro ?",
+  "resetProjectWarning": "Cette action supprime définitivement tout le contenu de {bible}, {manuscript}, {archive}, Brainstorm et Tracking, ainsi que l’ancien dossier Context et les anciennes archives _Archives s’ils existent. {bible} retrouve ses sous-dossiers vides ; {manuscript}, {archive}, Brainstorm et Tracking restent entièrement vides. La conversation et le suivi du projet sont effacés. {model} et son contenu sont conservés. Aucune sauvegarde de reset ne sera créée. Confirmer la remise à zéro ?",
   "resetProjectTitle": "Reset du projet « {project} »",
   "priorityBibleOnly": "Une priorité doit appartenir à une fiche de la Bible, hors suivi.",
   "priorityMarkersInvalid": "Repères des priorités incomplets : fiche conservée.",
@@ -507,7 +515,7 @@
   "default": "Par défaut : {value1}.",
   "theManuscriptContainsChaptersCharactersPlanSummariesAndWorkshop": "Manuscript contient uniquement les chapitres et leurs parties. Bible contient les personnages, Seeds, synopsis, scènes, arcs, intrigues, plan, résumés, style et documentation. Tracking conserve les traces de travail.",
   "enterASimpleFolderNameWithoutAPathOr": "Indiquez un nom de dossier simple, sans chemin ni caractère réservé.",
-  "foldersMustHaveDistinctNamesAgentsMdAgentsOverride": "Les dossiers doivent avoir des noms distincts ; AGENTS.md, AGENTS.override.md, Tracking, l’ancien dossier Context et les anciennes archives _Archives sont réservés.",
+  "foldersMustHaveDistinctNamesAgentsMdAgentsOverride": "Les dossiers doivent avoir des noms distincts ; AGENTS.md, AGENTS.override.md, Brainstorm, Tracking, l’ancien dossier Context et les anciennes archives _Archives sont réservés.",
   "invalidFolderNameFor": "Nom de dossier invalide pour {value1}.",
   "invalidAssociationsBetweenFoldersAndCodexSessions": "Les associations entre dossiers et sessions Codex sont invalides.",
   "invalidCodexAssociationForFolder": "Association Codex invalide pour le dossier « {value1} ».",
@@ -708,5 +716,7 @@
   "projectFolderRequired": "Choisissez ou créez un dossier pour ce projet. La racine du coffre ne peut pas être un projet Orelius.",
   "deliverChapterBeforeTracking": "Le chapitre est enregistré et archivé. Termine les autres textes explicitement demandés, puis réponds immédiatement à l’auteur avec les liens vers les textes enregistrés. Orelius actualisera ensuite les résumés, les états narratifs et le suivi en arrière-plan ; ne retarde pas cette réponse pour ces tâches.",
   "authorCommentsReserved": "Les annotations (((...))) sont réservées à l’auteur. Retire les annotations que tu as ajoutées ; exprime tes propositions en prose ordinaire. Tu peux conserver sans les modifier les annotations déjà présentes ou retirer celles que tu as traitées.",
-  "ctrlEnterToRevise": "Ctrl/⌘ + Entrée pour réviser la note sélectionnée."
+  "ctrlEnterToRevise": "Ctrl/⌘ + Entrée pour réviser la note sélectionnée.",
+  "brainstormResponseMissing": "La réponse Brainstorm n’a pas été enregistrée dans une note. Cliquez sur Réessayer pour terminer cette demande.",
+  "codexNativeBinaryMissing": "Le lanceur npm de Codex est présent, mais son binaire natif est introuvable pour ce Mac ou cet ordinateur. Réinstallez Codex, puis relancez le test. Orelius ne lance pas Node.js."
 }

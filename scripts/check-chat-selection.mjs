@@ -26,7 +26,7 @@ export async function checkChatSelection() {
  plugin.setDraft=(text,folder)=>drafts.set(folder,text);
  Object.defineProperty(plugin,'draft',{enumerable:true,get:()=>plugin.getDraft(plugin.settings.folder),set:text=>plugin.setDraft(text,plugin.settings.folder)});
  const view=new OreliusView({contentEl:content},plugin);
- for(const field of ['projectTitleEl','resetButton','statusEl','failureEl','failureMessageEl','retryButton','modelSelect','effortSelect','modelPendingEl','contextEl','sendButton','reviseButton','rewriteButton','acceptButton','stopButton','decisionLabel','decisionSelect','input','hintEl','messagesEl','requestsEl','timelineEl'])view[field]=new Element();
+ for(const field of ['projectTitleEl','resetButton','statusEl','failureEl','failureMessageEl','retryButton','modelSelect','effortSelect','modelPendingEl','contextEl','sendButton','reviseButton','rewriteButton','validateButton','acceptButton','stopButton','decisionLabel','decisionSelect','input','hintEl','messagesEl','requestsEl','timelineEl'])view[field]=new Element();
  view.render();const fields=['projectTitleEl','statusEl','failureMessageEl','contextEl','sendButton','hintEl'];
  const writes=fields.map(field=>view[field].writes),emptyMessage=view.messagesEl.querySelector('.orelius-empty');
  for(let i=0;i<5;i++)view.render();
@@ -61,7 +61,7 @@ export async function checkChatSelection() {
  view.render();assert.equal(view.modelSelect.disabled,false);assert.equal(view.effortSelect.disabled,false,'Le niveau reste modifiable pendant le travail.');assert.equal(view.effortSelect.value,'high');
  session.contextRemaining=75;view.render();assert.ok(view.contextEl.textContent.includes('75'),'La mesure de contexte reçue apparaît dans la sidebar.');session.contextRemaining=null;
  session.models=[];session.model='';session.reasoningEffort=null;session.connected=false;session.busy=false;session.running=false;
- plugin.brainstormDirectory='Bible/Brainstorm';view.render();assert.equal(view.sendButton.textContent,'Brainstorm');
+ plugin.brainstormDirectory='Brainstorm';view.render();assert.equal(view.sendButton.textContent,'Brainstorm');
  plugin.brainstormDirectory=null;view.render();assert.equal(view.sendButton.textContent,'Envoyer');
  const revisionCalls=[];plugin.send=async(...args)=>revisionCalls.push(args);
  plugin.revisionDocument='Bible/Characters/Personnage.md';view.render();
@@ -69,11 +69,31 @@ export async function checkChatSelection() {
  assert.equal(view.sendButton.visible,false,'Envoyer disparaît lorsqu’une note est sélectionnée.');
  assert.match(view.hintEl.textContent,/réviser/);
  assert.equal(view.rewriteButton.visible,false,'La reprise narrative reste propre aux chapitres.');
+ assert.equal(view.validateButton.visible,false,'Une fiche Bible ne se valide pas comme un chapitre.');
  view.input.value='';await view.send(true);
  assert.deepEqual(revisionCalls,[['',plugin.revisionDocument,false]],'Les annotations de la fiche suffisent pour lancer Réviser.');
  view.input.value='Ajoute les deux matériaux.';await view.send();
  assert.deepEqual(revisionCalls.at(-1),['Ajoute les deux matériaux.',plugin.revisionDocument,false],'Le raccourci par défaut révise la note sélectionnée.');
  view.input.value='';
+
+ const validations=[];plugin.validateChapter=async(...args)=>validations.push(args);
+ plugin.revisionChapter='Manuscript/001.md';plugin.revisionDocument=plugin.revisionChapter;view.render();
+ assert.equal(view.validateButton.visible,true,'Valider existe sans surlignage ni modification récente.');
+ assert.equal(view.acceptButton.visible,false);
+ view.input.value='Garder cette retenue dans la suite.';await view.validate();
+ assert.deepEqual(validations,[['Garder cette retenue dans la suite.','Manuscript/001.md']]);
+ assert.equal(view.input.value,'Garder cette retenue dans la suite.','Le rendu seul ne consomme pas le commentaire.');
+ session.busy=true;view.render();assert.equal(view.validateButton.disabled,true);await view.validate();assert.equal(validations.length,1);
+ session.busy=false;plugin.revisionChapter=null;plugin.revisionDocument='Bible/Characters/Personnage.md';view.input.value='';view.render();
+
+ session.brainstormActive=true;plugin.revisionDocument='Brainstorm/Origine.md';view.render();
+ assert.equal(view.sendButton.visible,true);assert.equal(view.sendButton.textContent,'Brainstorm');
+ view.input.value='Un nouvel angle.';await view.send();assert.deepEqual(revisionCalls.at(-1),['Un nouvel angle.',undefined,false]);
+ await view.send(true);assert.deepEqual(revisionCalls.at(-1),['Un nouvel angle.','Brainstorm/Origine.md',false]);
+ plugin.revisionDocument='Manuscript/001.md';view.render();
+ assert.equal(view.sendButton.visible,true,'Consulter un chapitre laisse accès au fil Brainstorm.');
+ view.input.value='Une question pendant cette lecture.';await view.send();assert.deepEqual(revisionCalls.at(-1),['Une question pendant cette lecture.',undefined,false]);
+ session.brainstormActive=false;plugin.revisionDocument='Bible/Characters/Personnage.md';view.input.value='';view.render();
 
  const cleared=[];plugin.clearRevisionHighlights=async path=>cleared.push(path);
  plugin.highlightedDocument=plugin.revisionDocument;await view.clearHighlights();

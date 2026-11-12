@@ -36,7 +36,7 @@ export function validateContextChoice(choice: ContextChoice | null, folders: Pro
   if (choice.chapter && chapter && choice.chapter !== chapter) throw new Error(t("theseContextChoicesBelongToAnotherChapterReopenContext"));
   const required = [chapter, `Tracking/Structure.md`, `Tracking/configuration.md`];
   for (const path of [...choice.include, ...choice.exclude]) {
-    if (![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Tracking"].some(folder => path.startsWith(folder + "/"))) throw new Error(t("noteOutsideTheWritingProject", { value1: path }));
+    if (![folders.manuscriptFolder, folders.modelFolder, folders.bibleFolder, "Brainstorm", "Tracking"].some(folder => path.startsWith(folder + "/"))) throw new Error(t("noteOutsideTheWritingProject", { value1: path }));
     if (choice.exclude.includes(path) && required.includes(path)) throw new Error(t("requiredSource", { value1: path }));
   }
 }

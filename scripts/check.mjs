@@ -1,3 +1,5 @@
+import { checkCodexLauncher } from "./check-codex-launcher.mjs";
+import { checkChapterValidation } from "./check-chapter-validation.mjs";
 import { checkBrainstorm } from "./check-brainstorm.mjs";
 import { checkReadiness, readinessVerdict } from "./check-readiness.mjs";
 import { checkAuthorInputs } from "./check-author-inputs.mjs";
@@ -1304,8 +1306,8 @@ try {
     try {
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
       await prepareProject(project, DEFAULT_PROJECT_FOLDERS);
-      const content = ["Manuscript", "Model", "Bible", "Tracking"];
-      for (const child of ["Characters", "Plan", "Summaries", "Style", "World", "Seeds", "Synopsis", "Scenes", "Arcs", "Plots", "Variants", "Checks", "Brainstorm"]) content.push(`Bible/${child}`);
+      const content = ["Manuscript", "Model", "Bible", "Brainstorm", "Tracking"];
+      for (const child of ["Characters", "Plan", "Summaries", "Style", "World", "Seeds", "Synopsis", "Scenes", "Arcs", "Plots", "Variants", "Checks"]) content.push(`Bible/${child}`);
       const expected = ["Archives", ...content];
       assert.deepEqual(projectPaths(DEFAULT_PROJECT_FOLDERS).sort(), expected.sort());
       assert.deepEqual(await readdir(join(project, "Model")), []);
@@ -2145,6 +2147,8 @@ try {
 
   const executable = await findCodex("");
   const rpc = client();
+  await check("Codex natif : lanceur npm, PATH macOS minimal, anciennes installations et annulation", () => checkCodexLauncher(executable));
+  await check("Validation : dernières corrections, bilan, consignes, protection du chapitre et relance", () => checkChapterValidation(executable, taskPrompts));
   await check("Brainstorm : lecture du projet, note isolée, reprise des commentaires et absence d’intégration automatique", () => checkBrainstorm(executable, taskPrompts));
   await check("Discussion et révision d’une fiche par MCP Codex : note, annotations, intention et archivage", () => checkDocumentRevisionProtocol(executable, taskPrompts));
   await check("Connexion et authentification Codex local", async () => {

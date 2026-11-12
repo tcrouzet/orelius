@@ -3,6 +3,7 @@ import {mkdtemp,mkdir,writeFile,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {searchMaterials,saveMaterialSearch} from '../plugin/src/material-search.ts';
+import {withBrainstorm} from '../plugin/src/brainstorm.ts';
 import {DEFAULT_PROJECT_FOLDERS as folders} from '../plugin/src/settings.ts';
 import {syncStructure} from '../plugin/src/story-structure.ts';
 import {configPath,fingerprint} from '../plugin/src/narrative-context.ts';
@@ -20,6 +21,20 @@ export async function checkMaterialSearch(){
  const request='Pourquoi la serrure a-t-elle été remplacée après le cambriolage ?';
  const relevant='Bible/Objects/dossier-17.md',irrelevant='Bible/Objects/recette.md',chapter='Manuscript/002.md';
  try {
+  const brainstorm='Brainstorm/03-lac.md';
+  await put(brainstorm,'Une proposition refusée avec des ornithorynques. (((Cherche une autre direction.)))');
+  await put('Bible/Variants/03-lac.md','Des ornithorynques dans une variante refusée.');
+  await put('Bible/Objects/detour.md','Les ornithorynques du détour sans rapport.');
+  await put('Model/Partie/03-lac.md','Le texte original conservé au bord du lac.');
+  await put('Bible/Seeds/observation.md','Une contradiction entre curiosité et pudeur.');
+  let exploration=await searchMaterials(root,folders,withBrainstorm('Recommence.',{folder:'Brainstorm',document:brainstorm}));
+  assert.ok(exploration.matches.some(match=>match.path==='Model/Partie/03-lac.md'),'Le modèle homonyme reste une source candidate, même si ses mots diffèrent du brouillon.');
+  assert.ok(!exploration.matches.some(match=>/Variants|detour/.test(match.path)),'Les propositions refusées ne fournissent ni matériaux ni mots rares à la recherche.');
+  assert.ok(exploration.matches.find(match=>match.path===brainstorm).reasons.some(reason=>reason.includes('pas une proposition validée')),'La note reste disponible comme objet de critique.');
+  exploration=await searchMaterials(root,folders,withBrainstorm('curiosité pudeur',{folder:'Brainstorm',document:brainstorm}));
+  assert.ok(exploration.matches.some(match=>match.path==='Bible/Seeds/observation.md'),'Une nouvelle hypothèse recherche un nouveau matériau.');
+  exploration=await searchMaterials(root,folders,withContext(withBrainstorm('Recommence.',{folder:'Brainstorm',document:brainstorm}),{chapter:null,include:[],exclude:['Model/Partie/03-lac.md']}));
+  assert.ok(!exploration.matches.some(match=>match.path==='Model/Partie/03-lac.md'),'Une source homonyme explicitement exclue reste exclue.');
   await put(relevant,'# Rapport\n\nAprès le cambriolage, la serrure du garage a été remplacée par Nora.');
   await put(irrelevant,'Farine, levure et sucre.');
   await put('Archives/secret.md','Serrure cambriolage : NE PAS TRANSMETTRE.');

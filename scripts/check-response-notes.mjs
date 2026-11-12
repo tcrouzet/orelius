@@ -32,7 +32,7 @@ export async function checkResponseNotes(){
  assert.deepEqual(messages.find(item=>item.id==='a3').paths,[b]);
  const live=[toChatItem(user('live-u')),{id:'write-1',role:'activity',text:'Écrit',paths:[a,'Archives/copie.md'],modifiedPaths:[a]},toChatItem(answer('live-a'))];
  assert.deepEqual(visibleMessages(live,[]).at(-1).paths,[a]);
- const csv='Bible/Brainstorm/tableau.csv';
+ const csv='Brainstorm/tableau.csv';
  const exported=toChatItem(write('csv',csv));
  assert.deepEqual(exported.modifiedPaths,[csv]);
  assert.deepEqual(exported.writtenVersions,[],'Un export reste accessible sans devenir une référence de prose dans les réactions.');

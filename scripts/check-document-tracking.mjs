@@ -104,7 +104,7 @@ async function checkVaultReset(){
   for(const name of ['Bible','Tracking'])await mkdirVault(prefix+name);
   await target.resetActiveProject();
   assert.deepEqual(await readdir(join(root,'Manuscript')),[],'Manuscript reste vide, sans aucun sous-dossier.');
-  const bibleFolders=['Arcs','Brainstorm','Characters','Checks','Plan','Plots','Scenes','Seeds','Style','Summaries','Synopsis','Variants','World'];
+  const bibleFolders=['Arcs','Characters','Checks','Plan','Plots','Scenes','Seeds','Style','Summaries','Synopsis','Variants','World'];
   assert.deepEqual((await readdir(join(root,'Bible'))).sort(),bibleFolders,'Bible retrouve uniquement les sous-dossiers prévus.');
   for(const name of bibleFolders)assert.deepEqual(await readdir(join(root,'Bible',name)),[],'Chaque rubrique de Bible est vide.');
   await assert.rejects(access(join(root,'Context')),{code:'ENOENT'});

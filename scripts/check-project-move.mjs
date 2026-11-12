@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { loadSettings, associatedFolder, modelProject } from '../plugin/src/settings.ts';
-import { moveProjects, movedPath } from '../plugin/src/project-move.ts';
+import { moveProjects, movedPath, relocateVault } from '../plugin/src/project-move.ts';
 import { reactionKey } from '../plugin/src/reactions.ts';
 
 export function checkProjectMove() {
@@ -25,6 +25,21 @@ export function checkProjectMove() {
     assert.equal(modelProject(moved,folder+'/Model'),folder);
     assert.deepEqual(loadSettings(JSON.parse(JSON.stringify(moved))),moved,'Le déplacement survit au redémarrage.');
   }
+  const newRoot='/Users/nouveau/Documents/Coffre';
+  const transferred=relocateVault(original,newRoot);
+  assert.equal(transferred.threadId,original.threadId);
+  assert.equal(transferred.threadCwd,newRoot+'/Romans/Alpha');
+  for(const [folder,session] of Object.entries(original.sessions)) {
+    assert.deepEqual(transferred.sessions[folder],{threadId:session.threadId,cwd:newRoot+'/'+folder});
+    if(original.codexVersions[session.cwd])assert.deepEqual(transferred.codexVersions[newRoot+'/'+folder],original.codexVersions[session.cwd]);
+  }
+  assert.deepEqual(transferred.drafts,original.drafts);assert.deepEqual(transferred.revisionHighlights,original.revisionHighlights);
+  assert.equal(transferred.reactions[reactionKey(newRoot+'/Romans/Alpha','thread-a','answer')].message,'À conserver');
+  assert.equal(transferred.codexVersions['/vault/Romans/Alpha'],undefined);
+  assert.deepEqual(loadSettings(JSON.parse(JSON.stringify(transferred))),transferred);
+  assert.equal(relocateVault(transferred,newRoot),null,'Le prochain chargement ne remigre pas les mêmes associations.');
+  assert.equal(relocateVault(loadSettings(undefined),newRoot),null,'Une installation vide ne crée aucun projet.');
+  assert.throws(()=>relocateVault({...original,codexVersions:{...original.codexVersions,[newRoot+'/Romans/Alpha']:{'autre.md':'À préserver'}}},newRoot),/déjà associé/,'Un conflit préserve les références au lieu de les écraser.');
   assert.equal(JSON.stringify(original),before,'Aucune mutation des associations sources.');
   assert.equal(moveProjects(original,'Romans/Al','Autre','/vault'),null);
   assert.equal(moveProjects(original,'Romans/Alpha/Model','Sources','/vault'),null);

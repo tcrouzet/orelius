@@ -1,4 +1,4 @@
-import { withoutBrainstorm } from "./brainstorm.ts";
+import { brainstormFolder, brainstormRequest, withoutBrainstorm } from "./brainstorm.ts";
 import { t } from "./i18n.ts";
 import { projectSources } from "./project-sources.ts";
 import { configPath, EMPTY_CONFIG, parseConfig, readData, visibleSections, fingerprint } from "./narrative-context.ts";
@@ -14,7 +14,7 @@ import type { ProjectFolders } from "./settings.ts";
 export interface MaterialMatch { path: string; hash: string; role: string; reasons: string[]; score: number; excerpts: string[] }
 export interface MaterialSearch { query: string; chapter?: string; searched: number; matches: MaterialMatch[]; omitted: string[]; unmatched: string[] }
 const stop = new Set("avec pour dans cette comme faire plus moins tout tous une des les aux ses ces mes tes nos vos leur elle elles lui nous vous ils est sont etre avoir sur sous par pas que qui quoi dont quand apres avant entre mais donc alors ceci cela texte chapitre projet demande revise reviser recommence refaire passage please write rewrite revise this that with from into about have been were will would could should the and for not your you our its his her she they them then than une un du de la le et en ce se il on je me tu ne au ou si sa son mon ma ta to of in is it as be an at or do so we us".split(" "));
-function terms(text: string): string[] {
+export function materialTerms(text: string): string[] {
   return (text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])
     .filter(word => !stop.has(word)).map(word => word.length > 4 ? word.replace(/s$/, "") : word);
 }
@@ -37,6 +37,8 @@ function queryText(request: string): string {
 
 export async function searchMaterials(cwd: string, folders: ProjectFolders, request: string, chapter?: string, populating = false): Promise<MaterialSearch> {
   chapter ??= revisionRequest(withoutContext(request))?.path;
+  const brainstorm = brainstormRequest(withoutContext(request)) ?? (brainstormFolder(chapter, folders) ? { document: chapter } : null);
+  chapter ??= brainstorm?.document;
   const choice = contextChoice(request);
   const query = queryText(request);
   const configuration = await readProjectFile(cwd, configPath(folders));
@@ -47,6 +49,7 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
     ? [...await projectSources(cwd, folders, [folders.bibleFolder, folders.manuscriptFolder]), ...await newModelSources(cwd, folders)]
     : await projectSources(cwd, folders);
   const documents = sources.filter(source => {
+    if (brainstorm && source.path !== chapter && (brainstormFolder(source.path, folders) || source.path.startsWith(`${folders.bibleFolder}/Variants/`))) return false;
     if (contextExcluded(choice, source.path) || source.path.startsWith("Tracking/") && source.path !== "Tracking/Connaissances.md") return false;
     if (config.references.some(reference => reference.path === source.path && (reference.mode === "hidden" || reference.mode === "manual" && !choice?.include.includes(source.path)))) return false;
     if (config.chapters.some(item => item.path === source.path && item.include === false)) return false;
@@ -58,23 +61,30 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
       content = /^## Consignes actives[^\n]*\r?\n[\s\S]*?(?=^## |$(?![\s\S]))/m.exec(content)?.[0] ?? "";
     }
     const title = [source.path.replace(/\.md$/i, ""), reference?.name ?? "", ...(reference?.aliases ?? [])].join(" ");
-    return { ...source, content, title, words: counts(terms(content)), titleWords: new Set(terms(title)) };
+    const review = !!brainstorm && source.path === chapter;
+    return { ...source, content, title, words: counts(review ? [] : materialTerms(content)), titleWords: new Set(review ? [] : materialTerms(title)) };
   });
   const frequency = new Map<string, number>();
   for (const document of documents) for (const word of document.words.keys()) frequency.set(word, (frequency.get(word) ?? 0) + 1);
-  const requested = new Set(terms(query).slice(0, 96));
+  const requested = new Set(materialTerms(query).slice(0, 96));
   const explicit = new Set(requested);
   const active = documents.find(document => document.path === chapter);
   const annotations = [...(active?.content ?? "").matchAll(/\(\(\(([\s\S]*?)\)\)\)/g)].map(match => match[1]).join("\n");
-  for (const word of terms(annotations).slice(0, 96)) explicit.add(word);
+  if (!brainstorm || !query.trim()) for (const word of materialTerms(annotations).slice(0, 96)) explicit.add(word);
   // Rare terms from the active passage support short requests such as “recommence”.
-  const contextTerms = [...new Set(terms(active?.content ?? ""))].sort((a, b) => (frequency.get(a) ?? 0) - (frequency.get(b) ?? 0)).slice(0, 24);
+  const seed = brainstorm ? (query.trim() ? "" : (active?.content ?? "").split(/\n\s*\n/).filter(block => block.includes("(((")).join("\n")) : active?.content ?? "";
+  const contextTerms = [...new Set(materialTerms(seed))].sort((a, b) => (frequency.get(a) ?? 0) - (frequency.get(b) ?? 0)).slice(0, 24);
   const weighted = new Map(contextTerms.map(word => [word, 0.25]));
   for (const word of explicit) weighted.set(word, 1);
   const average = documents.reduce((sum, document) => sum + [...document.words.values()].reduce((a, b) => a + b, 0), 0) / (documents.length || 1) || 1;
   const chapterConfig = config.chapters.find(item => item.path === chapter);
   const required = new Set([chapter, ...(choice?.include ?? []), ...(chapterConfig?.references ?? []), chapterConfig?.plan, chapterConfig?.model,
     ...config.references.filter(reference => reference.mode === "always").map(reference => reference.path)]);
+  if (brainstorm?.document) {
+    const name = brainstorm.document.split("/").at(-1)?.normalize("NFC").toLowerCase();
+    for (const document of documents) if ((document.path.startsWith(`${folders.modelFolder}/`) || document.path.startsWith(`${folders.manuscriptFolder}/`))
+      && document.path.split("/").at(-1)?.normalize("NFC").toLowerCase() === name) required.add(document.path);
+  }
   const ranked = documents.map(document => {
     const hits: string[] = [];
     let score = 0;
@@ -87,13 +97,13 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
       score += weight * idf * (tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * length / average)) + (document.titleWords.has(word) ? 2 : 0));
     }
     const reasons = hits.length ? [`Contenu ou titre correspondant : ${hits.join(", ")}`] : [];
-    const directories = terms(document.path.split("/").slice(1, -1).join(" ")).filter(word => requested.has(word));
+    const directories = materialTerms(document.path.split("/").slice(1, -1).join(" ")).filter(word => requested.has(word));
     if (directories.length) { score += 50; reasons.unshift(`Dossier nommé dans la demande : ${directories.join(", ")}`); }
-    if (required.has(document.path)) { score += 100; reasons.unshift(document.path === chapter ? "Passage actif" : "Référence associée à la demande ou au chapitre"); }
+    if (required.has(document.path)) { score += 100; reasons.unshift(document.path === chapter ? brainstorm ? "Note à examiner, pas une proposition validée" : "Passage actif" : "Référence associée à la demande ou au chapitre"); }
     if (document.path.startsWith(`${folders.bibleFolder}/Style/`)) { score += 50; reasons.unshift("Consignes de style du projet"); }
     return { document, score, reasons };
   });
-  const direct = new Set(ranked.filter(item => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(item => item.document.path));
+  const direct = new Set(ranked.filter(item => item.score > 0 && (!brainstorm || item.document.path !== chapter)).sort((a, b) => b.score - a.score).slice(0, 8).map(item => item.document.path));
   if (structure) for (const link of structure.links) {
     if (linkStatus(structure, link, sources) !== "valide") continue;
     if ([link.from, link.to].some(id => {
@@ -115,7 +125,7 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
   for (const item of candidates) {
     if (matches.length >= 12 || remaining < 200) { omitted.push(item.document.path); continue; }
     const blocks = [...item.document.content.matchAll(/[^\n]+(?:\n(?!\n)[^\n]+)*/g)].map(match => match[0]);
-    const best = blocks.map((text, index) => ({ text, index, score: [...new Set(terms(text))].reduce((sum, word) => sum + (weighted.get(word) ?? 0), 0) }))
+    const best = blocks.map((text, index) => ({ text, index, score: [...new Set(materialTerms(text))].reduce((sum, word) => sum + (weighted.get(word) ?? 0), 0) }))
       .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3).sort((a, b) => a.index - b.index);
     const excerpts: string[] = [];
     let allowance = Math.min(2400, remaining);
@@ -123,7 +133,7 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
       if (!allowance) break;
       let start = 0;
       if (block.text.length > allowance) {
-        const hit = [...block.text.matchAll(/[\p{L}\p{N}]{3,}/gu)].find(match => terms(match[0]).some(word => explicit.has(word)));
+        const hit = [...block.text.matchAll(/[\p{L}\p{N}]{3,}/gu)].find(match => materialTerms(match[0]).some(word => explicit.has(word)));
         if (hit) start = Math.max(0, hit.index - 120);
       }
       const text = block.text.slice(start, start + allowance);
@@ -131,7 +141,7 @@ export async function searchMaterials(cwd: string, folders: ProjectFolders, requ
     }
     matches.push({ path: item.document.path, hash: item.document.hash, role: config.references.find(reference => reference.path === item.document.path)?.role === "example" ? "example-not-canon" : manualRole(item.document.path, folders), reasons: item.reasons, score: item.score, excerpts });
   }
-  const matched = new Set(matches.flatMap(match => terms(match.excerpts.join("\n") + " " + match.path)));
+  const matched = new Set(matches.flatMap(match => materialTerms(match.excerpts.join("\n") + " " + match.path)));
   return { query, chapter, searched: documents.length, matches, omitted, unmatched: [...explicit].filter(word => !matched.has(word)) };
 }
 

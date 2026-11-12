@@ -122,7 +122,7 @@ export async function checkDocumentRevisionProtocol(executable,taskPrompts) {
   const call=(tool,args)=>native('mcpServer/tool/call',{threadId:thread.id,server:'orelius',tool,arguments:args});
   await session.send('Discutons de son désir de partir.','codex',root,thread.id);
   const policy=JSON.parse(requests[0].input[0].text.split('<!-- orelius:material-search -->\n')[1]).reponseDansUneNote;
-  assert.equal(policy.dossier,'Univers');assert.ok(policy.consigne.includes('Univers/Brainstorm'));
+  assert.equal(policy.dossier,'Univers');assert.ok(policy.consigne.includes('Brainstorm, à la racine du projet'));
   assert.ok(policy.consigne.includes('ecrire_fichier'));assert.ok(policy.consigne.includes('Réviser'));
   assert.equal(authorPrompt(requests[0].input[0].text),'Discutons de son désir de partir.');
   const creation=await call(FILE_TOOL,{chemin:path,contenu:generated});
