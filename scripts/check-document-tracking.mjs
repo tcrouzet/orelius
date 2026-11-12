@@ -96,8 +96,8 @@ async function checkVaultReset(){
   Object.assign(target,{settings:loadSettings({folder:'Project',debugMode:true}),views:new Set(),settingsWrite:Promise.resolve(),documentTracking:new Map(),
    session:{newConversation:async()=>{},pendingChanges:[]},workingDirectory:async()=>root,configurationDirectory:()=>join(root,'.config'),
    correctionTask:action=>action(),releaseNoteLocks(){},projectSession:()=>target.session,saveSettings:async changes=>Object.assign(target.settings,typeof changes==='function'?changes(target.settings):changes),
-   app:{workspace:{iterateAllLeaves(){}},vault:{getAbstractFileByPath:path=>entries.get(path),createFolder:mkdirVault,
-    delete:async(file,force)=>{assert.equal(force,true);await rm(join(root,file.path.slice(prefix.length)),{recursive:true});
+   app:{workspace:{iterateAllLeaves(){}},vault:{getAbstractFileByPath:path=>entries.get(path),createFolder:mkdirVault},fileManager:{
+    trashFile:async file=>{await mkdir(join(root,'.trash'),{recursive:true});await rename(join(root,file.path.slice(prefix.length)),join(root,'.trash',file.path.slice(prefix.length)));
      for(const key of [...entries.keys()])if(key===file.path||key.startsWith(file.path+'/'))entries.delete(key);
     }}}});
   // Both folders must be represented in the vault, as in a loaded project.
@@ -113,6 +113,8 @@ async function checkVaultReset(){
   assert.deepEqual(await readdir(join(root,'Tracking')),[],'Tracking est réinitialisé.');
   assert.equal([...entries.keys()].some(path=>path.startsWith(prefix+'Manuscript/')),false,'Le reset retire les anciennes entrées de l’explorateur.');
   assert.equal(await readFile(join(root,'Model/source.md'),'utf8'),'Source conservée.');
+  assert.equal(await readFile(join(root,'.trash/Bible/Characters/ancien.md'),'utf8'),'Ancienne fiche.','Les documents retirés passent par la corbeille.');
+  await assert.rejects(access(join(root,'.trash/Model')),{code:'ENOENT'});
   assert.equal((await newModelSources(root,folders)).length,1,'Peupler est disponible sans écrire de suivi.');
   target.prepareProject=async()=>{throw new Error('Une ouverture automatique ne doit pas repeupler Tracking après reset.');};
   await target.refreshCorrections(undefined,false);

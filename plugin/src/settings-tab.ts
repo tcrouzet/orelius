@@ -19,10 +19,6 @@ export class OreliusSettingTab extends PluginSettingTab {
     } }];
   }
 
-  display(): void {
-    this.renderSettings(this.containerEl);
-  }
-
   private renderSettings(containerEl: HTMLElement): void {
     containerEl.empty();
     new Setting(containerEl).setName(t("codex")).setHeading();

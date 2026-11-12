@@ -8653,9 +8653,6 @@ var OreliusSettingTab = class extends import_obsidian8.PluginSettingTab {
       }
     }];
   }
-  display() {
-    this.renderSettings(this.containerEl);
-  }
   renderSettings(containerEl) {
     containerEl.empty();
     new import_obsidian8.Setting(containerEl).setName(t("codex")).setHeading();
@@ -9962,7 +9959,7 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
     this.pendingProjectMoves.push(move);
     const moved = [...this.projects.values()].filter((project) => this.pendingProjectMoves.reduce((folder, item) => movedPath(folder, item.from, item.to), project.folder) !== project.folder);
     const wasBusy = moved.some((project) => project.session?.busy);
-    const stopped = Promise.all(moved.map((project) => project.session?.disconnect()));
+    const stopped = Promise.all(moved.flatMap((project) => project.session ? [project.session.disconnect()] : []));
     const path2 = this.navigation.path === null ? null : movedPath(this.navigation.path, from, to);
     void this.navigation.run(path2, async () => {
     });
@@ -10024,7 +10021,7 @@ var OreliusPlugin = class extends import_obsidian11.Plugin {
       if (previous.revisionHighlights !== next.revisionHighlights) this.highlights.refresh();
       if (previous.showActivity !== next.showActivity || previous.debugMode !== next.debugMode) for (const view of this.views) view.update();
       if (changedConnection) {
-        await Promise.all([...this.projects.values()].map((project) => project.session?.disconnect()));
+        await Promise.all([...this.projects.values()].flatMap((project) => project.session ? [project.session.disconnect()] : []));
       }
     });
     this.settingsWrite = write.catch(() => {
@@ -10587,7 +10584,7 @@ ${changes || t("noTextChanges")}`,
         remove: async (path2) => {
           const source = this.app.vault.getAbstractFileByPath(`${prefix}${path2}`);
           if (!(source instanceof import_obsidian11.TFolder)) throw new Error(t("resetNotDirectory", { name: path2 }));
-          await this.app.vault.delete(source, true);
+          await this.app.fileManager.trashFile(source);
         }
       }));
       await this.saveSettings((settings) => {

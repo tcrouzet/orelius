@@ -35,7 +35,9 @@ export async function checkLazyCodex() {
   const tab=new OreliusSettingTab(plugin);
   for(const definition of tab.getSettingDefinitions())definition.render({settingEl:tab.containerEl});
   await Promise.resolve();assert.equal(probe.calls,0,'Indexer les réglages ne doit pas chercher Codex.');
-  probe.settings=[];tab.display();await Promise.resolve();assert.equal(probe.calls,0,'Afficher les réglages ne lance aucune recherche.');
+  probe.settings=[];
+  for(const definition of tab.getSettingDefinitions())definition.render({settingEl:tab.containerEl});
+  await Promise.resolve();assert.equal(probe.calls,0,'Afficher les réglages ne lance aucune recherche.');
   const search=probe.settings.flatMap(setting=>setting.buttons).find(button=>button.text==='Rechercher Codex');
   assert.ok(search);await search.click();assert.equal(probe.calls,1);assert.equal(plugin.settings.codexPath,'/test/codex');
  } finally {delete globalThis.__oreliusDetection;}

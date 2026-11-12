@@ -97,10 +97,13 @@ export async function checkProjectSessions(){
   assert.equal(target.settings.threadId,'thread-a');assert.equal(closed.a,0);assert.equal(closed.b,0);
   await assert.rejects(()=>target.saveSettings({modelFolder:'Sources'}),/Arrêtez la tâche/,'Les réglages communs restent protégés pendant les tâches.');
   await target.saveSettings({folder:b});
+  target.setDraft('Brouillon sans session',`${a}/Sans session`);await target.settingsWrite;
   await rename(cwdA,join(root,'Renomme'));
   target.moveProjectFolders(a,'Renomme');await target.settingsWrite;await new Promise(resolve=>setImmediate(resolve));
   assert.equal(first.connected,false);assert.equal(second.running,true);assert.equal(closed.a,1);assert.equal(closed.b,0,'Renommer Alpha ne coupe pas Beta.');
   assert.equal(target.projectSession('Renomme'),first);assert.equal(first.context().folder,'Renomme');assert.equal(target.projectState('Renomme').draft,'Brouillon Alpha');
+  assert.equal(target.projectState('Renomme/Sans session').session,undefined);
+  assert.equal(target.getDraft('Renomme/Sans session'),'Brouillon sans session');
   const reloaded=new module.exports.default();
   Object.assign(reloaded,{app:target.app,settings:loadSettings(JSON.parse(await readFile(join(root,'data.json'),'utf8'))),settingsWrite:Promise.resolve(),saveData:target.saveData});
   assert.equal(reloaded.getDraft('Renomme'),'Brouillon Alpha','Le brouillon survit au rechargement et au déplacement.');

@@ -10,7 +10,7 @@ export function publicationDate(text: string): string | undefined {
   if (explicit && isIsoDate(explicit)) return explicit;
   const tags = text.split(/\r?\n/).filter(line => /^\s*(?:#[^\s]+\s*)+$/.test(line)).join("\n");
   const dates = [...tags.matchAll(/(?:^|\s)#(\d{4})-(\d{1,2})-(\d{1,2})-\d{1,2}h\d{2}(?=\s|$)/g)]
-    .map(match => `${match[1]}-${match[2]!.padStart(2,"0")}-${match[3]!.padStart(2,"0")}`).filter(isIsoDate);
+    .map(match => `${match[1]}-${match[2].padStart(2,"0")}-${match[3].padStart(2,"0")}`).filter(isIsoDate);
   const unique = [...new Set(dates)];
   return unique.length === 1 ? unique[0] : undefined;
 }

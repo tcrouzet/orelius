@@ -14,7 +14,7 @@ import { configPath, fingerprint, EMPTY_CONFIG, ensureNarrativeConfig, parseConf
 import { TASK_PROMPT_NAMES, renderTaskPrompts, type TaskPrompts } from "./task-prompts.ts";
 import { createHash } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { checkPath } from "./archives.ts";
 import { chapterPath, correctionReport, revisionRequest } from "./corrections.ts";
 import { object } from "./codex.ts";

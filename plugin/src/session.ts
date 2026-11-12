@@ -190,7 +190,7 @@ export class ChatSession {
     text = withoutChanges(text);
     if (!text.trim()) return;
     const folder = revision && brainstormFolder(revision.path, this.context());
-    const brainstorm = brainstormRequest(withoutContext(text)) ?? (folder ? { folder, document: revision!.path } : null);
+    const brainstorm = brainstormRequest(withoutContext(text)) ?? (folder ? { folder, document: revision.path } : null);
     if (brainstorm) {
       if (brainstormFolder(brainstorm.folder, this.context()) !== brainstorm.folder) throw new Error(t("brainstormInvalid"));
       if (brainstorm.document) checkBrainstormWrite(brainstorm, brainstorm.document, this.context());
@@ -1043,7 +1043,7 @@ export class ChatSession {
       this.requests = [];
       this.status = this.failure?.message ?? (turn.status === "interrupted" ? t("taskInterrupted") : missing.length ? t("workshopIncompleteRunPopulateAgainToContinue", { value1: missing.join(", ") }) : awaitingInputs.length ? t("inputsIncomplete") : pendingCount ? t("textSavedChaptersWithIncompleteTracking", { value1: pendingCount }) : "");
       if (turn.status === "completed" && !this.failure && this.queued.length) {
-        const next = this.queued[0]!;
+        const next = this.queued[0];
         if (next.threadId === this.threadId && next.cwd === cwd) {
           this.queued.shift();
           this.busy = true;
